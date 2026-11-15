@@ -46,8 +46,8 @@ Sha256Hash = Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$", strict=True)
 ArtifactId = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_-]*-v[0-9]{3,}$", strict=True)]
 """An artifact version, a name and a version number, for example `method-v003`."""
 
-Actor = Annotated[str, Field(pattern=r"^(agent|human):[a-z0-9][a-z0-9_.-]*$", strict=True)]
-"""Who did something: `agent:<role>` or `human:<id>`."""
+Actor = Annotated[str, Field(pattern=r"^(agent|human|system):[a-z0-9][a-z0-9_.-]*$", strict=True)]
+"""Who did something: `agent:<role>`, `human:<id>` or `system:<component>`."""
 
 _UTC_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z")
 

@@ -11,6 +11,9 @@ from enum import StrEnum
 from pathlib import Path
 from typing import ClassVar, Self
 
+from pydantic import ValidationError, model_validator
+from pydantic_core import InitErrorDetails, PydanticCustomError
+
 from utux.schemas.base import ContractDocument
 from utux.schemas.common import Actor, ArtifactId, Sha256Hash, Stage, UtcTimestamp
 from utux.schemas.json_io import parse_json, read_json
@@ -35,7 +38,7 @@ class ArtifactMetadata(ContractDocument):
         created_by: The agent or person that produced it.
         created_at: When it was produced, in UTC.
         input_artifacts: The exact artifact versions it was built from. May
-            be empty.
+            be empty. An entry may not be the artifact itself or be repeated.
         content_hash: Hash of the artifact's content.
         state: Whether the artifact is still valid.
     """
@@ -49,6 +52,30 @@ class ArtifactMetadata(ContractDocument):
     input_artifacts: tuple[ArtifactId, ...]
     content_hash: Sha256Hash
     state: ArtifactState
+
+    @model_validator(mode="after")
+    def _inputs_are_other_artifacts_listed_once(self) -> Self:
+        # One problem per offending entry, on its own position.
+        errors: list[InitErrorDetails] = []
+        first_position: dict[str, int] = {}
+        for position, entry in enumerate(self.input_artifacts):
+            if entry == self.artifact_id:
+                problem = PydanticCustomError(
+                    "self_reference", "an artifact cannot be built from itself"
+                )
+            elif entry in first_position:
+                problem = PydanticCustomError(
+                    "duplicate_input",
+                    "{entry} is already listed at position {first}",
+                    {"entry": entry, "first": first_position[entry]},
+                )
+            else:
+                first_position[entry] = position
+                continue
+            errors.append({"type": problem, "loc": ("input_artifacts", position), "input": entry})
+        if errors:
+            raise ValidationError.from_exception_data(type(self).__name__, errors)
+        return self
 
     @classmethod
     def from_json(cls, text: str, source: str = "sidecar") -> Self:

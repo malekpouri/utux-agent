@@ -19,7 +19,8 @@ instead of defining a new pattern.
 - `Sha256Hash`: `sha256:` and 64 lower-case hexadecimal digits.
 - `UtcTimestamp`: ISO 8601 in UTC with a `Z` suffix, kept as text.
 - `ArtifactId`: a name and a version, for example `method-v003`.
-- `Actor`: `agent:<role>` or `human:<id>`.
+- `Actor`: `agent:<role>`, `human:<id>` or `system:<component>`, for example
+  `system:utux`.
 
 ## File formats
 
@@ -56,6 +57,8 @@ instead of defining a new pattern.
 - A cross-field rule reports one problem per offending value, on the most
   specific field the user must change. Example: a stage budget above the
   total is reported on `budget.per_stage_usd.experiment`, not on `budget`.
+  A repeated entry in a list is reported on its position, for example
+  `input_artifacts.2`.
 
 ## `schema_version`
 
