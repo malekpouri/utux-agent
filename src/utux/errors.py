@@ -51,3 +51,39 @@ class ContractValidationError(UtuxError):
         super().__init__(
             "\n".join(f"{source}: {problem.field}: {problem.reason}" for problem in problems)
         )
+
+
+class ModelProviderError(UtuxError):
+    """A call to a model provider failed.
+
+    The message never contains an API key or the content of a message.
+    """
+
+
+class ModelAuthenticationError(ModelProviderError):
+    """The provider has no valid credentials, or they were refused."""
+
+
+class ModelRateLimitError(ModelProviderError):
+    """The provider refused the call because of a rate limit.
+
+    Attributes:
+        retry_after_seconds: How long the provider asked the caller to wait,
+            or None when it did not say.
+    """
+
+    def __init__(self, message: str, retry_after_seconds: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
+
+class ModelTimeoutError(ModelProviderError):
+    """The provider did not answer within the timeout of the request."""
+
+
+class ModelInvalidResponseError(ModelProviderError):
+    """The provider answered, but the answer is not a valid response."""
+
+
+class ScriptExhaustedError(UtuxError):
+    """A scripted provider was called more often than its script has steps."""
