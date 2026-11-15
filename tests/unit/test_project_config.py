@@ -243,3 +243,18 @@ def test_config_is_immutable() -> None:
     config = _minimal()
     with pytest.raises(Exception, match="frozen"):
         config.profile = "local"  # type: ignore[misc]
+
+
+def test_yaml_that_asks_for_python_objects_is_rejected() -> None:
+    # Only safe YAML is loaded; a tag that would build a Python object is an error.
+    with pytest.raises(ContractValidationError) as caught:
+        ProjectConfig.from_yaml("schema_version: !!python/object/apply:os.getcwd []\n")
+    assert [(p.field, p.code) for p in caught.value.problems] == [("<document>", "invalid_yaml")]
+
+
+def test_boolean_is_not_accepted_as_a_number() -> None:
+    with pytest.raises(ContractValidationError) as caught:
+        ProjectConfig.from_yaml(
+            "schema_version: 1\ndata_policy: local_only\nbudget: {total_usd: true}\n"
+        )
+    assert [p.field for p in caught.value.problems] == ["budget.total_usd"]
