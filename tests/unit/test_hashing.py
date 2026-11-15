@@ -78,7 +78,7 @@ def test_large_file_is_hashed_in_pieces(tmp_path: Path) -> None:
 
 def test_missing_file_is_a_typed_error_naming_the_path(tmp_path: Path) -> None:
     path = tmp_path / "missing.bin"
-    with pytest.raises(HashingError, match="missing.bin"):
+    with pytest.raises(HashingError, match=r"missing\.bin"):
         hash_file(path)
     assert issubclass(HashingError, UtuxError)
 
@@ -177,7 +177,7 @@ def test_symbolic_link_inside_a_directory_is_refused(tmp_path: Path) -> None:
     outside = tmp_path / "outside.txt"
     outside.write_bytes(b"not part of the tree\n")
     (root / "link.txt").symlink_to(outside)
-    with pytest.raises(HashingError, match="link.txt"):
+    with pytest.raises(HashingError, match=r"link\.txt"):
         hash_directory(root)
 
 

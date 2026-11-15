@@ -19,6 +19,7 @@ does nothing else yet. See `docs/plan/M0.md` for what is being built.
 - [Architecture decision records](docs/adr/)
 - [`utux.yaml` reference](docs/utux-yaml.md)
 - [Schema conventions](docs/schema-conventions.md)
+- [Artifact metadata and content hashes](docs/artifact-metadata.md)
 
 ## Development
 

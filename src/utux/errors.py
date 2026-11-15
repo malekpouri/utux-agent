@@ -14,6 +14,10 @@ class UtuxError(Exception):
     """Base class for all errors raised by utux."""
 
 
+class HashingError(UtuxError):
+    """A file or directory could not be hashed."""
+
+
 @dataclass(frozen=True)
 class Problem:
     """One reason why a contract file is not valid.

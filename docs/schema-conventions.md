@@ -11,6 +11,26 @@ them.
 - Enumerations used by more than one schema, such as `Stage` and `Tier`, live
   in `utux.schemas.common`.
 
+## Shared field types
+
+`utux.schemas.common` holds the types that several contracts use. Use them
+instead of defining a new pattern.
+
+- `Sha256Hash`: `sha256:` and 64 lower-case hexadecimal digits.
+- `UtcTimestamp`: ISO 8601 in UTC with a `Z` suffix, kept as text.
+- `ArtifactId`: a name and a version, for example `method-v003`.
+- `Actor`: `agent:<role>` or `human:<id>`.
+
+## File formats
+
+- `utux.schemas.yaml_io` and `utux.schemas.json_io` read a file into plain
+  data. Both refuse a key that appears twice in one mapping.
+- A document model offers `from_yaml` or `from_json`, the matching `to_...`
+  method, and a module-level `load_...(path)` function.
+- An example from the specification or an RFC is tested by reading it from
+  the document itself. Where an example elides a digest as `"sha256:..."`,
+  the test replaces only that placeholder with a synthetic digest.
+
 ## Field naming
 
 - Keys are `snake_case`. A unit is part of the name: `total_usd`,
