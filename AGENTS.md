@@ -57,6 +57,8 @@ uv run utux --help           # the CLI
 All four checks (pytest, ruff check, ruff format --check, mypy) must pass
 before a task is done.
 
+CI targets Python 3.12 only until the v1 release.
+
 ## 4. Repository layout
 
 ```text
@@ -171,6 +173,8 @@ These rules exist because the project's value is trust in its outputs.
 
 - Ask before adding any runtime dependency. State what it is for, its licence
   and what the alternative would be.
+- Dependencies named in docs/spec.md or in an accepted ADR are pre-approved;
+  state them in the pull request.
 - Permissive licences only in the core (Apache-2.0, MIT, BSD). Anything
   copyleft goes in a separate optional plugin package, after approval.
 - Pin through `uv.lock`. Do not edit the lock file by hand.
