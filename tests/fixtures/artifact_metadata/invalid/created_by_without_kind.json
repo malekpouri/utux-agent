@@ -1,0 +1,13 @@
+{
+  "artifact_id": "method-v003",
+  "stage": "methodology",
+  "schema_version": 1,
+  "created_by": "methodologist",
+  "created_at": "2026-11-15T10:00:00Z",
+  "input_artifacts": [
+    "idea-v002",
+    "literature-v004"
+  ],
+  "content_hash": "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41",
+  "state": "valid"
+}
