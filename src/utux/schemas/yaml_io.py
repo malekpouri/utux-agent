@@ -12,6 +12,7 @@ from typing import Any
 import yaml
 
 from utux.errors import DOCUMENT_FIELD, ContractValidationError, Problem
+from utux.schemas.text_io import read_contract_text
 
 
 class _DuplicateKeyError(yaml.YAMLError):
@@ -65,10 +66,4 @@ def read_yaml(path: Path) -> object:
         ContractValidationError: If the file cannot be read or parsed. The
             error names the path as it was given.
     """
-    try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as error:
-        detail = error.strerror if isinstance(error, OSError) else "not UTF-8 text"
-        problem = Problem(DOCUMENT_FIELD, f"the file cannot be read: {detail}", "unreadable")
-        raise ContractValidationError(str(path), (problem,)) from error
-    return parse_yaml(text, str(path))
+    return parse_yaml(read_contract_text(path), str(path))
