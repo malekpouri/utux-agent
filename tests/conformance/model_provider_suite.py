@@ -21,7 +21,9 @@ from utux.errors import (
     ModelInvalidResponseError,
     ModelProviderError,
     ModelRateLimitError,
+    ModelRequestRejectedError,
     ModelTimeoutError,
+    ModelUnavailableError,
     UtuxError,
 )
 from utux.interfaces.model_provider import (
@@ -41,12 +43,16 @@ class Failure(Enum):
     AUTHENTICATION = "authentication"
     RATE_LIMIT = "rate_limit"
     INVALID_RESPONSE = "invalid_response"
+    UNAVAILABLE = "unavailable"
+    REQUEST_REJECTED = "request_rejected"
 
 
 EXPECTED_ERROR: dict[Failure, type[ModelProviderError]] = {
     Failure.AUTHENTICATION: ModelAuthenticationError,
     Failure.RATE_LIMIT: ModelRateLimitError,
     Failure.INVALID_RESPONSE: ModelInvalidResponseError,
+    Failure.UNAVAILABLE: ModelUnavailableError,
+    Failure.REQUEST_REJECTED: ModelRequestRejectedError,
 }
 
 THREADS = 8
@@ -98,7 +104,12 @@ class ModelProviderConformance(ABC):
 
     @abstractmethod
     def make_failing(self, failure: Failure) -> ModelProvider:
-        """Return a provider whose upstream fails in the given way."""
+        """Return a provider whose upstream fails in the given way.
+
+        `UNAVAILABLE` is a network failure or an upstream server error.
+        `REQUEST_REJECTED` is a refusal of the request itself, for example an
+        unknown model or an input longer than the model's context.
+        """
 
     @abstractmethod
     def make_slow(self, delay_seconds: float) -> ModelProvider:

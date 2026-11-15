@@ -210,6 +210,8 @@ def test_response_needs_a_model_id() -> None:
         "ModelRateLimitError",
         "ModelTimeoutError",
         "ModelInvalidResponseError",
+        "ModelUnavailableError",
+        "ModelRequestRejectedError",
     ],
 )
 def test_each_typed_error_is_a_model_provider_error(name: str) -> None:
@@ -224,6 +226,8 @@ def test_typed_errors_are_distinct() -> None:
         errors.ModelRateLimitError,
         errors.ModelTimeoutError,
         errors.ModelInvalidResponseError,
+        errors.ModelUnavailableError,
+        errors.ModelRequestRejectedError,
     ]
     for kind in kinds:
         for other in kinds:
@@ -235,3 +239,17 @@ def test_rate_limit_error_may_say_when_to_retry() -> None:
     error = errors.ModelRateLimitError("slow down", retry_after_seconds=2.5)
     assert error.retry_after_seconds == 2.5
     assert str(error) == "slow down"
+
+
+def test_contract_names_every_typed_error() -> None:
+    """The docstring of complete() is the contract; it lists all six errors."""
+    documented = inspect.getdoc(ModelProvider.complete) or ""
+    for name in (
+        "ModelAuthenticationError",
+        "ModelRateLimitError",
+        "ModelTimeoutError",
+        "ModelInvalidResponseError",
+        "ModelUnavailableError",
+        "ModelRequestRejectedError",
+    ):
+        assert name in documented

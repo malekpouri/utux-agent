@@ -2,7 +2,12 @@
 
 from model_provider_suite import Failure, ModelProviderConformance
 
-from utux.errors import ModelAuthenticationError, ModelRateLimitError
+from utux.errors import (
+    ModelAuthenticationError,
+    ModelRateLimitError,
+    ModelRequestRejectedError,
+    ModelUnavailableError,
+)
 from utux.interfaces.model_provider import ModelProvider
 from utux.providers.scripted import (
     ScriptedFailure,
@@ -26,6 +31,10 @@ class TestScriptedModelProvider(ModelProviderConformance):
         steps: dict[Failure, ScriptedStep] = {
             Failure.AUTHENTICATION: ScriptedFailure(ModelAuthenticationError("synthetic failure")),
             Failure.RATE_LIMIT: ScriptedFailure(ModelRateLimitError("synthetic failure")),
+            Failure.UNAVAILABLE: ScriptedFailure(ModelUnavailableError("synthetic failure")),
+            Failure.REQUEST_REJECTED: ScriptedFailure(
+                ModelRequestRejectedError("synthetic failure")
+            ),
             # An upstream answer without usage is not a valid response.
             Failure.INVALID_RESPONSE: ScriptedRawReply(
                 {"model": "synthetic/model", "content": "synthetic", "finish_reason": "stop"}
