@@ -152,7 +152,7 @@ Each interface is a Python `Protocol`. Implementations are separate packages dis
 
 | Interface | Problem it solves | Contract | v1 implementations | Status in v1 | Reason for the status |
 | --- | --- | --- | --- | --- | --- |
-| `ModelProvider` | Users have different providers, budgets and access, and models change often | `complete(role, messages) -> response` with usage and cost | OpenRouter, direct OpenAI / Anthropic / Gemini keys, Ollama | Public | Many models and providers |
+| `ModelProvider` | Users have different providers, budgets and access, and models change often | `complete(request) -> response`; the request carries a model already chosen by the core's router, and the response carries usage and cost | OpenRouter, direct OpenAI / Anthropic / Gemini keys, Ollama | Public | Many models and providers |
 | `LiteratureSource` | Each field has its own databases | `search()`, `fetch()`, `resolve(identifier)` | OpenAlex, arXiv, Semantic Scholar, PubMed through BioMCP; several can be active at once | Public | Many scientific sources, and new ones per field |
 | `ToolProvider` | Domain tools cannot be hard-coded into a general core | Lists and calls domain tools | MCP client; any MCP server is added by configuration | Public | Connects MCP servers and specialised tools |
 | `Executor` | Compute differs: laptop, GPU workstation, cluster | `run(step) -> artifacts` (code, logs, figures, manifest) | Local Docker sandbox | Internal | Docker is the only real implementation so far |
