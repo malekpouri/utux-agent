@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Annotated, ClassVar, Self
 
 import yaml
-from pydantic import Field, StrictBool, ValidationInfo, field_validator
-from pydantic_core import PydanticCustomError
+from pydantic import Field, StrictBool, ValidationError, ValidationInfo, field_validator
+from pydantic_core import InitErrorDetails, PydanticCustomError
 
 from utux.schemas.base import ContractDocument, ContractPart
 from utux.schemas.common import Identifier, NonNegativeInt, PositiveInt, PositiveUsd, Stage, Tier
@@ -46,9 +46,9 @@ class Gate(StrEnum):
 class Budget(ContractPart):
     """Spending limits in US dollars.
 
-    The total has no default: the specification asks for conservative
-    defaults but states no amount, so the project must state one. No stage
-    budget may exceed the total.
+    The total has no default; the user states it when the project is created
+    (specification, section 9). Stage budgets are optional. None may exceed
+    the total, but their sum may.
     """
 
     total_usd: PositiveUsd
@@ -65,13 +65,22 @@ class Budget(ContractPart):
         if total is None:
             # The total is invalid and is reported on its own field.
             return value
-        over = [stage.value for stage, amount in value.items() if amount > total]
-        if over:
-            raise PydanticCustomError(
-                "stage_budget_exceeds_total",
-                "the budget of stage {stages} exceeds budget.total_usd ({total})",
-                {"stages": ", ".join(over), "total": total},
-            )
+        # One problem per offending stage, each on the field to change.
+        errors: list[InitErrorDetails] = [
+            {
+                "type": PydanticCustomError(
+                    "stage_budget_exceeds_total",
+                    "{amount} exceeds budget.total_usd ({total})",
+                    {"amount": amount, "total": total},
+                ),
+                "loc": (stage.value,),
+                "input": amount,
+            }
+            for stage, amount in value.items()
+            if amount > total
+        ]
+        if errors:
+            raise ValidationError.from_exception_data(cls.__name__, errors)
         return value
 
 
