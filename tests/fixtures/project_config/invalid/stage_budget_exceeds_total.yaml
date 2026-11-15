@@ -1,0 +1,6 @@
+schema_version: 1
+data_policy: local_only
+budget:
+  total_usd: 20
+  per_stage_usd:
+    experiment: 25

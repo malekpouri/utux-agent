@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Annotated, ClassVar, Self
 
 import yaml
-from pydantic import Field, StrictBool, field_validator
+from pydantic import Field, StrictBool, ValidationInfo, field_validator
 from pydantic_core import PydanticCustomError
 
 from utux.schemas.base import ContractDocument, ContractPart
@@ -47,11 +47,32 @@ class Budget(ContractPart):
     """Spending limits in US dollars.
 
     The total has no default: the specification asks for conservative
-    defaults but states no amount, so the project must state one.
+    defaults but states no amount, so the project must state one. No stage
+    budget may exceed the total.
     """
 
     total_usd: PositiveUsd
     per_stage_usd: dict[Stage, PositiveUsd] = Field(default_factory=dict)
+
+    @field_validator("per_stage_usd")
+    @classmethod
+    def _no_stage_above_total(
+        cls, value: dict[Stage, float], info: ValidationInfo
+    ) -> dict[Stage, float]:
+        # One stage cannot spend more than the project. The sum of the stage
+        # budgets may exceed the total: they are separate caps, not shares.
+        total = info.data.get("total_usd")
+        if total is None:
+            # The total is invalid and is reported on its own field.
+            return value
+        over = [stage.value for stage, amount in value.items() if amount > total]
+        if over:
+            raise PydanticCustomError(
+                "stage_budget_exceeds_total",
+                "the budget of stage {stages} exceeds budget.total_usd ({total})",
+                {"stages": ", ".join(over), "total": total},
+            )
+        return value
 
 
 class Gates(ContractPart):

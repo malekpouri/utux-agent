@@ -32,6 +32,7 @@ INVALID = [
     ("unknown_data_policy.yaml", "data_policy", "enum"),
     ("negative_total_budget.yaml", "budget.total_usd", "greater_than"),
     ("unknown_stage_in_budget.yaml", "budget.per_stage_usd.cooking", "enum"),
+    ("stage_budget_exceeds_total.yaml", "budget.per_stage_usd", "stage_budget_exceeds_total"),
     ("unknown_tier_for_role.yaml", "models.roles.writer", "enum"),
     ("verification_not_boolean.yaml", "verification.enabled", "bool_type"),
     ("newer_schema_version.yaml", "schema_version", "schema_version_newer"),
@@ -258,3 +259,38 @@ def test_boolean_is_not_accepted_as_a_number() -> None:
             "schema_version: 1\ndata_policy: local_only\nbudget: {total_usd: true}\n"
         )
     assert [p.field for p in caught.value.problems] == ["budget.total_usd"]
+
+
+def test_stage_budget_above_total_names_the_stage() -> None:
+    with pytest.raises(ContractValidationError) as caught:
+        load_project_config(FIXTURES / "invalid" / "stage_budget_exceeds_total.yaml")
+    reason = caught.value.problems[0].reason
+    assert "experiment" in reason
+    assert "budget.total_usd" in reason
+
+
+def test_stage_budget_equal_to_total_is_accepted() -> None:
+    config = ProjectConfig.from_yaml(
+        "schema_version: 1\ndata_policy: local_only\n"
+        "budget: {total_usd: 20, per_stage_usd: {experiment: 20}}\n"
+    )
+    assert config.budget.per_stage_usd[Stage.EXPERIMENT] == 20.0
+
+
+def test_sum_of_stage_budgets_may_exceed_total() -> None:
+    config = ProjectConfig.from_yaml(
+        "schema_version: 1\ndata_policy: local_only\n"
+        "budget: {total_usd: 20, per_stage_usd: {experiment: 15, writing: 15}}\n"
+    )
+    assert sum(config.budget.per_stage_usd.values()) == 30.0
+
+
+def test_stage_budget_rule_is_silent_when_total_is_itself_invalid() -> None:
+    with pytest.raises(ContractValidationError) as caught:
+        ProjectConfig.from_yaml(
+            "schema_version: 1\ndata_policy: local_only\n"
+            "budget: {total_usd: -1, per_stage_usd: {experiment: 5}}\n"
+        )
+    assert [(p.field, p.code) for p in caught.value.problems] == [
+        ("budget.total_usd", "greater_than")
+    ]

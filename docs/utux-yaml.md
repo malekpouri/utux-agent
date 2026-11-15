@@ -22,7 +22,7 @@ These three values are required. Everything else has a default.
 | `schema_version` | integer | none; required | Version of this schema. Currently `1` |
 | `data_policy` | `external_allowed` or `local_only` | none; required | What may be sent to external services. There is no default on purpose |
 | `budget.total_usd` | number above 0 | none; required | Total budget of the project in US dollars |
-| `budget.per_stage_usd` | mapping of stage to number above 0 | empty | Budget per stage. Stages: `ideation`, `literature`, `methodology`, `implementation`, `experiment`, `writing` |
+| `budget.per_stage_usd` | mapping of stage to number above 0 | empty | Budget per stage. Stages: `ideation`, `literature`, `methodology`, `implementation`, `experiment`, `writing`. No stage budget may exceed `budget.total_usd`; their sum may |
 | `profile` | name | `default` | The named combination of implementations |
 | `domain_pack` | name | `generic` | The domain pack |
 | `oversight.mode` | `guided` or `auto` | `guided` | Which approval gates are on |
