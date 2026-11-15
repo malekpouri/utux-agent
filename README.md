@@ -11,6 +11,13 @@ This is a stub. The project is at the start of milestone M0. Only the
 repository scaffold exists: the `utux` command prints its help and version and
 does nothing else yet. See `docs/plan/M0.md` for what is being built.
 
+## Documents
+
+- [Technical Product Specification](docs/spec.md)
+- [RFC-001: Claim Support Verification Protocol](docs/rfc/RFC-001.md)
+- [RFC-002: Gold Standard Dataset and Evaluation Protocol](docs/rfc/RFC-002.md)
+- [Architecture decision records](docs/adr/)
+
 ## Development
 
 Python 3.12 or newer and [uv](https://docs.astral.sh/uv/) are required.

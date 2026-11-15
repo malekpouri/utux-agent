@@ -9,3 +9,6 @@ build/
 *.egg-info/
 .env
 .env.*
+
+# Local copy of AGENTS.md for Claude Code
+CLAUDE.md

@@ -28,7 +28,9 @@ conflict, stop and report it; do not pick a side silently.
 
 Decisions that are already final and must not be revisited:
 
-- Orchestration engine: LangGraph (introduced in M1, not before).
+- Orchestration engine: LangGraph (introduced in M1, not before). The only
+  fallback is the one in ADR-0001, and it applies only if the M1 spike fails
+  and the maintainer decides so.
 - State: project files with metadata sidecars, plus SQLite checkpoints.
 - Stages exchange files, never in-memory objects.
 - Three public interfaces (`ModelProvider`, `LiteratureSource`, `ToolProvider`);
@@ -56,6 +58,8 @@ uv run utux --help           # the CLI
 
 All four checks (pytest, ruff check, ruff format --check, mypy) must pass
 before a task is done.
+
+CI targets Python 3.12 only until the v1 release.
 
 ## 4. Repository layout
 
@@ -171,6 +175,8 @@ These rules exist because the project's value is trust in its outputs.
 
 - Ask before adding any runtime dependency. State what it is for, its licence
   and what the alternative would be.
+- Dependencies named in docs/spec.md or in an accepted ADR are pre-approved;
+  state them in the pull request.
 - Permissive licences only in the core (Apache-2.0, MIT, BSD). Anything
   copyleft goes in a separate optional plugin package, after approval.
 - Pin through `uv.lock`. Do not edit the lock file by hand.
