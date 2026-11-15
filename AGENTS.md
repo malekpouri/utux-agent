@@ -28,7 +28,9 @@ conflict, stop and report it; do not pick a side silently.
 
 Decisions that are already final and must not be revisited:
 
-- Orchestration engine: LangGraph (introduced in M1, not before).
+- Orchestration engine: LangGraph (introduced in M1, not before). The only
+  fallback is the one in ADR-0001, and it applies only if the M1 spike fails
+  and the maintainer decides so.
 - State: project files with metadata sidecars, plus SQLite checkpoints.
 - Stages exchange files, never in-memory objects.
 - Three public interfaces (`ModelProvider`, `LiteratureSource`, `ToolProvider`);
