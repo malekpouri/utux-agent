@@ -1,0 +1,4 @@
+schema_version: 1
+data_policy: anything_goes
+budget:
+  total_usd: 20
