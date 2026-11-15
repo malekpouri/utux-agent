@@ -457,7 +457,7 @@ A different model family does not by itself make the reviewer independent. The r
 
 ### Cost control
 
-- Each project has a total budget and a per-stage budget in USD. Defaults are conservative.
+- Each project has a total budget and a per-stage budget in USD. The total budget has no default: the user states it when the project is created with utux init. Per-stage budgets are optional, and none may exceed the total.
 - The CLI prints a cost estimate before each stage and the running total after it.
 - Every model call logs tokens and cost to `events.jsonl`.
 - Literature results and source passages are cached across projects on the same machine.
