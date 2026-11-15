@@ -1,0 +1,3 @@
+data_policy: local_only
+budget:
+  total_usd: 20

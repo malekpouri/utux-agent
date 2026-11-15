@@ -177,6 +177,8 @@ These rules exist because the project's value is trust in its outputs.
   and what the alternative would be.
 - Dependencies named in docs/spec.md or in an accepted ADR are pre-approved;
   state them in the pull request.
+- Type-stub packages for approved dependencies are pre-approved as
+  development dependencies.
 - Permissive licences only in the core (Apache-2.0, MIT, BSD). Anything
   copyleft goes in a separate optional plugin package, after approval.
 - Pin through `uv.lock`. Do not edit the lock file by hand.

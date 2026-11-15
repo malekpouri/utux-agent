@@ -1,0 +1,40 @@
+schema_version: 1
+profile: local
+domain_pack: bio-pilot
+data_policy: external_allowed
+budget:
+  total_usd: 50
+  per_stage_usd:
+    ideation: 2
+    literature: 5
+    methodology: 5
+    implementation: 10
+    experiment: 20
+    writing: 8
+oversight:
+  mode: auto
+  gates:
+    idea: true
+    method: false
+    experiment_plan: true
+    final_manuscript: true
+verification:
+  enabled: false
+ai_disclosure:
+  draft: false
+resources:
+  cpus: 4
+  memory_mb: 8192
+  gpus: 0
+  wall_clock_seconds: 3600
+  disk_mb: 20480
+  max_processes: 256
+models:
+  tiers:
+    light: example/light-model
+    standard: example/standard-model
+    strong: example/strong-model
+  roles:
+    planner: strong
+    writer: standard
+    summariser: light

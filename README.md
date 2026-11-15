@@ -17,6 +17,8 @@ does nothing else yet. See `docs/plan/M0.md` for what is being built.
 - [RFC-001: Claim Support Verification Protocol](docs/rfc/RFC-001.md)
 - [RFC-002: Gold Standard Dataset and Evaluation Protocol](docs/rfc/RFC-002.md)
 - [Architecture decision records](docs/adr/)
+- [`utux.yaml` reference](docs/utux-yaml.md)
+- [Schema conventions](docs/schema-conventions.md)
 
 ## Development
 
