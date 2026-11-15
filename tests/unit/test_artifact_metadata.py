@@ -35,6 +35,8 @@ INVALID = [
     ("input_artifact_without_version.json", "input_artifacts.1", "string_pattern_mismatch"),
     ("input_artifacts_not_a_list.json", "input_artifacts", "tuple_type"),
     ("created_by_without_kind.json", "created_by", "string_pattern_mismatch"),
+    ("input_artifact_is_itself.json", "input_artifacts.1", "self_reference"),
+    ("input_artifact_repeated.json", "input_artifacts.2", "duplicate_input"),
     ("newer_schema_version.json", "schema_version", "schema_version_newer"),
     ("not_an_object.json", "<document>", "not_a_mapping"),
     ("malformed_json.json", "<document>", "invalid_json"),
@@ -256,3 +258,69 @@ def test_json_constants_that_are_not_json_are_rejected() -> None:
     with pytest.raises(ContractValidationError) as caught:
         ArtifactMetadata.from_json('{"schema_version": NaN}', source="sidecar.json")
     assert [(p.field, p.code) for p in caught.value.problems] == [("<document>", "invalid_json")]
+
+
+# Actors
+
+
+@pytest.mark.parametrize("value", ["agent:methodologist", "human:alex", "system:utux"])
+def test_created_by_accepts_the_three_kinds_of_actor(value: str) -> None:
+    document = _valid_document()
+    document["created_by"] = value
+    assert _validate(document).created_by == value
+
+
+def test_system_actor_fixture_is_valid() -> None:
+    metadata = load_artifact_metadata(FIXTURES / "valid" / "created_by_system.json")
+    assert metadata.created_by == "system:utux"
+
+
+# Rules across input_artifacts
+
+
+def test_an_artifact_cannot_list_itself_as_input() -> None:
+    document = _valid_document()
+    document["input_artifacts"] = ["method-v003", "idea-v002", "method-v003"]
+    assert _problems(document) == [
+        ("input_artifacts.0", "self_reference"),
+        ("input_artifacts.2", "self_reference"),
+    ]
+
+
+def test_each_repeated_input_is_reported_on_its_own_position() -> None:
+    document = _valid_document()
+    document["input_artifacts"] = [
+        "idea-v002",
+        "literature-v004",
+        "idea-v002",
+        "plan-v001",
+        "literature-v004",
+        "idea-v002",
+    ]
+    # The first occurrence is kept; every later one is a problem.
+    assert _problems(document) == [
+        ("input_artifacts.2", "duplicate_input"),
+        ("input_artifacts.4", "duplicate_input"),
+        ("input_artifacts.5", "duplicate_input"),
+    ]
+
+
+def test_repeated_input_reason_names_the_entry_and_its_first_position() -> None:
+    document = _valid_document()
+    document["input_artifacts"] = ["idea-v002", "literature-v004", "idea-v002"]
+    with pytest.raises(ContractValidationError) as caught:
+        _validate(document)
+    assert caught.value.problems[0].reason == "idea-v002 is already listed at position 0"
+
+
+def test_different_versions_of_one_artifact_are_not_duplicates() -> None:
+    document = _valid_document()
+    document["input_artifacts"] = ["idea-v001", "idea-v002"]
+    assert _validate(document).input_artifacts == ("idea-v001", "idea-v002")
+
+
+def test_input_rules_are_silent_when_artifact_id_is_itself_invalid() -> None:
+    document = _valid_document()
+    document["artifact_id"] = "method"
+    document["input_artifacts"] = ["idea-v002", "idea-v002"]
+    assert _problems(document) == [("artifact_id", "string_pattern_mismatch")]

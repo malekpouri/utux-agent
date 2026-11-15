@@ -5,6 +5,7 @@ not with the code under test, and are written out in full.
 """
 
 import random
+import unicodedata
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -117,14 +118,14 @@ def test_directory_hash_is_independent_of_listing_order(
     real = hashing._iter_files
     orders: list[list[Path]] = []
 
-    def shuffled(directory: Path, seed: int) -> Iterator[Path]:
-        files = list(real(directory))
+    def shuffled(directory: Path, exclude: tuple[str, ...], seed: int) -> Iterator[Path]:
+        files = list(real(directory, exclude))
         random.Random(seed).shuffle(files)
         orders.append(files)
         return iter(files)
 
     for seed in range(5):
-        monkeypatch.setattr(hashing, "_iter_files", lambda d, s=seed: shuffled(d, s))
+        monkeypatch.setattr(hashing, "_iter_files", lambda d, e, s=seed: shuffled(d, e, s))
         assert hash_directory(root) == expected
     # The listing orders really differed.
     assert len({tuple(order) for order in orders}) > 1
@@ -195,3 +196,123 @@ def test_hash_directory_refuses_a_file_and_a_missing_path(tmp_path: Path) -> Non
         hash_directory(path)
     with pytest.raises(HashingError):
         hash_directory(tmp_path / "missing")
+
+
+# Unicode forms of file names
+
+NFC_NAME = unicodedata.normalize("NFC", "caf\u00e9.txt")
+NFD_NAME = unicodedata.normalize("NFD", "caf\u00e9.txt")
+# printf 'caf\xc3\xa9.txt\0%s\n' $ALPHA_HEX | sha256sum
+CAFE_HASH = "sha256:2136d6f202dc3530f1fd77e0dd6ce3f3ec21a74c250f9527ac392844d1d57d26"
+# printf 'a.txt\0%s\n' $ALPHA_HEX | sha256sum
+A_ONLY_HASH = "sha256:e194db447df1acfc07e94a18c65cb878450f324b326b86cb012eb418f5a0b0a8"
+
+
+def test_nfc_and_nfd_file_names_give_the_same_written_out_hash(tmp_path: Path) -> None:
+    assert NFC_NAME != NFD_NAME
+    composed = tmp_path / "composed"
+    decomposed = tmp_path / "decomposed"
+    composed.mkdir()
+    decomposed.mkdir()
+    (composed / NFC_NAME).write_bytes(b"alpha\n")
+    (decomposed / NFD_NAME).write_bytes(b"alpha\n")
+    assert hash_directory(composed) == CAFE_HASH
+    assert hash_directory(decomposed) == CAFE_HASH
+
+
+def test_nfd_directory_name_is_normalised_too(tmp_path: Path) -> None:
+    composed = tmp_path / "composed"
+    decomposed = tmp_path / "decomposed"
+    (composed / unicodedata.normalize("NFC", "r\u00e9sum\u00e9")).mkdir(parents=True)
+    (decomposed / unicodedata.normalize("NFD", "r\u00e9sum\u00e9")).mkdir(parents=True)
+    (composed / unicodedata.normalize("NFC", "r\u00e9sum\u00e9") / "a.txt").write_bytes(b"x")
+    (decomposed / unicodedata.normalize("NFD", "r\u00e9sum\u00e9") / "a.txt").write_bytes(b"x")
+    assert hash_directory(composed) == hash_directory(decomposed)
+
+
+def test_two_files_with_the_same_normalised_name_are_refused(tmp_path: Path) -> None:
+    root = tmp_path / "both"
+    root.mkdir()
+    (root / NFC_NAME).write_bytes(b"alpha\n")
+    (root / NFD_NAME).write_bytes(b"beta\n")
+    if len(list(root.iterdir())) != 2:
+        pytest.skip("this file system does not keep both Unicode forms of a name")
+    with pytest.raises(HashingError) as caught:
+        hash_directory(root)
+    # Both names are in the message, written so that the two forms differ.
+    assert ascii(NFC_NAME) in str(caught.value)
+    assert ascii(NFD_NAME) in str(caught.value)
+
+
+# Exclusions
+
+
+def test_nothing_is_excluded_by_default(tmp_path: Path) -> None:
+    root = _tree(tmp_path / "tree", ["a.txt", "sub/b.txt"])
+    (root / ".git").mkdir()
+    (root / ".git" / "HEAD").write_bytes(b"ref\n")
+    (root / "__pycache__").mkdir()
+    (root / "__pycache__" / "m.pyc").write_bytes(b"\0")
+    assert hash_directory(root) != TREE_HASH
+    assert hash_directory(root) == hash_directory(root, exclude=())
+
+
+def test_excluded_file_does_not_contribute(tmp_path: Path) -> None:
+    root = _tree(tmp_path / "tree", ["a.txt", "sub/b.txt"])
+    assert hash_directory(root, exclude=["sub/b.txt"]) == A_ONLY_HASH
+
+
+def test_excluded_directory_is_left_out_with_everything_below_it(tmp_path: Path) -> None:
+    root = _tree(tmp_path / "tree", ["a.txt", "sub/b.txt"])
+    (root / "sub" / "deep").mkdir()
+    (root / "sub" / "deep" / "c.txt").write_bytes(b"gamma\n")
+    assert hash_directory(root, exclude=["sub"]) == A_ONLY_HASH
+
+
+def test_pattern_is_matched_against_the_whole_relative_path(tmp_path: Path) -> None:
+    root = _tree(tmp_path / "tree", ["a.txt", "sub/b.txt"])
+    # "b.txt" is not the relative path of sub/b.txt, so nothing is excluded.
+    assert hash_directory(root, exclude=["b.txt"]) == TREE_HASH
+    assert hash_directory(root, exclude=["sub/*"]) == A_ONLY_HASH
+    # A star also matches the separator.
+    assert hash_directory(root, exclude=["*b.txt"]) == A_ONLY_HASH
+    assert hash_directory(root, exclude=["*.txt"]) == EMPTY_HASH
+
+
+def test_patterns_are_case_sensitive(tmp_path: Path) -> None:
+    root = _tree(tmp_path / "tree", ["a.txt", "sub/b.txt"])
+    assert hash_directory(root, exclude=["SUB"]) == TREE_HASH
+
+
+def test_several_patterns_may_be_given(tmp_path: Path) -> None:
+    root = _tree(tmp_path / "tree", ["a.txt", "sub/b.txt"])
+    (root / "notes.log").write_bytes(b"log\n")
+    assert hash_directory(root, exclude=["*.log", "sub"]) == A_ONLY_HASH
+
+
+def test_excluded_directory_is_not_read(tmp_path: Path) -> None:
+    """A link below an excluded directory is not an error, as in a virtual environment."""
+    root = _tree(tmp_path / "tree", ["a.txt", "sub/b.txt"])
+    (root / "env").mkdir()
+    (root / "env" / "python").symlink_to(tmp_path)
+    with pytest.raises(HashingError):
+        hash_directory(root)
+    assert hash_directory(root, exclude=["env"]) == TREE_HASH
+
+
+def test_excluded_link_is_not_an_error(tmp_path: Path) -> None:
+    root = _tree(tmp_path / "tree", ["a.txt", "sub/b.txt"])
+    (root / "link.txt").symlink_to(root / "a.txt")
+    assert hash_directory(root, exclude=["link.txt"]) == TREE_HASH
+
+
+def test_exclusion_is_applied_before_the_name_collision_check(tmp_path: Path) -> None:
+    root = tmp_path / "both"
+    root.mkdir()
+    (root / NFC_NAME).write_bytes(b"alpha\n")
+    (root / NFD_NAME).write_bytes(b"beta\n")
+    (root / "a.txt").write_bytes(b"alpha\n")
+    if len(list(root.iterdir())) != 3:
+        pytest.skip("this file system does not keep both Unicode forms of a name")
+    # The pattern is matched against the normalised name, so it covers both forms.
+    assert hash_directory(root, exclude=[NFC_NAME]) == A_ONLY_HASH
