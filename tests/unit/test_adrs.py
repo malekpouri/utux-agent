@@ -21,6 +21,12 @@ ADRS = [
     "0006-deterministic-verdict-rules.md",
 ]
 
+# Later ADRs are checked too, so the per-file tests run on every numbered file
+# in the directory and not only on the six named above.
+ALL_ADRS = sorted(path.name for path in ADR_DIR.glob("[0-9][0-9][0-9][0-9]-*.md"))
+
+STATUS = re.compile(r"^- Status: (Proposed|Accepted|Superseded by ADR-\d{4})$", flags=re.MULTILINE)
+
 SECTIONS = ["Context", "Decision", "Alternatives rejected", "Consequences", "Sources"]
 
 # A citation names a document and a section of it, for example
@@ -33,9 +39,15 @@ def _sections(text: str) -> dict[str, str]:
     return {parts[i].strip(): parts[i + 1] for i in range(1, len(parts), 2)}
 
 
-def test_exactly_six_adrs_and_a_template() -> None:
-    found = sorted(path.name for path in ADR_DIR.glob("*.md"))
-    assert found == sorted([*ADRS, "template.md"])
+@pytest.mark.parametrize("name", [*ADRS, "template.md"])
+def test_named_adrs_and_template_exist(name: str) -> None:
+    assert (ADR_DIR / name).is_file()
+
+
+@pytest.mark.parametrize("name", ADRS)
+def test_closed_decision_is_accepted(name: str) -> None:
+    text = (ADR_DIR / name).read_text(encoding="utf-8")
+    assert re.search(r"^- Status: Accepted$", text, flags=re.MULTILINE)
 
 
 def test_template_has_every_section() -> None:
@@ -45,16 +57,16 @@ def test_template_has_every_section() -> None:
     assert list(_sections(text)) == SECTIONS
 
 
-@pytest.mark.parametrize("name", ADRS)
-def test_adr_is_accepted_and_dated(name: str) -> None:
+@pytest.mark.parametrize("name", ALL_ADRS)
+def test_adr_has_title_status_and_date(name: str) -> None:
     text = (ADR_DIR / name).read_text(encoding="utf-8")
     number = int(name[:4])
     assert re.match(rf"# ADR-{number:04d}: \S", text)
-    assert re.search(r"^- Status: Accepted$", text, flags=re.MULTILINE)
+    assert STATUS.search(text)
     assert re.search(r"^- Date: \d{4}-\d{2}-\d{2}$", text, flags=re.MULTILINE)
 
 
-@pytest.mark.parametrize("name", ADRS)
+@pytest.mark.parametrize("name", ALL_ADRS)
 def test_adr_has_every_section_with_content(name: str) -> None:
     sections = _sections((ADR_DIR / name).read_text(encoding="utf-8"))
     assert list(sections) == SECTIONS
@@ -62,13 +74,13 @@ def test_adr_has_every_section_with_content(name: str) -> None:
         assert body.strip(), f"section '{title}' is empty"
 
 
-@pytest.mark.parametrize("name", ADRS)
+@pytest.mark.parametrize("name", ALL_ADRS)
 def test_adr_cites_a_section_of_the_specification_or_an_rfc(name: str) -> None:
     sources = _sections((ADR_DIR / name).read_text(encoding="utf-8"))["Sources"]
     assert CITATION.search(sources)
 
 
-@pytest.mark.parametrize("name", ADRS)
+@pytest.mark.parametrize("name", ALL_ADRS)
 def test_cited_documents_exist(name: str) -> None:
     text = (ADR_DIR / name).read_text(encoding="utf-8")
     for cited in set(re.findall(r"`(docs/[\w/.-]+\.md)`", text)):
