@@ -7,7 +7,9 @@ from typer.testing import CliRunner
 import utux
 from utux.cli import app
 
-runner = CliRunner()
+# Rich colours the help text when it detects a CI system, which puts escape
+# codes inside option names. Plain output keeps the assertions about text.
+runner = CliRunner(env={"NO_COLOR": "1", "TERM": "dumb"})
 
 
 def test_help_exits_zero_and_prints_usage() -> None:
