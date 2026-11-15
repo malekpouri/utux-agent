@@ -124,5 +124,10 @@ class ModelProvider(Protocol):
                 `request.timeout_seconds`.
             ModelInvalidResponseError: The answer cannot be turned into a
                 valid `ModelResponse`, for example because usage is missing.
+            ModelUnavailableError: The provider could not be reached or its
+                server failed. Retryable; the trigger for provider fallback.
+            ModelRequestRejectedError: The provider refused the request
+                itself, for example an unknown model or an input longer than
+                the model's context. Not retryable.
         """
         ...

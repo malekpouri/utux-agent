@@ -85,5 +85,23 @@ class ModelInvalidResponseError(ModelProviderError):
     """The provider answered, but the answer is not a valid response."""
 
 
+class ModelUnavailableError(ModelProviderError):
+    """The provider could not be reached, or its server failed.
+
+    Raised for a network failure or an upstream server error. The call may be
+    retried, and this error is the trigger for falling back to another
+    provider.
+    """
+
+
+class ModelRequestRejectedError(ModelProviderError):
+    """The provider refused the request itself.
+
+    Raised, for example, for an unknown model or an input longer than the
+    model's context. Sending the same request again will fail again, so the
+    call is not retried.
+    """
+
+
 class ScriptExhaustedError(UtuxError):
     """A scripted provider was called more often than its script has steps."""

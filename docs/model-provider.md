@@ -58,6 +58,15 @@ contains an API key or the content of a message.
 | `ModelRateLimitError` | The provider refused the call because of a rate limit. `retry_after_seconds` holds the wait it asked for, if any |
 | `ModelTimeoutError` | No answer arrived within `timeout_seconds` |
 | `ModelInvalidResponseError` | The answer cannot be turned into a valid response, for example because usage is missing |
+| `ModelUnavailableError` | A network failure or an upstream server error. Retryable, and the trigger for falling back to another provider |
+| `ModelRequestRejectedError` | The provider refused the request itself, for example an unknown model or an input longer than the model's context. Not retryable |
+
+## Not part of the contract in v1
+
+- **Structured output.** The core asks for JSON as text, validates it against
+  a schema and retries once (RFC-001, section 2).
+- **Tool calling.** It is not modelled. It will be decided in a new ADR
+  before the first agent that selects tools itself.
 
 ## Conformance suite
 
@@ -73,8 +82,8 @@ It checks that:
   constant, and both are read-only;
 - a response has a model id, a finish reason, whole-number token counts and
   the `cost_usd` field, which is null when the provider reports no cost;
-- an authentication failure, a rate limit and an invalid answer each raise
-  their typed error;
+- an authentication failure, a rate limit, an invalid answer, an unavailable
+  provider and a rejected request each raise their typed error;
 - a call gives up with `ModelTimeoutError` near its timeout, and an answer
   within the timeout is returned;
 - 40 calls from 8 threads at once all return well-formed responses.
