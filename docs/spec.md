@@ -244,28 +244,32 @@ Files are the only interface between stages, and between the core and any user i
 
 ```text
 my-project/
-  utux.yaml                 # profile, domain pack, budget, oversight mode, data policy
-  inputs/                   # user question, hypothesis, data description, data files
-  idea.md
-  literature.md
-  references.bib
-  sources/                  # one file per source: metadata, passages, URL, licence, retrieval date
-  method.md
-  code/
-  runs/<run_id>/            # manifest.json, logs, outputs
-  results.jsonl             # structured result records
-  figures/
-  results.md
-  claims.jsonl              # claim ledger
-  paper/                    # LaTeX or Markdown sources, compiled PDF
-  review.md
-  verification.md
-  events.jsonl              # append-only event log
-  approvals/                # pending and answered approval requests
-  .utux/meta/               # one metadata sidecar per artifact version
-  .utux/checkpoints.sqlite
-  reproduce.sh
+  utux.yaml                 # [init]  profile, domain pack, budget, oversight mode, data policy
+  .gitignore                # [init]  checkpoints, temporary files, caches
+  inputs/                   # [init]  user question, hypothesis, data description, data files
+  idea.md                   # [later]
+  literature.md             # [later]
+  references.bib            # [later]
+  sources/                  # [init]  one file per source: metadata, passages, URL, licence, retrieval date
+  method.md                 # [later]
+  code/                     # [init]
+  runs/                     # [init]
+  runs/<run_id>/            # [later] manifest.json, logs, outputs
+  results.jsonl             # [init]  structured result records; empty at first
+  figures/                  # [init]
+  results.md                # [later]
+  claims.jsonl              # [init]  claim ledger; empty at first
+  paper/                    # [init]  LaTeX or Markdown sources, compiled PDF
+  review.md                 # [later]
+  verification.md           # [later]
+  events.jsonl              # [init]  append-only event log; starts with the project_created event
+  approvals/                # [init]  pending and answered approval requests
+  .utux/meta/               # [init]  one metadata sidecar per artifact version
+  .utux/checkpoints.sqlite  # [later]
+  reproduce.sh              # [later]
 ```
+
+Paths marked `[init]` exist after `utux init`. Paths marked `[later]` are created by the stage or component that owns them. A directory that is empty after `utux init` holds a `.gitkeep` file, so that the first commit contains the whole tree.
 
 ### Artifact metadata and validity
 
