@@ -33,6 +33,8 @@ FIELDS = [
 INVALID = [
     ("missing_unit.json", "unit", "missing"),
     ("missing_tolerance.json", "tolerance", "missing"),
+    ("missing_model.json", "model", "missing"),
+    ("missing_split.json", "split", "missing"),
     ("unknown_key.json", "note", "unknown_key"),
     ("value_is_text.json", "value", "float_type"),
     ("negative_tolerance.json", "tolerance", "greater_than_equal"),
@@ -118,10 +120,29 @@ def test_tolerance_may_be_zero_for_an_exact_value() -> None:
     assert ResultRecord.from_json(json.dumps(_record(tolerance=0))).tolerance == 0.0
 
 
-@pytest.mark.parametrize("field", ["metric", "unit", "dataset", "model", "split", "run_id"])
+@pytest.mark.parametrize("field", ["metric", "unit", "dataset", "run_id"])
 def test_meaning_fields_may_not_be_empty_or_null(field: str) -> None:
     assert [name for name, _ in _problems(_record(**{field: ""}))] == [field]
     assert [name for name, _ in _problems(_record(**{field: None}))] == [field]
+
+
+@pytest.mark.parametrize("field", ["model", "split"])
+def test_model_and_split_are_required_but_may_be_null(field: str) -> None:
+    """A value such as a dataset statistic has no model and no split."""
+    record = ResultRecord.from_json(json.dumps(_record(**{field: None})))
+    assert getattr(record, field) is None
+    # Null is stated; the field is not left out, and it is not empty text.
+    assert ResultRecord.model_fields[field].is_required()
+    assert [name for name, _ in _problems(_record(**{field: ""}))] == [field]
+
+
+def test_record_without_model_or_split_fixture() -> None:
+    record = load_result_record(
+        FIXTURES / "valid" / "dataset_statistic_without_model_or_split.json"
+    )
+    assert record.model is None
+    assert record.split is None
+    assert record.value == 1200
 
 
 @pytest.mark.parametrize("value", ["r0042", "R42", "C017", "R0042x"])

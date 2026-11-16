@@ -104,6 +104,17 @@ INVALID = [
     ("verified_by_without_version.json", "verified_by.0", "string_pattern_mismatch"),
     ("checked_at_without_z.json", "checked_at", "utc_timestamp"),
     ("human_decision_unknown.json", "human.decision", "enum"),
+    ("status_differs_from_human_decision.json", "status", "status_differs_from_human_decision"),
+    ("human_reviewer_not_in_verified_by.json", "verified_by", "human_reviewer_missing"),
+    ("human_without_machine_status.json", "human.machine_status", "missing"),
+    (
+        "human_machine_confidence_high_not_verified.json",
+        "human.machine_confidence",
+        "confidence_requires_verified",
+    ),
+    ("checked_claim_without_check_id.json", "check_id", "check_required"),
+    ("checked_claim_without_checked_at.json", "checked_at", "check_required"),
+    ("checked_claim_without_verified_by.json", "verified_by", "verified_by_required"),
     ("human_reviewer_is_an_agent.json", "human.reviewer", "string_pattern_mismatch"),
     ("newer_schema_version.json", "schema_version", "schema_version_newer"),
     ("not_an_object.json", "<document>", "not_a_mapping"),
@@ -268,6 +279,8 @@ def test_human_review_is_kept_beside_the_machine_verdict() -> None:
     assert entry.human.reviewer == "human:alex"
     assert entry.human.decision is ClaimStatus.INSUFFICIENT_EVIDENCE
     assert entry.human.reviewed_at == "2026-11-15T12:30:00Z"
+    assert entry.human.machine_status is ClaimStatus.INSUFFICIENT_EVIDENCE
+    assert entry.human.machine_confidence is Confidence.LOW
     assert entry.verified_by == ("support_check@1", "human:alex")
     assert entry.needs_human is True
 
@@ -624,3 +637,106 @@ def test_invalid_fixture_fails_for_its_own_reason(name: str, field: str, code: s
     assert [(p.field, p.code) for p in error.problems] == [(field, code)]
     assert error.source == str(path)
     assert str(error) == f"{path}: {field}: {error.problems[0].reason}"
+
+
+# Human review: status and confidence are always the final values
+
+
+def _reviewed(**human: Any) -> dict[str, Any]:
+    document = _fixture("conflicting_source_reviewed_by_human.json")
+    document["human"] = {**document["human"], **human}
+    return document
+
+
+def test_after_a_review_the_status_is_the_human_decision() -> None:
+    entry = load_claim_ledger_entry(FIXTURES / "valid" / "human_overrides_machine_verdict.json")
+    assert entry.human is not None
+    # The final value, and the machine verdict kept beside it.
+    assert entry.status is ClaimStatus.CONTRADICTED
+    assert entry.human.decision is ClaimStatus.CONTRADICTED
+    assert entry.human.machine_status is ClaimStatus.INSUFFICIENT_EVIDENCE
+    assert entry.human.machine_confidence is Confidence.LOW
+
+
+def test_status_must_equal_the_human_decision() -> None:
+    document = _reviewed(decision="contradicted")
+    assert _problems(document) == [("status", "status_differs_from_human_decision")]
+
+
+def test_reviewer_must_be_listed_in_verified_by() -> None:
+    document = _reviewed()
+    document["verified_by"] = ["support_check@1", "human:someone-else"]
+    assert _problems(document) == [("verified_by", "human_reviewer_missing")]
+
+
+@pytest.mark.parametrize(
+    "field", ["reviewer", "decision", "note", "reviewed_at", "machine_status", "machine_confidence"]
+)
+def test_every_field_of_a_review_is_required(field: str) -> None:
+    document = _reviewed()
+    del document["human"][field]
+    assert _problems(document) == [(f"human.{field}", "missing")]
+
+
+@pytest.mark.parametrize("confidence", ["high", "medium"])
+def test_machine_confidence_follows_the_same_rule_as_confidence(confidence: str) -> None:
+    document = _reviewed(machine_confidence=confidence)
+    assert _problems(document) == [("human.machine_confidence", "confidence_requires_verified")]
+    document = _reviewed(machine_status="verified", machine_confidence=confidence)
+    assert _validate(document).human is not None
+
+
+def test_review_is_pending_when_needs_human_is_true_and_human_is_null() -> None:
+    entry = load_claim_ledger_entry(FIXTURES / "valid" / "human_review_pending.json")
+    assert entry.needs_human is True
+    assert entry.human is None
+    assert entry.review_pending is True
+    reviewed = load_claim_ledger_entry(
+        FIXTURES / "valid" / "conflicting_source_reviewed_by_human.json"
+    )
+    assert reviewed.review_pending is False
+    plain = load_claim_ledger_entry(FIXTURES / "valid" / "literature_verified.json")
+    assert plain.review_pending is False
+
+
+# Evidence for every status that rests on evidence
+
+
+@pytest.mark.parametrize("status", ["verified", "partially_supported", "contradicted"])
+def test_status_that_rests_on_evidence_needs_an_evidence_entry(status: str) -> None:
+    document = _verified(status=status, confidence="low", evidence=[])
+    assert _problems(document) == [("evidence", "evidence_required")]
+
+
+@pytest.mark.parametrize("status", ["insufficient_evidence", "unverified"])
+def test_other_statuses_may_have_no_evidence(status: str) -> None:
+    document = _literature(status=status, reasons=[], evidence=[])
+    assert _validate(document).evidence == ()
+
+
+# A claim that was checked says by what and when
+
+
+@pytest.mark.parametrize(
+    "status", ["verified", "partially_supported", "contradicted", "insufficient_evidence"]
+)
+def test_checked_claim_needs_check_id_checked_at_and_verified_by(status: str) -> None:
+    document = _verified(
+        status=status, confidence="low", check_id=None, checked_at=None, verified_by=[]
+    )
+    assert _problems(document) == [
+        ("check_id", "check_required"),
+        ("checked_at", "check_required"),
+        ("verified_by", "verified_by_required"),
+    ]
+
+
+def test_unverified_claim_may_or_may_not_have_a_check() -> None:
+    never = _fixture("unverified_not_yet_checked.json")
+    assert _validate(never).check_id is None
+    failed = _fixture("second_assessor_unavailable.json")
+    assert _validate(failed).check_id == "k-000218"
+
+
+def test_trace_may_be_null_for_a_checked_claim() -> None:
+    assert _validate(_literature(trace=None)).trace is None

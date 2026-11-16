@@ -44,6 +44,8 @@
     "reviewer": "human:alex",
     "decision": "insufficient_evidence",
     "note": "Synthetic note: the two experiments disagree.",
-    "reviewed_at": "2026-11-15T12:30:00Z"
+    "reviewed_at": "2026-11-15T12:30:00Z",
+    "machine_status": "insufficient_evidence",
+    "machine_confidence": "low"
   }
 }
