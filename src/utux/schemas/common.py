@@ -74,3 +74,15 @@ UtcTimestamp = Annotated[str, Field(strict=True), AfterValidator(_check_utc_time
 It is kept as text, so a file that is read and written again keeps the exact
 timestamp it had.
 """
+
+EventId = Annotated[str, Field(pattern=r"^e-[0-9]{6,}$", strict=True)]
+"""An event id: `e-` and a number of at least six digits, for example `e-000913`."""
+
+NonEmptyText = Annotated[str, Field(min_length=1, strict=True)]
+"""Text that may not be empty."""
+
+Count = Annotated[int, Field(ge=0, strict=True)]
+"""A whole number of zero or more, such as a token count or a duration."""
+
+NonNegativeUsd = Annotated[float, Field(ge=0, allow_inf_nan=False, strict=True)]
+"""An amount of money in US dollars that may be zero."""

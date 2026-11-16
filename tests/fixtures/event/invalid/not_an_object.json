@@ -1,0 +1,30 @@
+[
+  {
+    "schema_version": 1,
+    "event_id": "e-000913",
+    "run_id": "p-7f3a",
+    "request_id": "q-0412",
+    "parent_id": "e-000907",
+    "ts": "2026-11-15T10:42:07Z",
+    "actor": "agent:planner",
+    "stage": "methodology",
+    "type": "model_call",
+    "model": "synthetic/model",
+    "prompt_version": "planner@3",
+    "tool_version": null,
+    "input_hash": "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41",
+    "output_hash": "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41",
+    "tokens_in": 5120,
+    "tokens_out": 830,
+    "cost_usd": 0.012,
+    "duration_ms": 8400,
+    "status": "ok",
+    "status_reason": null,
+    "retry_reason": null,
+    "escalated_from": null,
+    "data": {},
+    "artifacts": [
+      "method-v003"
+    ]
+  }
+]

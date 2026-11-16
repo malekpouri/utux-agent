@@ -21,6 +21,9 @@ instead of defining a new pattern.
 - `ArtifactId`: a name and a version, for example `method-v003`.
 - `Actor`: `agent:<role>`, `human:<id>` or `system:<component>`, for example
   `system:utux`.
+- `EventId`: `e-` and at least six digits, for example `e-000913`.
+- `NonEmptyText`, `Count` and `NonNegativeUsd` for text, whole numbers of
+  zero or more, and amounts of money that may be zero.
 
 ## File formats
 
@@ -68,6 +71,19 @@ instead of defining a new pattern.
 - The version is checked before anything else. A newer version is refused
   with a message that says so, and nothing else in the file is reported. An
   older version is refused as unsupported until a migration exists.
+
+## Required and nullable fields
+
+- A stored contract states every field. A field that does not apply is
+  `null`; it is not left out. `Event` is the example.
+- Where code builds a document step by step, a separate input model with
+  defaults is used, such as `NewEvent`, and the stored model stays strict.
+- A field that explains a failure holds a stable machine code, not a
+  message. No free-text error message is stored in a contract file.
+- A rule between two fields is reported on the field the user must change:
+  a missing reason on `status_reason`, a missing model on `model`.
+- A file with one record per line (`.jsonl`) is validated line by line. An
+  error names the source as `path:line`.
 
 ## Fixtures and tests
 

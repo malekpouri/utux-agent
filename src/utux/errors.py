@@ -5,6 +5,7 @@ callers can catch the package's failures without catching unrelated ones.
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 
 DOCUMENT_FIELD = "<document>"
 """Field name used for a problem that concerns a whole file, not one field."""
@@ -105,3 +106,24 @@ class ModelRequestRejectedError(ModelProviderError):
 
 class ScriptExhaustedError(UtuxError):
     """A scripted provider was called more often than its script has steps."""
+
+
+class EventLogError(UtuxError):
+    """The event log could not be read or written."""
+
+
+class EventLogCorruptError(EventLogError):
+    """The event log holds something that an intact log cannot hold.
+
+    Raised for a last line that was only partly written and for event ids
+    that do not increase. The log is never repaired or rewritten by utux.
+
+    Attributes:
+        path: The log file.
+        line: The number of the offending line, counted from 1.
+    """
+
+    def __init__(self, path: Path, line: int, reason: str) -> None:
+        self.path = path
+        self.line = line
+        super().__init__(f"{path}: line {line}: {reason}")
