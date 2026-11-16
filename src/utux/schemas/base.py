@@ -6,12 +6,15 @@ are immutable. Validation failures are reported as one
 `ContractValidationError` that lists every problem with its field and reason.
 """
 
+import json
 from collections.abc import Mapping
 from typing import ClassVar, Self
 
 from pydantic import BaseModel, ConfigDict, StrictInt, ValidationError
+from pydantic_core import InitErrorDetails, PydanticCustomError
 
 from utux.errors import DOCUMENT_FIELD, ContractValidationError, Problem
+from utux.schemas.json_io import parse_json
 
 # Pydantic marks an error on a mapping key with this extra location entry.
 _KEY_MARKER = "[key]"
@@ -70,6 +73,23 @@ class ContractDocument(ContractPart):
             raise ContractValidationError(source, _problems(error)) from error
 
     @classmethod
+    def from_json(cls, text: str, source: str = "document") -> Self:
+        """Parse and validate the JSON text of one document.
+
+        Args:
+            text: The JSON text.
+            source: The file name to use in error messages.
+
+        Raises:
+            ContractValidationError: If the text is not a valid document.
+        """
+        return cls.validate_document(parse_json(text, source), source)
+
+    def to_json(self) -> str:
+        """Return the document as indented JSON text that ends with a newline."""
+        return json.dumps(self.model_dump(mode="json"), indent=2, ensure_ascii=False) + "\n"
+
+    @classmethod
     def _schema_version_problem(cls, found: object) -> Problem | None:
         # bool is a subclass of int; leave it, and anything that is not an
         # integer, to the ordinary field validation.
@@ -88,6 +108,17 @@ class ContractDocument(ContractPart):
             f"this version of utux supports {cls.SCHEMA_VERSION}",
             "schema_version_unsupported",
         )
+
+
+def field_problem(code: str, reason: str, *loc: str | int) -> InitErrorDetails:
+    """Describe one problem of a rule between fields, at the given field path."""
+    return {"type": PydanticCustomError(code, reason), "loc": loc, "input": None}
+
+
+def raise_field_problems(title: str, problems: list[InitErrorDetails]) -> None:
+    """Raise the problems of a rule between fields, if there are any."""
+    if problems:
+        raise ValidationError.from_exception_data(title, problems)
 
 
 def _problems(error: ValidationError) -> tuple[Problem, ...]:

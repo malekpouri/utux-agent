@@ -8,8 +8,9 @@ to checked evidence or to a computed result.
 ## Status
 
 This is a stub. The project is at the start of milestone M0. Only the
-repository scaffold exists: the `utux` command prints its help and version and
-does nothing else yet. See `docs/plan/M0.md` for what is being built.
+repository scaffold and the schemas of the file contracts exist. The `utux`
+command prints its help and version and can export the schemas with
+`utux schema export <dir>`; it cannot create or run a project yet. See `docs/plan/M0.md` for what is being built.
 
 ## Documents
 
@@ -23,6 +24,7 @@ does nothing else yet. See `docs/plan/M0.md` for what is being built.
 - [The `ModelProvider` interface](docs/model-provider.md)
 - [Events and the event log](docs/event-log.md)
 - [Claim ledger and result records](docs/claim-ledger.md)
+- [Run manifest, approvals, source record and schema export](docs/contracts.md)
 
 ## Development
 
