@@ -12,7 +12,7 @@ from typing import Annotated, ClassVar, Self
 from pydantic import Field
 
 from utux.schemas.base import ContractDocument
-from utux.schemas.common import NonEmptyText, RelativePath, ResultId
+from utux.schemas.common import NonEmptyText, RelativePath, ResultId, RunId
 from utux.schemas.json_io import parse_json, read_json
 
 
@@ -30,7 +30,7 @@ class ResultRecord(ContractDocument):
         model: The model the value belongs to, or null when it belongs to
             none, as for a statistic of a dataset.
         split: The split of the dataset, for example `test`, or null.
-        run_id: The run that produced the value.
+        run_id: The run that produced the value, as in its run manifest.
         source: The file inside the project that holds the value.
         tolerance: How far a number in the manuscript may differ from the
             value: an absolute difference, in the unit of the value. Zero
@@ -46,7 +46,7 @@ class ResultRecord(ContractDocument):
     dataset: NonEmptyText
     model: NonEmptyText | None
     split: NonEmptyText | None
-    run_id: NonEmptyText
+    run_id: RunId
     source: RelativePath
     tolerance: Annotated[float, Field(ge=0, allow_inf_nan=False, strict=True)]
 

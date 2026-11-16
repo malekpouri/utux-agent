@@ -24,6 +24,11 @@ from utux.schemas.source_record import SourceRecord
 
 JSON_SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
 
+NOT_SUFFICIENT = (
+    "utux applies further rules between fields; "
+    "passing this schema is necessary but not sufficient."
+)
+
 CONTRACTS: dict[str, type[ContractDocument]] = {
     "project_config": ProjectConfig,
     "artifact_metadata": ArtifactMetadata,
@@ -61,6 +66,8 @@ def export_json_schemas(directory: Path) -> tuple[Path, ...]:
     written = []
     for name, model in CONTRACTS.items():
         schema = {"$schema": JSON_SCHEMA_DIALECT, **model.model_json_schema()}
+        own = schema.get("description")
+        schema["description"] = f"{own}\n\n{NOT_SUFFICIENT}" if own else NOT_SUFFICIENT
         text = json.dumps(schema, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
         path = directory / f"{name}.schema.json"
         _replace_file(path, text)

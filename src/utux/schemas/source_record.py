@@ -52,7 +52,8 @@ class SourceRecord(ContractDocument):
             `openalex`.
         retrieved_at: When it was retrieved.
         stored_text: Which text is stored, `abstract` or `full_text`, or null
-            when no text is stored.
+            when no text is stored. Not `full_text` for an abstract from an
+            index.
         text_hash: Hash of the stored text. Null exactly when no text is
             stored.
         extraction_method: A code for how the text was extracted. Null exactly
@@ -93,6 +94,17 @@ class SourceRecord(ContractDocument):
                 for name in _REQUIRED_WITH_TEXT
                 if getattr(self, name) is None
             ]
+        if (
+            self.source_version is SourceVersion.INDEX_ABSTRACT
+            and self.stored_text is CheckedText.FULL_TEXT
+        ):
+            problems.append(
+                field_problem(
+                    "stored_text_exceeds_source_version",
+                    "an abstract from an index cannot have stored full text",
+                    "stored_text",
+                )
+            )
         raise_field_problems(type(self).__name__, problems)
         return self
 

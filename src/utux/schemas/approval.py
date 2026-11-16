@@ -8,13 +8,16 @@ An approval binds to one exact version. The request names the artifact
 version and the hash of its content, and the response repeats both. If the
 file is edited after the request, its hash changes, and an approval given for
 the old content does not carry over.
+
+For an edit, the person changes the file itself. The response names the
+version they saved and approve; it does not carry the content.
 """
 
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, ClassVar, Self
 
-from pydantic import Field, StrictStr, model_validator
+from pydantic import Field, model_validator
 
 from utux.errors import ContractValidationError, Problem
 from utux.schemas.base import ContractDocument, field_problem, raise_field_problems
@@ -77,8 +80,13 @@ class ApprovalResponse(ContractDocument):
         answered_by: The person, as `human:<id>`.
         answered_at: When the answer was given.
         feedback: The person's remarks. Required for `reject`, else optional.
-        edited_content: The edited text. Given exactly when the decision is
-            `edit`.
+        edited_artifact_id: The artifact version the person saved and
+            approves. Given exactly when the decision is `edit`.
+        edited_content_hash: Hash of the content of that version. Given
+            exactly when the decision is `edit`.
+
+    For an edit, the person changes the file itself. The response does not
+    carry the content; it only names the version that was saved.
     """
 
     SCHEMA_VERSION: ClassVar[int] = 1
@@ -90,7 +98,8 @@ class ApprovalResponse(ContractDocument):
     answered_by: Annotated[str, Field(pattern=r"^human:[a-z0-9][a-z0-9_.-]*$", strict=True)]
     answered_at: UtcTimestamp
     feedback: NonEmptyText | None
-    edited_content: StrictStr | None
+    edited_artifact_id: ArtifactId | None
+    edited_content_hash: Sha256Hash | None
 
     @model_validator(mode="after")
     def _fields_follow_the_decision(self) -> Self:
@@ -99,22 +108,22 @@ class ApprovalResponse(ContractDocument):
             problems.append(
                 field_problem("feedback_required", "a rejection needs feedback", "feedback")
             )
-        if self.decision is Decision.EDIT and self.edited_content is None:
-            problems.append(
-                field_problem(
-                    "edited_content_required",
-                    "the decision edit needs the edited content",
-                    "edited_content",
+        for name in ("edited_artifact_id", "edited_content_hash"):
+            value = getattr(self, name)
+            if self.decision is Decision.EDIT and value is None:
+                problems.append(
+                    field_problem(
+                        "required_for_edit", "must not be null when the decision is edit", name
+                    )
                 )
-            )
-        if self.decision is not Decision.EDIT and self.edited_content is not None:
-            problems.append(
-                field_problem(
-                    "edited_content_not_allowed",
-                    f"must be null when the decision is {self.decision.value}",
-                    "edited_content",
+            if self.decision is not Decision.EDIT and value is not None:
+                problems.append(
+                    field_problem(
+                        "not_allowed_unless_edit",
+                        f"must be null when the decision is {self.decision.value}",
+                        name,
+                    )
                 )
-            )
         raise_field_problems(type(self).__name__, problems)
         return self
 
@@ -131,10 +140,11 @@ def check_response_matches_request(
 
     Raises:
         ContractValidationError: If the approval id, the artifact id or the
-            content hash of the response differs from the request. Every
-            difference is reported, on its own field.
+            content hash of the response differs from the request, or if an
+            edit names the same artifact version or the same content as the
+            request. Every problem is reported, on its own field.
     """
-    problems = tuple(
+    problems = [
         Problem(
             name,
             f"{getattr(response, name)} differs from the request, "
@@ -143,9 +153,19 @@ def check_response_matches_request(
         )
         for name in ("approval_id", "artifact_id", "content_hash")
         if getattr(response, name) != getattr(request, name)
-    )
+    ]
+    # An edit produces a new version with new content.
+    problems += [
+        Problem(edited, f"an edit must name a different {what} from the request", "same_as_request")
+        for edited, requested, what in (
+            ("edited_artifact_id", "artifact_id", "artifact version"),
+            ("edited_content_hash", "content_hash", "content"),
+        )
+        if getattr(response, edited) is not None
+        and getattr(response, edited) == getattr(request, requested)
+    ]
     if problems:
-        raise ContractValidationError(source, problems)
+        raise ContractValidationError(source, tuple(problems))
 
 
 def load_approval_request(path: Path) -> ApprovalRequest:

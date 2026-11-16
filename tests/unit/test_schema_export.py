@@ -125,7 +125,10 @@ FIXTURE_DIRECTORY = {
     "source_record": "source_record",
 }
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
-NOTE = "utux applies further rules between fields; passing this schema is necessary but not sufficient."
+NOTE = (
+    "utux applies further rules between fields; "
+    "passing this schema is necessary but not sufficient."
+)
 
 
 def _exported(tmp_path: Path, name: str) -> dict[str, object]:

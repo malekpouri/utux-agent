@@ -19,13 +19,11 @@ from utux.schemas.common import (
     NonEmptyText,
     PositiveInt,
     RelativePath,
+    RunId,
     Sha256Hash,
     UtcTimestamp,
 )
 from utux.schemas.json_io import read_json
-
-RunId = Annotated[str, Field(pattern=r"^r[0-9]{3,}$", strict=True)]
-"""A run id: `r` and at least three digits, for example `r012`."""
 
 
 class FileRef(ContractPart):
@@ -117,6 +115,8 @@ class RunManifest(ContractDocument):
         hardware: The machine the run used.
         models: The models the run called. Empty if it called none.
         external_services: The services the run depends on. Empty if none.
+        outputs: The files the run produced, each with its hash. Empty if
+            it produced none.
         started_at: When the run started.
         ended_at: When the run ended. Not before `started_at`.
         exit_status: The exit status of the command.
@@ -135,6 +135,7 @@ class RunManifest(ContractDocument):
     hardware: Hardware
     models: tuple[ModelUse, ...]
     external_services: tuple[ExternalService, ...]
+    outputs: tuple[FileRef, ...]
     started_at: UtcTimestamp
     ended_at: UtcTimestamp
     exit_status: StrictInt

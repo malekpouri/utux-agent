@@ -38,7 +38,9 @@ itself is not part of the record.
 When text is stored, `text_hash`, `extraction_method` and
 `extraction_quality` must not be null (code `required_with_text`). When no
 text is stored, the four text fields must be null (code
-`not_allowed_without_text`).
+`not_allowed_without_text`). A source whose version is `index_abstract` cannot
+have stored full text (code `stored_text_exceeds_source_version`, on
+`stored_text`).
 
 ## Run manifest
 
@@ -59,6 +61,7 @@ text is stored, the four text fields must be null (code
 | `hardware` | `cpu`, `cpu_count`, `memory_mb`, `gpu`, `cuda_version`, `driver_version` | The machine. The last three are null without a GPU |
 | `models` | list of `model`, `version` (text or null), `settings` (flat object) | Models the run called, with inference settings |
 | `external_services` | list of `name`, `version` | External APIs or services the run depends on |
+| `outputs` | list of `path` and `hash`; may be empty | The files the run produced |
 | `started_at`, `ended_at` | UTC timestamps | Start and end. The end is not before the start (code `ended_before_started`) |
 | `exit_status` | integer | Exit status of the command |
 
@@ -103,11 +106,19 @@ Response:
 | `answered_by` | `human:<id>` | The person. Only a person answers an approval |
 | `answered_at` | UTC timestamp | When the answer was given |
 | `feedback` | text or null | Remarks. Required for `reject` (code `feedback_required`) |
-| `edited_content` | text or null | The edited text. Given exactly when the decision is `edit` (codes `edited_content_required`, `edited_content_not_allowed`) |
+| `edited_artifact_id` | artifact id or null | The artifact version the person saved and approves. Given exactly when the decision is `edit` |
+| `edited_content_hash` | content hash or null | Hash of the content of that version. Given exactly when the decision is `edit` |
+
+For an edit, the person changes the file itself. The response does not carry
+the content; it names the version the person saved. The two `edited_...`
+fields are not null for `edit` (code `required_for_edit`) and null for every
+other decision (code `not_allowed_unless_edit`).
 
 `check_response_matches_request(request, response, source)` compares the
 three shared fields. Each one that differs is reported on its own field with
-code `differs_from_request`.
+code `differs_from_request`. For an edit it also checks that the edited
+version differs from the requested one, in id and in content hash (code
+`same_as_request`).
 
 ## Exporting the schemas
 
@@ -133,4 +144,9 @@ version of utux.
 A JSON Schema states the fields, their types and the closed sets. It does
 not state the rules between fields, such as "a verified claim needs
 evidence". Those are checked only by utux itself, so a file that passes the
-JSON Schema can still be refused by utux.
+JSON Schema can still be refused by utux. Every exported schema says so in
+its description: "utux applies further rules between fields; passing this
+schema is necessary but not sufficient."
+
+The tests check each exported file with a JSON Schema validator: the file
+is itself a valid schema, and every valid fixture of its contract passes it.

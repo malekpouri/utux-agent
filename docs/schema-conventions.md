@@ -22,7 +22,8 @@ instead of defining a new pattern.
 - `Actor`: `agent:<role>`, `human:<id>` or `system:<component>`, for example
   `system:utux`.
 - `EventId`: `e-` and at least six digits, for example `e-000913`.
-- `ClaimId` and `ResultId`: `C` or `R` and at least three digits.
+- `ClaimId`, `ResultId` and `RunId`: `C`, `R` or `r` and at least three
+  digits.
 - `RelativePath`: a path inside the project, relative, with `/` as separator
   and without `.` or `..` parts. Every path stored in a contract uses it.
 - `FlatObject`: an object whose values are strings, numbers, booleans or

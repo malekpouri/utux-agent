@@ -143,3 +143,6 @@ def _check_flat(value: object) -> object:
 
 FlatObject = Annotated[dict[str, Scalar], BeforeValidator(_check_flat)]
 """An object whose values are all scalars. A nested value has code `not_scalar`."""
+
+RunId = Annotated[str, Field(pattern=r"^r[0-9]{3,}$", strict=True)]
+"""A run id: `r` and at least three digits, for example `r012`."""
