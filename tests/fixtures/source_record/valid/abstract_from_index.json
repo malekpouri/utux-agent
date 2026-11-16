@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "source_id": "arxiv:0000.00000",
+  "url": "http://example.org/abs/0000.00000",
+  "licence": "arXiv non-exclusive licence",
+  "redistribution": "abstract",
+  "source_version": "index_abstract",
+  "retrieval_route": "openalex",
+  "retrieved_at": "2026-11-15T09:12:00Z",
+  "stored_text": "abstract",
+  "text_hash": "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41",
+  "extraction_method": "api_structured_text",
+  "extraction_tool_version": null,
+  "extraction_quality": "clean"
+}

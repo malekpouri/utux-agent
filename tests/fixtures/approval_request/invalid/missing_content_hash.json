@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "approval_id": "a-000007",
+  "gate": "method",
+  "artifact_id": "method-v003",
+  "path": "method.md",
+  "requested_by": "agent:methodologist",
+  "requested_at": "2026-11-15T10:05:00Z"
+}

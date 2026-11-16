@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "source_id": "doi:10.0000/example",
+  "url": "https://example.org/paper/10.0000/example",
+  "licence": "CC-BY-4.0",
+  "redistribution": "anything",
+  "source_version": "publisher",
+  "retrieval_route": "openalex",
+  "retrieved_at": "2026-11-15T09:12:00Z",
+  "stored_text": "full_text",
+  "text_hash": "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41",
+  "extraction_method": "publisher_xml",
+  "extraction_tool_version": "synthetic-extractor 1.2.0",
+  "extraction_quality": "clean"
+}

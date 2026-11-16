@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "run_id": "r012",
+  "command": [
+    "python",
+    "code/train.py",
+    "--config",
+    "code/config.yaml"
+  ],
+  "parameters": {
+    "learning_rate": 0.001,
+    "epochs": 20,
+    "scheduler": "cosine",
+    "augment": true
+  },
+  "config_files": [
+    {
+      "path": "code/config.yaml",
+      "hash": "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41"
+    }
+  ],
+  "git": {
+    "commit": "0123456789abcdef0123456789abcdef01234567",
+    "dirty": false
+  },
+  "container": {
+    "image_digest": "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41",
+    "locked_packages": {
+      "numpy": "2.1.0",
+      "scikit-learn": "1.5.2"
+    }
+  },
+  "datasets": [
+    {
+      "name": "dataset_x",
+      "version": "1.0",
+      "obtained_from": "synthetic public archive",
+      "files": [
+        {
+          "path": "inputs/dataset_x/train.csv",
+          "hash": "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41"
+        }
+      ]
+    }
+  ],
+  "seeds": {
+    "python": 0,
+    "numpy": 0
+  },
+  "hardware": {
+    "cpu": "synthetic 8-core CPU",
+    "cpu_count": 8,
+    "memory_mb": 16384,
+    "gpu": null,
+    "cuda_version": null,
+    "driver_version": null
+  },
+  "models": [],
+  "external_services": [],
+  "started_at": "2026-11-15T10:00:00Z",
+  "ended_at": "2026-11-15T09:59:59Z",
+  "exit_status": 0
+}

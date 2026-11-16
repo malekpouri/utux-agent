@@ -1,0 +1,161 @@
+"""M0-06b: the source record schema."""
+
+import json
+from pathlib import Path
+from typing import Any
+
+import pytest
+from contract_checks import (
+    Row,
+    check_invalid,
+    check_round_trip,
+    check_table,
+    problems,
+    read_valid,
+    valid_paths,
+)
+
+from utux.schemas.claim_ledger import CheckedText, ExtractionQuality
+from utux.schemas.source_record import (
+    Redistribution,
+    SourceRecord,
+    SourceVersion,
+    load_source_record,
+)
+
+CONTRACT = "source_record"
+
+FIELDS = [
+    "schema_version",
+    "source_id",
+    "url",
+    "licence",
+    "redistribution",
+    "source_version",
+    "retrieval_route",
+    "retrieved_at",
+    "stored_text",
+    "text_hash",
+    "extraction_method",
+    "extraction_tool_version",
+    "extraction_quality",
+]
+
+# One row per invalid fixture: file name, the field the error must name, and
+# the code. No (field, code) pair is repeated.
+INVALID: list[Row] = [
+    ("missing_licence.json", "licence", "missing"),
+    ("missing_text_hash.json", "text_hash", "missing"),
+    ("unknown_key.json", "title", "unknown_key"),
+    ("unknown_redistribution.json", "redistribution", "enum"),
+    ("unknown_source_version.json", "source_version", "enum"),
+    ("unknown_stored_text.json", "stored_text", "enum"),
+    ("unknown_extraction_quality.json", "extraction_quality", "enum"),
+    ("url_not_http.json", "url", "string_pattern_mismatch"),
+    ("retrieved_at_is_a_date_only.json", "retrieved_at", "utc_timestamp"),
+    ("text_hash_elided.json", "text_hash", "string_pattern_mismatch"),
+    ("empty_source_id.json", "source_id", "string_too_short"),
+    ("extraction_method_is_a_sentence.json", "extraction_method", "string_pattern_mismatch"),
+    ("stored_text_without_hash.json", "text_hash", "required_with_text"),
+    (
+        "stored_text_without_extraction_quality.json",
+        "extraction_quality",
+        "required_with_text",
+    ),
+    ("hash_without_stored_text.json", "text_hash", "not_allowed_without_text"),
+    ("newer_schema_version.json", "schema_version", "schema_version_newer"),
+    ("not_an_object.json", "<document>", "not_a_mapping"),
+    ("malformed_json.json", "<document>", "invalid_json"),
+]
+
+
+def _record(**changes: Any) -> dict[str, Any]:
+    return {**read_valid(CONTRACT, "full_text_from_publisher.json"), **changes}
+
+
+def test_record_has_the_proposed_fields() -> None:
+    assert sorted(SourceRecord.model_fields) == sorted(FIELDS)
+
+
+def test_every_field_is_required() -> None:
+    for field in FIELDS:
+        document = _record()
+        del document[field]
+        assert problems(SourceRecord, document) == [(field, "missing")]
+
+
+def test_full_text_record_reads_every_field() -> None:
+    record = load_source_record(valid_paths(CONTRACT)[1])
+    assert record.source_id == "doi:10.0000/example"
+    assert record.url == "https://example.org/paper/10.0000/example"
+    assert record.licence == "CC-BY-4.0"
+    assert record.redistribution is Redistribution.FULL_TEXT
+    assert record.source_version is SourceVersion.PUBLISHER
+    assert record.retrieval_route == "openalex"
+    assert record.retrieved_at == "2026-11-15T09:12:00Z"
+    assert record.stored_text is CheckedText.FULL_TEXT
+    assert record.text_hash is not None
+    assert record.extraction_method == "publisher_xml"
+    assert record.extraction_tool_version == "synthetic-extractor 1.2.0"
+    assert record.extraction_quality is ExtractionQuality.CLEAN
+
+
+def test_closed_sets() -> None:
+    # RFC-002, section 2: redistribution of the full text, of the abstract, or of neither.
+    assert {value.value for value in Redistribution} == {"full_text", "abstract", "none"}
+    # RFC-001, S2: publisher version, preprint version, or abstract from an index.
+    assert {value.value for value in SourceVersion} == {"publisher", "preprint", "index_abstract"}
+
+
+def test_source_without_stored_text_has_no_hash_and_no_extraction() -> None:
+    record = load_source_record(valid_paths(CONTRACT)[2])
+    assert record.stored_text is None
+    assert record.text_hash is None
+    assert record.extraction_method is None
+    assert record.extraction_tool_version is None
+    assert record.extraction_quality is None
+
+
+def test_stored_text_needs_hash_method_and_quality() -> None:
+    document = _record(text_hash=None, extraction_method=None, extraction_quality=None)
+    assert problems(SourceRecord, document) == [
+        ("text_hash", "required_with_text"),
+        ("extraction_method", "required_with_text"),
+        ("extraction_quality", "required_with_text"),
+    ]
+
+
+def test_tool_version_may_be_null_when_text_is_stored() -> None:
+    record = SourceRecord.from_json(json.dumps(_record(extraction_tool_version=None)))
+    assert record.extraction_tool_version is None
+
+
+def test_no_stored_text_allows_none_of_the_text_fields() -> None:
+    document = _record(stored_text=None)
+    assert problems(SourceRecord, document) == [
+        ("text_hash", "not_allowed_without_text"),
+        ("extraction_method", "not_allowed_without_text"),
+        ("extraction_tool_version", "not_allowed_without_text"),
+        ("extraction_quality", "not_allowed_without_text"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "url", ["example.org/paper", "file:///etc/passwd", "javascript:alert(1)", "https://", ""]
+)
+def test_url_is_http_or_https(url: str) -> None:
+    assert [field for field, _ in problems(SourceRecord, _record(url=url))] == ["url"]
+
+
+@pytest.mark.parametrize("path", valid_paths(CONTRACT), ids=lambda p: p.name)
+def test_round_trip_through_json(path: Path) -> None:
+    check_round_trip(SourceRecord, load_source_record, path)
+
+
+def test_invalid_fixture_table() -> None:
+    check_table(CONTRACT, INVALID)
+
+
+@pytest.mark.parametrize("row", INVALID, ids=[row[0] for row in INVALID])
+def test_invalid_fixture_fails_for_its_own_reason(row: Row) -> None:
+    check_invalid(CONTRACT, load_source_record, row)
