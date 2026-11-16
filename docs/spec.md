@@ -291,12 +291,16 @@ Every stage output has a metadata sidecar, so the system always knows what an ou
 One line per atomic scientific claim. The writer may only use claims whose status is `verified`, or other claims that the user has explicitly accepted at a gate.
 
 ```json
-{"id": "C017", "text": "The proposed scheduler reduces validation loss by 4.2% relative to the baseline on dataset X.",
- "type": "result",
- "evidence": [{"kind": "result_record", "id": "R0042"}],
- "status": "verified", "confidence": "high", "checked_text": null,
- "scope_notes": "test split, 5 seeds, relative change",
- "verified_by": ["numeric_check"], "used_in": ["paper/results.tex"]}
+{"schema_version": 1, "id": "C017", "type": "result", "kind": "quantitative",
+ "text": "The proposed scheduler reduces validation loss by 4.2% relative to the baseline on dataset X.",
+ "span": {"file": "results.md", "start": 812, "end": 904},
+ "status": "verified", "confidence": "high", "needs_human": false,
+ "reasons": [],
+ "evidence": [{"evidence_type": "result_record", "id": "R0042"}],
+ "verified_by": ["numeric_check@1"],
+ "check_id": "k-000101", "trace": "verification/C017/k-000101.json",
+ "claim_hash": "sha256:...", "checked_at": "2026-11-15T10:58:12Z",
+ "human": null}
 ```
 
 | Status | Meaning |
@@ -310,15 +314,15 @@ One line per atomic scientific claim. The writer may only use claims whose statu
 `verified` means supported by the evidence that was checked. It does not mean the claim has been proven scientifically true.
 
 - `type` is `literature`, `result` or `derived`.
-- Literature evidence holds an identifier (DOI, arXiv ID, PMID), the supporting passage, its location in `sources/`, and `checked_text`: `abstract` or `full_text`.
-- `derived` claims list the claim IDs they follow from.
+- The fields of a ledger entry are those of RFC-001, section 6, for every claim type.
+- Each evidence entry has an `evidence_type`. A `literature` claim takes only `source` entries: the entry of RFC-001, section 6, with the source identifier (DOI, arXiv ID, PMID), the supporting passage and `checked_text`, which is `abstract` or `full_text`. A `result` claim takes only `result_record` entries, each the id of a result record. A `derived` claim takes only `claim` entries, each the id of a claim it follows from.
 
 ### Result records
 
 A number is never stored bare. Each computed value is a structured record in `results.jsonl`, so its meaning is checked along with its value.
 
 ```json
-{"id": "R0042", "metric": "AUC", "value": 0.95, "unit": "score",
+{"schema_version": 1, "id": "R0042", "metric": "AUC", "value": 0.95, "unit": "score",
  "dataset": "dataset_x", "model": "model_a", "split": "test",
  "run_id": "r012", "source": "runs/r012/metrics.json", "tolerance": 0.005}
 ```
@@ -401,7 +405,7 @@ Scientific reliability is the core of the design and of the evaluation, not an a
    4. Check conditions, limitations and scope: dataset, metric, population and experimental setting.
    5. Have a second model from a different family assess the claim independently. Disagreement sets the status to `insufficient_evidence` and flags the claim at the human gate.
    6. Record status, confidence and which text was checked in the claim ledger.
-3. **Numeric traceability.** A deterministic checker matches every number in the manuscript to its source by source type (section 7). For computed results it compares metric, dataset, model, split and unit as well as the value, so 0.95 accuracy cannot stand in for 0.95 AUC, and a relative change cannot stand in for an absolute one. Mismatches beyond the record's tolerance block the manuscript.
+3. **Numeric traceability.** A deterministic checker matches every number in the manuscript to its source by source type (section 7). For computed results it compares metric, dataset, model, split and unit as well as the value, so 0.95 accuracy cannot stand in for 0.95 AUC, and a relative change cannot stand in for an absolute one. Mismatches beyond the record's tolerance block the manuscript. A verified result claim has confidence high; any other result claim has low. A derived claim is verified only if every parent claim is verified, and its confidence is the lowest confidence among its parents.
 4. **Internal consistency.** The same quantity must agree across text, tables and figures. All three are generated from the same result record, and the checker confirms it.
 
 The results are written to `verification.md` and attached to every output.

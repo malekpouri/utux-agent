@@ -22,6 +22,9 @@ instead of defining a new pattern.
 - `Actor`: `agent:<role>`, `human:<id>` or `system:<component>`, for example
   `system:utux`.
 - `EventId`: `e-` and at least six digits, for example `e-000913`.
+- `ClaimId` and `ResultId`: `C` or `R` and at least three digits.
+- `RelativePath`: a path inside the project, relative, with `/` as separator
+  and without `.` or `..` parts. Every path stored in a contract uses it.
 - `NonEmptyText`, `Count` and `NonNegativeUsd` for text, whole numbers of
   zero or more, and amounts of money that may be zero.
 
@@ -84,6 +87,15 @@ instead of defining a new pattern.
   a missing reason on `status_reason`, a missing model on `model`.
 - A file with one record per line (`.jsonl`) is validated line by line. An
   error names the source as `path:line`.
+
+## Entries of several kinds
+
+- A list whose entries can be of several kinds uses one field that names the
+  kind, such as `evidence_type`, and one model per kind.
+- A problem inside an entry is reported on its exact path, for example
+  `evidence.0.quote`, without the kind in the path.
+- A closed set that comes from a document is tested against the text of that
+  document, so the code and the document cannot drift apart silently.
 
 ## Fixtures and tests
 

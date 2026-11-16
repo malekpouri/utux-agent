@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "R0044",
+  "metric": "row_count",
+  "value": 1200,
+  "unit": "rows",
+  "dataset": "dataset_x",
+  "model": null,
+  "split": null,
+  "run_id": "r012",
+  "source": "runs/r012/metrics.json",
+  "tolerance": 0
+}

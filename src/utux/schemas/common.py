@@ -86,3 +86,28 @@ Count = Annotated[int, Field(ge=0, strict=True)]
 
 NonNegativeUsd = Annotated[float, Field(ge=0, allow_inf_nan=False, strict=True)]
 """An amount of money in US dollars that may be zero."""
+
+ClaimId = Annotated[str, Field(pattern=r"^C[0-9]{3,}$", strict=True)]
+"""A claim id: `C` and at least three digits, for example `C031`."""
+
+ResultId = Annotated[str, Field(pattern=r"^R[0-9]{3,}$", strict=True)]
+"""A result record id: `R` and at least three digits, for example `R0042`."""
+
+
+def _check_relative_path(value: str) -> str:
+    parts = value.split("/")
+    if not value or "\\" in value or any(part in ("", ".", "..") for part in parts):
+        raise PydanticCustomError(
+            "not_relative_path",
+            "must be a path inside the project, relative, with / as separator "
+            "and without . or .. parts",
+        )
+    return value
+
+
+RelativePath = Annotated[str, Field(strict=True), AfterValidator(_check_relative_path)]
+"""A path inside the project directory, such as `runs/r012/metrics.json`.
+
+Absolute paths and paths with `..` are refused, so a contract file can never
+point outside its project.
+"""

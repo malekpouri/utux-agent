@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "R0043",
+  "metric": "loss_change",
+  "value": -3,
+  "unit": "percent",
+  "dataset": "dataset_x",
+  "model": "model_a",
+  "split": "test",
+  "run_id": "r012",
+  "source": "runs/r012/metrics.json",
+  "tolerance": 0
+}
