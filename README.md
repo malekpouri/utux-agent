@@ -22,6 +22,7 @@ does nothing else yet. See `docs/plan/M0.md` for what is being built.
 - [Artifact metadata and content hashes](docs/artifact-metadata.md)
 - [The `ModelProvider` interface](docs/model-provider.md)
 - [Events and the event log](docs/event-log.md)
+- [Claim ledger and result records](docs/claim-ledger.md)
 
 ## Development
 
