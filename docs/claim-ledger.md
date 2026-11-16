@@ -31,17 +31,39 @@ field is required; a field that does not apply is `null`.
 | `kind` | `finding`, `quantitative`, `method`, `definition` or `background` | The kind of assertion |
 | `text` | text | The claim |
 | `span` | `file`, `start`, `end` | Where the claim sits: a path inside the project and character offsets, with `end` after `start` |
-| `status` | see below | The verdict |
-| `confidence` | `high`, `medium` or `low` | Ordinal level, set by rule |
+| `status` | see below | The verdict. Always the final, usable value |
+| `confidence` | `high`, `medium` or `low` | Ordinal level. Always the final, usable value |
 | `needs_human` | boolean | Whether the claim goes to human review |
 | `reasons` | list of reasons; may be empty | Machine-readable causes of the verdict |
 | `evidence` | list of evidence entries; may be empty | See below |
-| `verified_by` | list | Each item is a check with its version, such as `support_check@1`, or `human:<id>` |
-| `check_id` | `k-` and at least six digits, or null | The check run that set the verdict |
+| `verified_by` | list | Each item is a check with its version, such as `support_check@1`, or `human:<id>`. Empty only for an `unverified` claim |
+| `check_id` | `k-` and at least six digits, or null | The check run that set the verdict. Null only for an `unverified` claim |
 | `trace` | path inside the project, or null | The full record of that run |
 | `claim_hash` | content hash | Hash of the claim text and its source ids |
-| `checked_at` | UTC timestamp or null | When the check ran |
-| `human` | object or null | The human review: `reviewer` (`human:<id>`), `decision` (a status), `note` (text or null) and `reviewed_at`. The machine verdict stays in `status` and `confidence` |
+| `checked_at` | UTC timestamp or null | When the check ran. Null only for an `unverified` claim |
+| `human` | object or null | The human review. See below |
+
+### Human review
+
+`status` and `confidence` are always the final, usable values. Code that
+asks whether a claim may be used reads them and nothing else.
+
+A review is pending when `needs_human` is true and `human` is null.
+
+When a person has reviewed the claim, `human` holds:
+
+| Field | Form | Meaning |
+| --- | --- | --- |
+| `reviewer` | `human:<id>` | The person |
+| `decision` | a status | The status the person set |
+| `note` | text or null | The person's note |
+| `reviewed_at` | UTC timestamp | When the review was made |
+| `machine_status` | a status | The status the machine had set before the review |
+| `machine_confidence` | a confidence level | The confidence the machine had set |
+
+After a review, `status` equals `human.decision` and the reviewer is listed
+in `verified_by`. The machine verdict is kept in `machine_status` and
+`machine_confidence`.
 
 ### Closed sets
 
@@ -84,7 +106,12 @@ Each rule is reported on the field to change.
 | Rule | Field | Code |
 | --- | --- | --- |
 | `high` and `medium` confidence require the status `verified` | `confidence` | `confidence_requires_verified` |
-| A verified claim has at least one evidence entry | `evidence` | `evidence_required` |
+| A claim that is `verified`, `partially_supported` or `contradicted` has at least one evidence entry | `evidence` | `evidence_required` |
+| A claim whose status is not `unverified` has a check id and a check time | `check_id`, `checked_at` | `check_required` |
+| A claim whose status is not `unverified` lists at least one check or person | `verified_by` | `verified_by_required` |
+| After a review, the status is the human decision | `status` | `status_differs_from_human_decision` |
+| After a review, the reviewer is listed in `verified_by` | `verified_by` | `human_reviewer_missing` |
+| The machine confidence follows the same rule as the confidence | `human.machine_confidence` | `confidence_requires_verified` |
 | A claim takes only the evidence type of its claim type | `evidence.<n>.evidence_type` | `evidence_type_mismatch` |
 | A derived claim cannot follow from itself | `evidence.<n>.id` | `self_reference` |
 | A scope flag has the severity RFC-001 gives it | `evidence.<n>.scope_flags.<m>.severity` | `severity_mismatch` |
@@ -98,7 +125,9 @@ the schema.
 
 ## Result record
 
-A number is never stored bare. Every field is required.
+A number is never stored bare. Every field is required; `model` and `split`
+may be null, for a value that belongs to no model or split, such as a
+statistic of a dataset.
 
 | Field | Form | Meaning |
 | --- | --- | --- |
@@ -108,8 +137,8 @@ A number is never stored bare. Every field is required.
 | `value` | number | The value |
 | `unit` | text | The unit of the value |
 | `dataset` | text | The dataset |
-| `model` | text | The model |
-| `split` | text | The split of the dataset |
+| `model` | text or null | The model |
+| `split` | text or null | The split of the dataset |
 | `run_id` | text | The run that produced the value |
 | `source` | path inside the project | The file that holds the value |
-| `tolerance` | number, 0 or more | How far a number in the manuscript may differ. Zero means an exact match |
+| `tolerance` | number, 0 or more | How far a number in the manuscript may differ from `value`: an absolute difference, in the unit of the value. Zero means an exact match |

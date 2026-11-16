@@ -19,7 +19,7 @@ from utux.schemas.json_io import parse_json, read_json
 class ResultRecord(ContractDocument):
     """One computed value with everything that gives it meaning.
 
-    Every field is required.
+    Every field is required; `model` and `split` may be null.
 
     Attributes:
         id: Id of the record.
@@ -27,12 +27,14 @@ class ResultRecord(ContractDocument):
         value: The value.
         unit: The unit of the value.
         dataset: The dataset the value was computed on.
-        model: The model the value belongs to.
-        split: The split of the dataset, for example `test`.
+        model: The model the value belongs to, or null when it belongs to
+            none, as for a statistic of a dataset.
+        split: The split of the dataset, for example `test`, or null.
         run_id: The run that produced the value.
         source: The file inside the project that holds the value.
         tolerance: How far a number in the manuscript may differ from the
-            value. Zero means it must match exactly.
+            value: an absolute difference, in the unit of the value. Zero
+            means it must match exactly.
     """
 
     SCHEMA_VERSION: ClassVar[int] = 1
@@ -42,8 +44,8 @@ class ResultRecord(ContractDocument):
     value: Annotated[float, Field(allow_inf_nan=False, strict=True)]
     unit: NonEmptyText
     dataset: NonEmptyText
-    model: NonEmptyText
-    split: NonEmptyText
+    model: NonEmptyText | None
+    split: NonEmptyText | None
     run_id: NonEmptyText
     source: RelativePath
     tolerance: Annotated[float, Field(ge=0, allow_inf_nan=False, strict=True)]

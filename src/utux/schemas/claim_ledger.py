@@ -163,6 +163,28 @@ class ExtractionQuality(StrEnum):
     DEGRADED = "degraded"
 
 
+def _confidence_requires_verified(
+    confidence: Confidence, status: ClaimStatus
+) -> PydanticCustomError:
+    return PydanticCustomError(
+        "confidence_requires_verified",
+        "confidence {confidence} requires the status verified, not {status}",
+        {"confidence": confidence.value, "status": status.value},
+    )
+
+
+def _problem(code: str, reason: str, *loc: str | int) -> InitErrorDetails:
+    return {"type": PydanticCustomError(code, reason), "loc": loc, "input": None}
+
+
+_CHECK_REQUIRED = "must not be null for a claim whose status is not unverified"
+
+# The statuses that say something about evidence, and so need an entry.
+_STATUSES_THAT_REST_ON_EVIDENCE = frozenset(
+    {ClaimStatus.VERIFIED, ClaimStatus.PARTIALLY_SUPPORTED, ClaimStatus.CONTRADICTED}
+)
+
+
 class Span(ContractPart):
     """Where the claim sits in a file of the project, as character offsets."""
 
@@ -315,13 +337,39 @@ Evidence = Annotated[
 class HumanReview(ContractPart):
     """The decision of a person who reviewed the claim.
 
-    The machine verdict stays in the entry's own `status` and `confidence`.
+    The entry's own `status` and `confidence` are always the final, usable
+    values. After a review the entry's `status` equals `decision`, and the
+    verdict the machine had reached is kept here.
+
+    Attributes:
+        reviewer: The person, as `human:<id>`.
+        decision: The status the person set.
+        note: The person's note, or null.
+        reviewed_at: When the review was made.
+        machine_status: The status the machine had set before the review.
+        machine_confidence: The confidence the machine had set.
     """
 
     reviewer: Annotated[str, Field(pattern=r"^human:[a-z0-9][a-z0-9_.-]*$", strict=True)]
     decision: ClaimStatus
     note: NonEmptyText | None
     reviewed_at: UtcTimestamp
+    machine_status: ClaimStatus
+    machine_confidence: Confidence
+
+    @field_validator("machine_confidence")
+    @classmethod
+    def _machine_confidence_fits_machine_status(
+        cls, value: Confidence, info: ValidationInfo
+    ) -> Confidence:
+        status = info.data.get("machine_status")
+        if (
+            status is not None
+            and value is not Confidence.LOW
+            and status is not ClaimStatus.VERIFIED
+        ):
+            raise _confidence_requires_verified(value, status)
+        return value
 
 
 VerifiedBy = Annotated[
@@ -343,21 +391,27 @@ class ClaimLedgerEntry(ContractDocument):
         kind: The kind of assertion.
         text: The claim.
         span: Where the claim sits in the project's text.
-        status: The verdict.
-        confidence: Ordinal level. `high` and `medium` require `verified`.
-        needs_human: Whether the claim goes to human review.
+        status: The verdict. Always the final, usable value: after a human
+            review it is the person's decision.
+        confidence: Ordinal level, also final. `high` and `medium` require
+            `verified`.
+        needs_human: Whether the claim goes to human review. The review is
+            pending while this is true and `human` is null.
         reasons: Machine-readable causes of the verdict.
         evidence: The evidence entries. A literature claim takes only
             `source` entries, a result claim only `result_record` entries and
-            a derived claim only `claim` entries. A verified claim has at
-            least one.
+            a derived claim only `claim` entries. A claim that is verified,
+            partially supported or contradicted has at least one.
         verified_by: The checks, with their versions, and people behind the
-            verdict.
-        check_id: The check run that set the verdict, or null if none ran.
+            verdict. Not empty unless the status is `unverified`.
+        check_id: The check run that set the verdict. Null only for a claim
+            whose status is `unverified`.
         trace: Path to the full record of that run, or null.
         claim_hash: Hash of the claim text and its source ids.
-        checked_at: When the check ran, or null.
-        human: The human review, or null.
+        checked_at: When the check ran. Null only for a claim whose status
+            is `unverified`.
+        human: The human review with the machine verdict it replaced, or
+            null.
     """
 
     SCHEMA_VERSION: ClassVar[int] = 1
@@ -386,25 +440,51 @@ class ClaimLedgerEntry(ContractDocument):
         if self.confidence is not Confidence.LOW and self.status is not ClaimStatus.VERIFIED:
             errors.append(
                 {
-                    "type": PydanticCustomError(
-                        "confidence_requires_verified",
-                        "confidence {confidence} requires the status verified, not {status}",
-                        {"confidence": self.confidence.value, "status": self.status.value},
-                    ),
+                    "type": _confidence_requires_verified(self.confidence, self.status),
                     "loc": ("confidence",),
                     "input": None,
                 }
             )
-        if self.status is ClaimStatus.VERIFIED and not self.evidence:
+        if self.status in _STATUSES_THAT_REST_ON_EVIDENCE and not self.evidence:
             errors.append(
-                {
-                    "type": PydanticCustomError(
-                        "evidence_required", "a verified claim needs at least one evidence entry"
-                    ),
-                    "loc": ("evidence",),
-                    "input": None,
-                }
+                _problem(
+                    "evidence_required",
+                    f"a claim with status {self.status.value} needs at least one evidence entry",
+                    "evidence",
+                )
             )
+        if self.status is not ClaimStatus.UNVERIFIED:
+            # A verdict was reached, so the entry says by what and when.
+            if self.check_id is None:
+                errors.append(_problem("check_required", _CHECK_REQUIRED, "check_id"))
+            if self.checked_at is None:
+                errors.append(_problem("check_required", _CHECK_REQUIRED, "checked_at"))
+            if not self.verified_by:
+                errors.append(
+                    _problem(
+                        "verified_by_required",
+                        "a claim with a verdict lists at least one check or person",
+                        "verified_by",
+                    )
+                )
+        if self.human is not None:
+            if self.status is not self.human.decision:
+                errors.append(
+                    _problem(
+                        "status_differs_from_human_decision",
+                        f"after a review the status is the human decision, "
+                        f"{self.human.decision.value}",
+                        "status",
+                    )
+                )
+            if self.human.reviewer not in self.verified_by:
+                errors.append(
+                    _problem(
+                        "human_reviewer_missing",
+                        f"the reviewer {self.human.reviewer} must be listed",
+                        "verified_by",
+                    )
+                )
         expected = EVIDENCE_FOR[self.type]
         for position, entry in enumerate(self.evidence):
             if entry.evidence_type != expected:
@@ -425,17 +505,22 @@ class ClaimLedgerEntry(ContractDocument):
                 )
             elif isinstance(entry, ClaimEvidence) and entry.id == self.id:
                 errors.append(
-                    {
-                        "type": PydanticCustomError(
-                            "self_reference", "a claim cannot follow from itself"
-                        ),
-                        "loc": ("evidence", position, "id"),
-                        "input": None,
-                    }
+                    _problem(
+                        "self_reference",
+                        "a claim cannot follow from itself",
+                        "evidence",
+                        position,
+                        "id",
+                    )
                 )
         if errors:
             raise ValidationError.from_exception_data(type(self).__name__, errors)
         return self
+
+    @property
+    def review_pending(self) -> bool:
+        """Whether the claim waits for a person: flagged, and not yet reviewed."""
+        return self.needs_human and self.human is None
 
     @classmethod
     def from_json(cls, text: str, source: str = "claim ledger entry") -> Self:
