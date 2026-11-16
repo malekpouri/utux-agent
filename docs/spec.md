@@ -378,7 +378,7 @@ Append-only is enforced by the application, not by the file system, so the log i
 
 ### Approvals
 
-The core writes `approvals/<id>.request.json` and pauses. The CLI, or any future interface, writes `approvals/<id>.response.json` with `approve`, `reject` or `edit` and the edited content. Responses are written atomically: temporary file, then rename.
+The core writes `approvals/<id>.request.json` and pauses. The CLI, or any future interface, writes `approvals/<id>.response.json` with `approve`, `reject` or `edit` and, for an edit, the id and content hash of the edited version the person saved. Responses are written atomically: temporary file, then rename.
 
 ## 8. Reliability design
 
