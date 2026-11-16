@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "R0042",
+  "metric": "AUC",
+  "value": "0.95",
+  "unit": "score",
+  "dataset": "dataset_x",
+  "model": "model_a",
+  "split": "test",
+  "run_id": "r012",
+  "source": "runs/r012/metrics.json",
+  "tolerance": 0.005
+}
