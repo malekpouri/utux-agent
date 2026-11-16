@@ -1,12 +1,13 @@
 """Enumerations and field types shared by several contract schemas."""
 
+import math
 import re
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated
 
-from pydantic import AfterValidator, Field
-from pydantic_core import PydanticCustomError
+from pydantic import AfterValidator, BeforeValidator, Field, ValidationError
+from pydantic_core import InitErrorDetails, PydanticCustomError
 
 
 class Stage(StrEnum):
@@ -111,3 +112,37 @@ RelativePath = Annotated[str, Field(strict=True), AfterValidator(_check_relative
 Absolute paths and paths with `..` are refused, so a contract file can never
 point outside its project.
 """
+
+Scalar = str | int | float | bool | None
+"""A value in a flat object: a string, a number, a boolean or null."""
+
+
+def _check_flat(value: object) -> object:
+    """Reject nested values before the field's own type check runs.
+
+    One problem is reported per offending value, on its own key.
+    """
+    if not isinstance(value, dict):
+        return value
+    errors: list[InitErrorDetails] = [
+        {
+            "type": PydanticCustomError(
+                "not_scalar", "must be a string, a number, a boolean or null"
+            ),
+            "loc": (str(key),),
+            "input": None,
+        }
+        for key, item in value.items()
+        if not (item is None or isinstance(item, str | int | float | bool))
+        or (isinstance(item, float) and not math.isfinite(item))
+    ]
+    if errors:
+        raise ValidationError.from_exception_data("flat object", errors)
+    return value
+
+
+FlatObject = Annotated[dict[str, Scalar], BeforeValidator(_check_flat)]
+"""An object whose values are all scalars. A nested value has code `not_scalar`."""
+
+RunId = Annotated[str, Field(pattern=r"^r[0-9]{3,}$", strict=True)]
+"""A run id: `r` and at least three digits, for example `r012`."""

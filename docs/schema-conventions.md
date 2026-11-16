@@ -22,9 +22,12 @@ instead of defining a new pattern.
 - `Actor`: `agent:<role>`, `human:<id>` or `system:<component>`, for example
   `system:utux`.
 - `EventId`: `e-` and at least six digits, for example `e-000913`.
-- `ClaimId` and `ResultId`: `C` or `R` and at least three digits.
+- `ClaimId`, `ResultId` and `RunId`: `C`, `R` or `r` and at least three
+  digits.
 - `RelativePath`: a path inside the project, relative, with `/` as separator
   and without `.` or `..` parts. Every path stored in a contract uses it.
+- `FlatObject`: an object whose values are strings, numbers, booleans or
+  null. A nested value has code `not_scalar`.
 - `NonEmptyText`, `Count` and `NonNegativeUsd` for text, whole numbers of
   zero or more, and amounts of money that may be zero.
 
@@ -33,7 +36,10 @@ instead of defining a new pattern.
 - `utux.schemas.yaml_io` and `utux.schemas.json_io` read a file into plain
   data. Both refuse a key that appears twice in one mapping.
 - A document model offers `from_yaml` or `from_json`, the matching `to_...`
-  method, and a module-level `load_...(path)` function.
+  method, and a module-level `load_...(path)` function. `ContractDocument`
+  provides `from_json` and `to_json` for contracts stored as one JSON file.
+- A new contract is added to `CONTRACTS` in `utux.schemas.export`. A test
+  fails if a `ContractDocument` subclass is missing from it.
 - An example from the specification or an RFC is tested by reading it from
   the document itself. Where an example elides a digest as `"sha256:..."`,
   the test replaces only that placeholder with a synthetic digest.

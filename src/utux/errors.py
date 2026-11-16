@@ -127,3 +127,7 @@ class EventLogCorruptError(EventLogError):
         self.path = path
         self.line = line
         super().__init__(f"{path}: line {line}: {reason}")
+
+
+class SchemaExportError(UtuxError):
+    """The JSON Schema files could not be written."""

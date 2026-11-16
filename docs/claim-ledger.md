@@ -139,6 +139,6 @@ statistic of a dataset.
 | `dataset` | text | The dataset |
 | `model` | text or null | The model |
 | `split` | text or null | The split of the dataset |
-| `run_id` | text | The run that produced the value |
+| `run_id` | `r` and at least three digits, for example `r012` | The run that produced the value, as in its run manifest |
 | `source` | path inside the project | The file that holds the value |
 | `tolerance` | number, 0 or more | How far a number in the manuscript may differ from `value`: an absolute difference, in the unit of the value. Zero means an exact match |

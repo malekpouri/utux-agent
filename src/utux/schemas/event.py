@@ -6,12 +6,11 @@ every field, with null where a field does not apply.
 """
 
 import json
-import math
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, ClassVar, Self
+from typing import ClassVar, Self
 
-from pydantic import BeforeValidator, Field, ValidationError, ValidationInfo, field_validator
+from pydantic import Field, ValidationError, ValidationInfo, field_validator
 from pydantic_core import InitErrorDetails, PydanticCustomError
 
 from utux.schemas.base import ContractDocument, ContractPart
@@ -20,9 +19,11 @@ from utux.schemas.common import (
     ArtifactId,
     Count,
     EventId,
+    FlatObject,
     Identifier,
     NonEmptyText,
     NonNegativeUsd,
+    Scalar,
     Sha256Hash,
     Stage,
     Tier,
@@ -61,9 +62,6 @@ class EventStatus(StrEnum):
     REFUSED = "refused"
 
 
-Scalar = str | int | float | bool | None
-"""A value in the `data` object of an event."""
-
 # The keys of `data` for each event type. A type that is not listed accepts
 # only an empty object, until the task that emits it defines its keys.
 _DATA_KEYS: dict[EventType, tuple[str, ...]] = {
@@ -93,30 +91,6 @@ def _check_model(value: str | None, info: ValidationInfo) -> str | None:
     return value
 
 
-def _check_data_is_flat(value: object) -> object:
-    """Reject nested values before the field's own type check runs.
-
-    One problem is reported per offending value, on its own key.
-    """
-    if not isinstance(value, dict):
-        return value
-    errors: list[InitErrorDetails] = [
-        {
-            "type": PydanticCustomError(
-                "not_scalar", "must be a string, a number, a boolean or null"
-            ),
-            "loc": (str(key),),
-            "input": None,
-        }
-        for key, item in value.items()
-        if not (item is None or isinstance(item, str | int | float | bool))
-        or (isinstance(item, float) and not math.isfinite(item))
-    ]
-    if errors:
-        raise ValidationError.from_exception_data("data", errors)
-    return value
-
-
 def _check_data_keys(value: dict[str, Scalar], info: ValidationInfo) -> dict[str, Scalar]:
     kind = info.data.get("type")
     if kind is None:
@@ -140,7 +114,7 @@ def _check_data_keys(value: dict[str, Scalar], info: ValidationInfo) -> dict[str
     return value
 
 
-EventData = Annotated[dict[str, Scalar], BeforeValidator(_check_data_is_flat)]
+EventData = FlatObject
 """The `data` object: flat, with scalar values only."""
 
 

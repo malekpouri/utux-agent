@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "source_id": "pmid:00000000",
+  "url": "https://example.org/paper/10.0000/example",
+  "licence": "CC-BY-4.0",
+  "redistribution": "none",
+  "source_version": "publisher",
+  "retrieval_route": "openalex",
+  "retrieved_at": "2026-11-15T09:12:00Z",
+  "stored_text": null,
+  "text_hash": null,
+  "extraction_method": null,
+  "extraction_tool_version": null,
+  "extraction_quality": null
+}
