@@ -6,12 +6,13 @@ every field, with null where a field does not apply.
 """
 
 import json
+import math
 from enum import StrEnum
 from pathlib import Path
-from typing import ClassVar, Self
+from typing import Annotated, ClassVar, Self
 
-from pydantic import ValidationInfo, field_validator
-from pydantic_core import PydanticCustomError
+from pydantic import BeforeValidator, Field, ValidationError, ValidationInfo, field_validator
+from pydantic_core import InitErrorDetails, PydanticCustomError
 
 from utux.schemas.base import ContractDocument, ContractPart
 from utux.schemas.common import (
@@ -19,6 +20,7 @@ from utux.schemas.common import (
     ArtifactId,
     Count,
     EventId,
+    Identifier,
     NonEmptyText,
     NonNegativeUsd,
     Sha256Hash,
@@ -44,13 +46,102 @@ class EventType(StrEnum):
     BUDGET_WARNING = "budget_warning"
     SETTING_CHANGED = "setting_changed"
     ERROR = "error"
+    LOG_REPAIRED = "log_repaired"
 
 
 class EventStatus(StrEnum):
-    """Whether what the event records succeeded."""
+    """How what the event records ended.
+
+    `REFUSED` means that utux itself declined the action, for example a call
+    to an external provider under the data policy `local_only`.
+    """
 
     OK = "ok"
     ERROR = "error"
+    REFUSED = "refused"
+
+
+Scalar = str | int | float | bool | None
+"""A value in the `data` object of an event."""
+
+# The keys of `data` for each event type. A type that is not listed accepts
+# only an empty object, until the task that emits it defines its keys.
+_DATA_KEYS: dict[EventType, tuple[str, ...]] = {
+    EventType.SETTING_CHANGED: ("key", "old_value", "new_value"),
+}
+
+
+def _check_status_reason(value: str | None, info: ValidationInfo) -> str | None:
+    status = info.data.get("status")
+    if status is None:
+        # The status is invalid and is reported on its own field.
+        return value
+    if status is EventStatus.OK and value is not None:
+        raise PydanticCustomError("status_reason_not_allowed", "must be null when the status is ok")
+    if status is not EventStatus.OK and value is None:
+        raise PydanticCustomError(
+            "status_reason_required",
+            "a status of {status} needs a reason code",
+            {"status": status.value},
+        )
+    return value
+
+
+def _check_model(value: str | None, info: ValidationInfo) -> str | None:
+    if value is None and info.data.get("type") is EventType.MODEL_CALL:
+        raise PydanticCustomError("model_required", "a model_call event must name its model")
+    return value
+
+
+def _check_data_is_flat(value: object) -> object:
+    """Reject nested values before the field's own type check runs.
+
+    One problem is reported per offending value, on its own key.
+    """
+    if not isinstance(value, dict):
+        return value
+    errors: list[InitErrorDetails] = [
+        {
+            "type": PydanticCustomError(
+                "not_scalar", "must be a string, a number, a boolean or null"
+            ),
+            "loc": (str(key),),
+            "input": None,
+        }
+        for key, item in value.items()
+        if not (item is None or isinstance(item, str | int | float | bool))
+        or (isinstance(item, float) and not math.isfinite(item))
+    ]
+    if errors:
+        raise ValidationError.from_exception_data("data", errors)
+    return value
+
+
+def _check_data_keys(value: dict[str, Scalar], info: ValidationInfo) -> dict[str, Scalar]:
+    kind = info.data.get("type")
+    if kind is None:
+        # The type is invalid and is reported on its own field.
+        return value
+    expected = _DATA_KEYS.get(kind, ())
+    errors: list[InitErrorDetails] = [
+        {"type": "missing", "loc": (key,), "input": None} for key in expected if key not in value
+    ]
+    errors += [
+        {"type": "extra_forbidden", "loc": (key,), "input": None}
+        for key in value
+        if key not in expected
+    ]
+    if kind is EventType.SETTING_CHANGED and "key" in value:
+        name = value["key"]
+        if not isinstance(name, str) or not name:
+            errors.append({"type": "string_type", "loc": ("key",), "input": None})
+    if errors:
+        raise ValidationError.from_exception_data("data", errors)
+    return value
+
+
+EventData = Annotated[dict[str, Scalar], BeforeValidator(_check_data_is_flat)]
+"""The `data` object: flat, with scalar values only."""
 
 
 def event_number(event_id: str) -> int:
@@ -68,12 +159,14 @@ class NewEvent(ContractPart):
 
     It has every field of `Event` except the three that the event log sets:
     `schema_version`, `event_id` and `ts`. Only `actor`, `type` and `status`
-    must be given; a field that does not apply is left as None.
+    must be given; a field that does not apply is left as None. The rules
+    between fields are checked when the log stores the event.
     """
 
     actor: Actor
     type: EventType
     status: EventStatus
+    status_reason: Identifier | None = None
     run_id: NonEmptyText | None = None
     request_id: NonEmptyText | None = None
     parent_id: EventId | None = None
@@ -87,8 +180,9 @@ class NewEvent(ContractPart):
     tokens_out: Count | None = None
     cost_usd: NonNegativeUsd | None = None
     duration_ms: Count | None = None
-    retry_reason: NonEmptyText | None = None
+    retry_reason: Identifier | None = None
     escalated_from: Tier | None = None
+    data: EventData = Field(default_factory=dict)
     artifacts: tuple[ArtifactId, ...] = ()
 
 
@@ -104,7 +198,7 @@ class Event(ContractDocument):
         actor: Who acted.
         stage: The pipeline stage, if the event belongs to one.
         type: What happened.
-        model: The model id, for a model call.
+        model: The model id. Required for a model call.
         prompt_version: The prompt version, for a model call.
         tool_version: The tool version, for a tool call.
         input_hash: Hash of what was sent. The content itself is not stored.
@@ -114,9 +208,16 @@ class Event(ContractDocument):
         cost_usd: Cost in US dollars, or null when it is not known. A cost is
             never guessed, and zero is a known cost.
         duration_ms: How long it took, in milliseconds.
-        status: Whether it succeeded.
-        retry_reason: Why a call was repeated.
+        status: `ok`, `error`, or `refused` when utux itself declined the
+            action.
+        status_reason: A stable machine code that explains a status other
+            than `ok`, such as `model_timeout`. Null exactly when the status
+            is `ok`. No free-text error message is stored in an event.
+        retry_reason: A machine code for why a call was repeated.
         escalated_from: The tier a call was moved up from.
+        data: Details that are specific to the event type: a flat object of
+            scalar values with defined keys per type, empty when the type
+            defines none. Message content and source text never go here.
         artifacts: The artifact versions the event produced or concerns.
     """
 
@@ -140,9 +241,15 @@ class Event(ContractDocument):
     cost_usd: NonNegativeUsd | None
     duration_ms: Count | None
     status: EventStatus
-    retry_reason: NonEmptyText | None
+    status_reason: Identifier | None
+    retry_reason: Identifier | None
     escalated_from: Tier | None
+    data: EventData
     artifacts: tuple[ArtifactId, ...]
+
+    _status_reason_matches_status = field_validator("status_reason")(_check_status_reason)
+    _model_call_names_its_model = field_validator("model")(_check_model)
+    _data_has_the_keys_of_its_type = field_validator("data")(_check_data_keys)
 
     @field_validator("parent_id")
     @classmethod

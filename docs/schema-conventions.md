@@ -78,6 +78,10 @@ instead of defining a new pattern.
   `null`; it is not left out. `Event` is the example.
 - Where code builds a document step by step, a separate input model with
   defaults is used, such as `NewEvent`, and the stored model stays strict.
+- A field that explains a failure holds a stable machine code, not a
+  message. No free-text error message is stored in a contract file.
+- A rule between two fields is reported on the field the user must change:
+  a missing reason on `status_reason`, a missing model on `model`.
 - A file with one record per line (`.jsonl`) is validated line by line. An
   error names the source as `path:line`.
 

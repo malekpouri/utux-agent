@@ -296,6 +296,8 @@ def test_parent_must_be_an_earlier_event() -> None:
 @pytest.mark.parametrize("field", ["run_id", "request_id", "model", "prompt_version"])
 def test_text_fields_may_be_null_but_not_empty(field: str) -> None:
     document = _valid_document()
+    # Not a model_call, which must name its model.
+    document["type"] = "stage_start"
     document[field] = None
     assert getattr(Event.from_json(json.dumps(document)), field) is None
     document[field] = ""
@@ -395,9 +397,9 @@ def test_no_field_of_an_event_holds_a_free_text_message() -> None:
     """The fields that explain a failure accept codes only."""
     for field in ("status_reason", "retry_reason"):
         for text in ("Connection reset by peer", "timeout after 30 s"):
-            status = {"status": "error"} if field == "retry_reason" else {"status": "error"}
-            reason = {"status_reason": "model_timeout"} if field == "retry_reason" else {}
-            problems = _problems(_with(**status, **reason, **{field: text}))
+            document = _with(status="error", status_reason="model_timeout")
+            document[field] = text
+            problems = _problems(document)
             assert [name for name, _ in problems] == [field]
     assert "message" not in Event.model_fields
     assert "error" not in Event.model_fields

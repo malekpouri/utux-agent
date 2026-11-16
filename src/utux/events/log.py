@@ -72,7 +72,6 @@ class EventLog:
             EventLogError: If the file cannot be opened or written, or the
                 clock does not return a UTC time.
         """
-        timestamp = self._timestamp()
         try:
             # O_APPEND: every write goes to the end of the file. No O_TRUNC.
             fd = os.open(self._path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
@@ -80,11 +79,13 @@ class EventLog:
             raise EventLogError(f"cannot open {self._path}: {error.strerror}") from error
         try:
             fcntl.flock(fd, fcntl.LOCK_EX)
+            # The clock is read while the lock is held, so the time of an
+            # event is never earlier than that of an event with a lower id.
             stored = Event.validate_document(
                 {
                     "schema_version": Event.SCHEMA_VERSION,
                     "event_id": format_event_id(self._last_number() + 1),
-                    "ts": timestamp,
+                    "ts": self._timestamp(),
                     **event.model_dump(mode="json"),
                 },
                 str(self._path),
