@@ -138,8 +138,8 @@ source_record.schema.json
 ```
 
 The directory is created if it does not exist. Existing schema files are
-replaced; other files are left alone. The output is the same for the same
-version of utux.
+replaced, through the atomic writer; other files are left alone. The output
+is the same for the same version of utux.
 
 A JSON Schema states the fields, their types and the closed sets. It does
 not state the rules between fields, such as "a verified claim needs
