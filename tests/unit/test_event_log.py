@@ -8,7 +8,7 @@ import threading
 import tracemalloc
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +24,7 @@ FIXED_TIME = datetime(2026, 11, 15, 10, 42, 7, 250_000, tzinfo=UTC)
 def _new(**changes: Any) -> NewEvent:
     fields: dict[str, Any] = {
         "actor": "system:utux",
-        "type": EventType.SETTING_CHANGED,
+        "type": EventType.STAGE_START,
         "status": EventStatus.OK,
     }
     return NewEvent(**{**fields, **changes})
@@ -56,8 +56,10 @@ def _line(number: int, **changes: Any) -> str:
         "cost_usd": 0.012,
         "duration_ms": 8400,
         "status": "ok",
+        "status_reason": None,
         "retry_reason": None,
         "escalated_from": None,
+        "data": {},
         "artifacts": [],
     }
     return json.dumps({**fields, **changes}) + "\n"
@@ -73,7 +75,12 @@ def test_append_writes_exactly_one_line_that_ends_with_a_newline(tmp_path: Path)
     first = path.read_bytes()
     assert first.endswith(b"\n")
     assert first.count(b"\n") == 1
-    log.append(_new(retry_reason="text with\na line break"))
+    log.append(
+        _new(
+            type=EventType.SETTING_CHANGED,
+            data={"key": "note", "old_value": None, "new_value": "text with\na line break"},
+        )
+    )
     second = path.read_bytes()
     # The file grew by exactly one line, and what was there is untouched.
     assert second.startswith(first)
@@ -143,7 +150,8 @@ def test_clock_that_is_not_utc_is_refused(tmp_path: Path) -> None:
     log = EventLog(tmp_path / "events.jsonl", clock=lambda: datetime(2026, 11, 15, 10, 0, 0))
     with pytest.raises(EventLogError):
         log.append(_new())
-    assert not (tmp_path / "events.jsonl").exists()
+    # The clock is read after the file is locked, so the file may exist; it holds no event.
+    assert list(log) == []
 
 
 # Event ids
@@ -305,7 +313,7 @@ def test_event_log_has_no_way_to_remove_or_change_events() -> None:
 
 def test_reading_returns_the_events_in_file_order(tmp_path: Path) -> None:
     log = _log(tmp_path)
-    written = [log.append(_new(retry_reason=f"event {n}")) for n in range(5)]
+    written = [log.append(_new(request_id=f"q-{n}")) for n in range(5)]
     assert list(log) == written
     # The log can be read more than once.
     assert list(log) == written
@@ -450,3 +458,96 @@ def test_reading_is_lazy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     assert next(events).event_id == "e-000001"
     assert 0 < read_bytes < size // 10
     assert next(events).event_id == "e-000002"
+
+
+# Timestamps and ids agree
+
+
+def test_timestamp_is_taken_while_the_log_is_locked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The clock is read after the lock is taken, so a later id never has an earlier time."""
+    from utux.events import log as log_module
+
+    steps: list[str] = []
+    real_flock = log_module.fcntl.flock
+
+    def recording_flock(fd: int, operation: int) -> None:
+        real_flock(fd, operation)
+        steps.append("lock")
+
+    def clock() -> datetime:
+        steps.append("clock")
+        return FIXED_TIME
+
+    monkeypatch.setattr(log_module.fcntl, "flock", recording_flock)
+    log = EventLog(tmp_path / "events.jsonl", clock=clock)
+    log.append(_new())
+    log.append(_new())
+    assert steps == ["lock", "clock", "lock", "clock"]
+
+
+def test_timestamps_do_not_decrease_as_ids_increase_across_threads(tmp_path: Path) -> None:
+    threads, per_thread = 8, 25
+    path = tmp_path / "events.jsonl"
+    tick = threading.Lock()
+    current = [FIXED_TIME]
+
+    def clock() -> datetime:
+        # Every reading of the clock is one millisecond later than the one before.
+        with tick:
+            current[0] += timedelta(milliseconds=1)
+            return current[0]
+
+    start = threading.Barrier(threads)
+
+    def worker() -> None:
+        log = EventLog(path, clock=clock)
+        start.wait(timeout=10)
+        for _ in range(per_thread):
+            log.append(_new())
+
+    with ThreadPoolExecutor(max_workers=threads) as pool:
+        for future in [pool.submit(worker) for _ in range(threads)]:
+            future.result(timeout=60)
+    stamps = [event.ts for event in EventLog(path)]
+    assert len(stamps) == threads * per_thread
+    assert stamps == sorted(stamps)
+    assert len(set(stamps)) == len(stamps)
+
+
+def test_event_one_million_follows_e_999999(tmp_path: Path) -> None:
+    path = tmp_path / "events.jsonl"
+    path.write_text(_line(999_998) + _line(999_999), encoding="utf-8")
+    log = _log(tmp_path)
+    million = log.append(_new())
+    assert million.event_id == "e-1000000"
+    # The seven-digit id is a valid event id, also as a parent.
+    assert Event.from_json(million.to_json_line()) == million
+    child = log.append(_new(parent_id="e-1000000"))
+    assert child.event_id == "e-1000001"
+    assert child.parent_id == "e-1000000"
+    # Reading compares ids as numbers: as text, "e-1000000" sorts before "e-999999".
+    assert [event.event_id for event in log] == [
+        "e-999998",
+        "e-999999",
+        "e-1000000",
+        "e-1000001",
+    ]
+
+
+# Events that are refused by the schema are not written
+
+
+def test_event_that_breaks_a_rule_is_not_written(tmp_path: Path) -> None:
+    log = _log(tmp_path)
+    log.append(_new())
+    before = (tmp_path / "events.jsonl").read_bytes()
+    for bad in (
+        _new(type=EventType.MODEL_CALL),  # no model
+        _new(status=EventStatus.ERROR),  # no reason
+        _new(data={"note": "x"}),  # key not defined for the type
+    ):
+        with pytest.raises(ContractValidationError):
+            log.append(bad)
+    assert (tmp_path / "events.jsonl").read_bytes() == before

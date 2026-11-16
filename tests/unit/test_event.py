@@ -38,8 +38,10 @@ SPEC_FIELDS = [
     "cost_usd",
     "duration_ms",
     "status",
+    "status_reason",
     "retry_reason",
     "escalated_from",
+    "data",
     "artifacts",
 ]
 
@@ -50,6 +52,8 @@ INVALID = [
     ("unknown_status.json", "status", "enum"),
     ("missing_actor.json", "actor", "missing"),
     ("missing_cost.json", "cost_usd", "missing"),
+    ("missing_status_reason.json", "status_reason", "missing"),
+    ("missing_data.json", "data", "missing"),
     ("unknown_key.json", "message", "unknown_key"),
     ("negative_tokens.json", "tokens_in", "greater_than_equal"),
     ("negative_cost.json", "cost_usd", "greater_than_equal"),
@@ -62,6 +66,16 @@ INVALID = [
     ("actor_without_kind.json", "actor", "string_pattern_mismatch"),
     ("parent_is_the_event_itself.json", "parent_id", "self_reference"),
     ("parent_is_a_later_event.json", "parent_id", "parent_not_earlier"),
+    ("error_without_status_reason.json", "status_reason", "status_reason_required"),
+    ("ok_with_status_reason.json", "status_reason", "status_reason_not_allowed"),
+    ("status_reason_is_a_sentence.json", "status_reason", "string_pattern_mismatch"),
+    ("retry_reason_is_a_sentence.json", "retry_reason", "string_pattern_mismatch"),
+    ("model_call_without_model.json", "model", "model_required"),
+    ("data_not_an_object.json", "data", "dict_type"),
+    ("data_key_not_defined_for_type.json", "data.note", "unknown_key"),
+    ("setting_changed_without_new_value.json", "data.new_value", "missing"),
+    ("setting_changed_value_is_nested.json", "data.new_value", "not_scalar"),
+    ("setting_changed_key_is_not_text.json", "data.key", "string_type"),
     ("newer_schema_version.json", "schema_version", "schema_version_newer"),
     ("not_an_object.json", "<document>", "not_a_mapping"),
     ("malformed_json.json", "<document>", "invalid_json"),
@@ -115,8 +129,10 @@ def test_model_call_fixture_reads_every_field() -> None:
     assert event.cost_usd == 0.012
     assert event.duration_ms == 8400
     assert event.status is EventStatus.OK
+    assert event.status_reason is None
     assert event.retry_reason is None
     assert event.escalated_from is None
+    assert event.data == {}
     assert event.artifacts == ("method-v003",)
 
 
@@ -130,10 +146,11 @@ def test_event_with_only_the_fields_that_always_apply() -> None:
 
 
 def test_escalation_names_the_tier_the_call_came_from() -> None:
-    event = load_event(FIXTURES / "valid" / "escalated_retry_without_cost.json")
+    event = load_event(FIXTURES / "valid" / "failed_escalated_retry.json")
     assert event.escalated_from is Tier.STANDARD
-    assert event.retry_reason == "rejected by a deterministic check"
+    assert event.retry_reason == "check_rejected"
     assert event.status is EventStatus.ERROR
+    assert event.status_reason == "model_timeout"
 
 
 @pytest.mark.parametrize("path", VALID, ids=lambda p: p.name)
@@ -154,11 +171,11 @@ def test_an_event_is_written_as_exactly_one_line(path: Path) -> None:
 
 
 def test_text_with_line_breaks_still_gives_one_line() -> None:
-    document = _valid_document()
-    document["retry_reason"] = "first line\nsecond line\r\nthird"
+    document = json.loads((FIXTURES / "valid" / "setting_changed.json").read_text("utf-8"))
+    document["data"]["new_value"] = "first line\nsecond line\r\nthird"
     line = Event.from_json(json.dumps(document)).to_json_line()
     assert line.count("\n") == 1
-    assert Event.from_json(line).retry_reason == "first line\nsecond line\r\nthird"
+    assert Event.from_json(line).data["new_value"] == "first line\nsecond line\r\nthird"
 
 
 def test_there_are_valid_fixtures() -> None:
@@ -211,6 +228,7 @@ def test_event_types_are_the_ones_named_in_the_specification_and_the_plan() -> N
         "budget_warning",
         "setting_changed",
         "error",
+        "log_repaired",
     }
 
 
@@ -222,7 +240,7 @@ def test_unknown_type_is_rejected(value: object) -> None:
 
 
 def test_status_is_a_closed_set() -> None:
-    assert {status.value for status in EventStatus} == {"ok", "error"}
+    assert {status.value for status in EventStatus} == {"ok", "error", "refused"}
 
 
 # Values
@@ -291,6 +309,8 @@ def test_new_event_needs_only_actor_type_and_status() -> None:
     new = NewEvent(actor="system:utux", type=EventType.PROJECT_CREATED, status=EventStatus.OK)
     assert new.stage is None
     assert new.cost_usd is None
+    assert new.status_reason is None
+    assert new.data == {}
     assert new.artifacts == ()
 
 
@@ -330,3 +350,149 @@ def test_invalid_fixture_fails_for_its_own_reason(name: str, field: str, code: s
     assert [(p.field, p.code) for p in error.problems] == [(field, code)]
     assert error.source == str(path)
     assert str(error) == f"{path}: {field}: {error.problems[0].reason}"
+
+
+# Status and its reason
+
+
+def _with(**changes: object) -> dict[str, object]:
+    return {**_valid_document(), **changes}
+
+
+def test_refused_is_a_status_with_a_reason() -> None:
+    event = load_event(FIXTURES / "valid" / "refused_model_call.json")
+    assert event.status is EventStatus.REFUSED
+    assert event.status_reason == "data_policy_local_only"
+
+
+@pytest.mark.parametrize("status", ["error", "refused"])
+def test_status_other_than_ok_needs_a_reason(status: str) -> None:
+    assert _problems(_with(status=status)) == [("status_reason", "status_reason_required")]
+    event = Event.from_json(json.dumps(_with(status=status, status_reason="budget_exhausted")))
+    assert event.status_reason == "budget_exhausted"
+
+
+def test_status_ok_has_no_reason() -> None:
+    assert _problems(_with(status_reason="model_timeout")) == [
+        ("status_reason", "status_reason_not_allowed")
+    ]
+
+
+@pytest.mark.parametrize(
+    "value", ["The model timed out.", "Model_Timeout", "model timeout", "", "9lives", 7]
+)
+def test_status_reason_is_a_machine_code_not_a_message(value: object) -> None:
+    problems = _problems(_with(status="error", status_reason=value))
+    assert [field for field, _ in problems] == ["status_reason"]
+
+
+@pytest.mark.parametrize("value", ["rejected by a check", "Check rejected", ""])
+def test_retry_reason_is_a_machine_code_not_a_message(value: str) -> None:
+    assert [field for field, _ in _problems(_with(retry_reason=value))] == ["retry_reason"]
+
+
+def test_no_field_of_an_event_holds_a_free_text_message() -> None:
+    """The fields that explain a failure accept codes only."""
+    for field in ("status_reason", "retry_reason"):
+        for text in ("Connection reset by peer", "timeout after 30 s"):
+            status = {"status": "error"} if field == "retry_reason" else {"status": "error"}
+            reason = {"status_reason": "model_timeout"} if field == "retry_reason" else {}
+            problems = _problems(_with(**status, **reason, **{field: text}))
+            assert [name for name, _ in problems] == [field]
+    assert "message" not in Event.model_fields
+    assert "error" not in Event.model_fields
+
+
+# Type rules
+
+
+def test_model_call_must_name_its_model() -> None:
+    assert _problems(_with(model=None)) == [("model", "model_required")]
+
+
+def test_other_types_need_no_model() -> None:
+    event = load_event(FIXTURES / "valid" / "project_created.json")
+    assert event.model is None
+
+
+# data
+
+
+def _setting(**data: object) -> dict[str, object]:
+    document = json.loads((FIXTURES / "valid" / "setting_changed.json").read_text("utf-8"))
+    assert isinstance(document, dict)
+    document["data"] = data
+    return document
+
+
+def test_setting_changed_carries_key_old_value_and_new_value() -> None:
+    event = load_event(FIXTURES / "valid" / "setting_changed.json")
+    assert event.data == {"key": "verification.enabled", "old_value": True, "new_value": False}
+
+
+@pytest.mark.parametrize("value", ["text", 3, 0.5, True, False, None])
+def test_data_values_are_strings_numbers_booleans_or_null(value: object) -> None:
+    document = _setting(key="budget.total_usd", old_value=value, new_value=value)
+    event = Event.from_json(json.dumps(document))
+    assert event.data["old_value"] == value
+    assert type(event.data["old_value"]) is type(value)
+
+
+@pytest.mark.parametrize("value", [{"nested": 1}, [1, 2], []])
+def test_data_is_flat(value: object) -> None:
+    document = _setting(key="budget.total_usd", old_value=value, new_value=1)
+    assert _problems(document) == [("data.old_value", "not_scalar")]
+
+
+def test_each_missing_setting_key_is_reported_on_its_own_path() -> None:
+    assert _problems(_setting()) == [
+        ("data.key", "missing"),
+        ("data.old_value", "missing"),
+        ("data.new_value", "missing"),
+    ]
+
+
+def test_setting_changed_accepts_no_other_key() -> None:
+    document = _setting(key="oversight.mode", old_value="guided", new_value="auto", why="x")
+    assert _problems(document) == [("data.why", "unknown_key")]
+
+
+@pytest.mark.parametrize("key", [7, None, True, ""])
+def test_setting_key_is_non_empty_text(key: object) -> None:
+    document = _setting(key=key, old_value="guided", new_value="auto")
+    assert [field for field, _ in _problems(document)] == ["data.key"]
+
+
+def test_types_without_defined_keys_accept_only_an_empty_object() -> None:
+    for kind in EventType:
+        if kind is EventType.SETTING_CHANGED:
+            continue
+        document = _with(type=kind.value, data={})
+        assert Event.from_json(json.dumps(document)).data == {}
+        document = _with(type=kind.value, data={"first": 1, "second": "x"})
+        assert _problems(document) == [
+            ("data.first", "unknown_key"),
+            ("data.second", "unknown_key"),
+        ]
+
+
+def test_data_rules_are_silent_when_the_type_is_itself_invalid() -> None:
+    assert _problems(_with(type="coffee_break", data={"note": 1})) == [("type", "enum")]
+
+
+def test_new_event_takes_status_reason_and_data() -> None:
+    new = NewEvent(
+        actor="human:alex",
+        type=EventType.SETTING_CHANGED,
+        status=EventStatus.OK,
+        data={"key": "verification.enabled", "old_value": True, "new_value": False},
+    )
+    assert new.data["new_value"] is False
+    refused = NewEvent(
+        actor="system:utux",
+        type=EventType.MODEL_CALL,
+        status=EventStatus.REFUSED,
+        status_reason="budget_exhausted",
+        model="synthetic/model",
+    )
+    assert refused.status_reason == "budget_exhausted"

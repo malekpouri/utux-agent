@@ -18,8 +18,10 @@
   "cost_usd": 0.012,
   "duration_ms": 8400,
   "status": "ok",
+  "status_reason": null,
   "retry_reason": null,
   "escalated_from": null,
+  "data": {},
   "artifacts": [
     "method-v003"
   ]
