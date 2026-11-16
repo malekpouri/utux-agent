@@ -7,5 +7,6 @@
   "answered_by": "human:alex",
   "answered_at": "2026-11-15T10:20:00Z",
   "feedback": null,
-  "edited_content": "# Method\n\nSynthetic edited text of the method.\n"
+  "edited_artifact_id": "method-v004",
+  "edited_content_hash": "sha256:abababababababababababababababababababababababababababababababab"
 }

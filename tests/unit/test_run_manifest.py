@@ -33,6 +33,7 @@ FIELDS = [
     "hardware",
     "models",
     "external_services",
+    "outputs",
     "started_at",
     "ended_at",
     "exit_status",
@@ -43,6 +44,8 @@ FIELDS = [
 INVALID: list[Row] = [
     ("missing_seeds.json", "seeds", "missing"),
     ("missing_exit_status.json", "exit_status", "missing"),
+    ("missing_outputs.json", "outputs", "missing"),
+    ("output_outside_project.json", "outputs.0.path", "not_relative_path"),
     ("unknown_key.json", "notes", "unknown_key"),
     ("empty_command.json", "command", "too_short"),
     ("command_is_a_shell_string.json", "command", "tuple_type"),
@@ -108,6 +111,8 @@ def test_cpu_run_reads_every_group() -> None:
     assert manifest.hardware.gpu is None
     assert manifest.models == ()
     assert manifest.external_services == ()
+    assert manifest.outputs[0].path == "runs/r012/metrics.json"
+    assert manifest.outputs[0].hash.startswith("sha256:")
     assert manifest.started_at == "2026-11-15T10:00:00Z"
     assert manifest.ended_at == "2026-11-15T10:14:30Z"
     assert manifest.exit_status == 0
@@ -198,3 +203,8 @@ def test_invalid_fixture_table() -> None:
 @pytest.mark.parametrize("row", INVALID, ids=[row[0] for row in INVALID])
 def test_invalid_fixture_fails_for_its_own_reason(row: Row) -> None:
     check_invalid(CONTRACT, load_run_manifest, row)
+
+
+def test_run_that_produced_no_file_has_empty_outputs() -> None:
+    assert _validate(_manifest(outputs=[])).outputs == ()
+    assert load_run_manifest(valid_paths(CONTRACT)[1]).outputs == ()

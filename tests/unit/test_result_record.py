@@ -40,6 +40,7 @@ INVALID = [
     ("negative_tolerance.json", "tolerance", "greater_than_equal"),
     ("empty_metric.json", "metric", "string_too_short"),
     ("record_id_malformed.json", "id", "string_pattern_mismatch"),
+    ("run_id_malformed.json", "run_id", "string_pattern_mismatch"),
     ("source_outside_project.json", "source", "not_relative_path"),
     ("newer_schema_version.json", "schema_version", "schema_version_newer"),
     ("not_an_object.json", "<document>", "not_a_mapping"),
@@ -175,3 +176,18 @@ def test_invalid_fixture_fails_for_its_own_reason(name: str, field: str, code: s
     assert [(p.field, p.code) for p in error.problems] == [(field, code)]
     assert error.source == str(path)
     assert str(error) == f"{path}: {field}: {error.problems[0].reason}"
+
+
+@pytest.mark.parametrize("value", ["12", "run-12", "R012", "r12", "r012x"])
+def test_run_id_has_the_form_of_a_run_manifest_id(value: str) -> None:
+    assert _problems(_record(run_id=value)) == [("run_id", "string_pattern_mismatch")]
+
+
+def test_result_record_and_run_manifest_share_the_run_id_type() -> None:
+    from utux.schemas.run_manifest import RunManifest
+
+    record_field = ResultRecord.model_fields["run_id"]
+    manifest_field = RunManifest.model_fields["run_id"]
+    assert record_field.annotation is str
+    assert record_field.metadata == manifest_field.metadata
+    assert record_field.metadata  # the pattern is there

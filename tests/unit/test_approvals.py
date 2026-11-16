@@ -49,7 +49,8 @@ RESPONSE_FIELDS = [
     "answered_by",
     "answered_at",
     "feedback",
-    "edited_content",
+    "edited_artifact_id",
+    "edited_content_hash",
 ]
 
 # One row per invalid fixture: file name, the field the error must name, and
@@ -72,7 +73,7 @@ INVALID_REQUESTS: list[Row] = [
 
 INVALID_RESPONSES: list[Row] = [
     ("missing_content_hash.json", "content_hash", "missing"),
-    ("missing_edited_content.json", "edited_content", "missing"),
+    ("missing_edited_artifact_id.json", "edited_artifact_id", "missing"),
     ("unknown_key.json", "mood", "unknown_key"),
     ("unknown_decision.json", "decision", "enum"),
     ("answered_by_an_agent.json", "answered_by", "string_pattern_mismatch"),
@@ -80,8 +81,11 @@ INVALID_RESPONSES: list[Row] = [
     ("approval_id_malformed.json", "approval_id", "string_pattern_mismatch"),
     ("answered_at_without_z.json", "answered_at", "utc_timestamp"),
     ("reject_without_feedback.json", "feedback", "feedback_required"),
-    ("edit_without_edited_content.json", "edited_content", "edited_content_required"),
-    ("approve_with_edited_content.json", "edited_content", "edited_content_not_allowed"),
+    ("edit_without_edited_artifact_id.json", "edited_artifact_id", "required_for_edit"),
+    ("edit_without_edited_content_hash.json", "edited_content_hash", "required_for_edit"),
+    ("approve_with_edited_artifact_id.json", "edited_artifact_id", "not_allowed_unless_edit"),
+    ("reject_with_edited_content_hash.json", "edited_content_hash", "not_allowed_unless_edit"),
+    ("edited_artifact_id_without_version.json", "edited_artifact_id", "string_pattern_mismatch"),
     ("newer_schema_version.json", "schema_version", "schema_version_newer"),
     ("not_an_object.json", "<document>", "not_a_mapping"),
     ("malformed_json.json", "<document>", "invalid_json"),
@@ -148,7 +152,8 @@ def test_response_repeats_artifact_id_and_content_hash() -> None:
     assert response.decision is Decision.APPROVE
     assert response.answered_by == "human:alex"
     assert response.feedback is None
-    assert response.edited_content is None
+    assert response.edited_artifact_id is None
+    assert response.edited_content_hash is None
 
 
 def test_every_response_field_is_required() -> None:
@@ -169,24 +174,39 @@ def test_reject_needs_feedback() -> None:
     assert _response(decision="reject", feedback="Synthetic feedback.").feedback is not None
 
 
+EDITED = {"edited_artifact_id": "method-v004", "edited_content_hash": "sha256:" + "ab" * 32}
+
+
 def test_feedback_is_optional_for_approve_and_edit() -> None:
     assert _response(feedback="Synthetic remark.").feedback == "Synthetic remark."
-    edited = _response(decision="edit", edited_content="new text", feedback="Synthetic remark.")
+    edited = _response(decision="edit", feedback="Synthetic remark.", **EDITED)
     assert edited.feedback == "Synthetic remark."
 
 
-def test_edit_carries_the_edited_content_and_other_decisions_do_not() -> None:
-    assert problems(ApprovalResponse, _response_document(decision="edit")) == [
-        ("edited_content", "edited_content_required")
+def test_response_does_not_carry_the_edited_content() -> None:
+    assert "edited_content" not in ApprovalResponse.model_fields
+    assert problems(ApprovalResponse, _response_document(edited_content="text")) == [
+        ("edited_content", "unknown_key")
     ]
-    for decision in ("approve", "reject"):
-        document = _response_document(
-            decision=decision, feedback="Synthetic feedback.", edited_content="text"
-        )
-        assert problems(ApprovalResponse, document) == [
-            ("edited_content", "edited_content_not_allowed")
-        ]
-    assert _response(decision="edit", edited_content="a\nb\n").edited_content == "a\nb\n"
+
+
+def test_edit_names_the_version_the_person_saved() -> None:
+    response = _response(decision="edit", **EDITED)
+    assert response.edited_artifact_id == "method-v004"
+    assert response.edited_content_hash == EDITED["edited_content_hash"]
+    assert problems(ApprovalResponse, _response_document(decision="edit")) == [
+        ("edited_artifact_id", "required_for_edit"),
+        ("edited_content_hash", "required_for_edit"),
+    ]
+
+
+@pytest.mark.parametrize("decision", ["approve", "reject"])
+def test_other_decisions_name_no_edited_version(decision: str) -> None:
+    document = _response_document(decision=decision, feedback="Synthetic feedback.", **EDITED)
+    assert problems(ApprovalResponse, document) == [
+        ("edited_artifact_id", "not_allowed_unless_edit"),
+        ("edited_content_hash", "not_allowed_unless_edit"),
+    ]
 
 
 @pytest.mark.parametrize("who", ["agent:planner", "system:utux", "alex", "human:"])
@@ -262,3 +282,37 @@ def test_invalid_request_fails_for_its_own_reason(row: Row) -> None:
 @pytest.mark.parametrize("row", INVALID_RESPONSES, ids=[row[0] for row in INVALID_RESPONSES])
 def test_invalid_response_fails_for_its_own_reason(row: Row) -> None:
     check_invalid(RESPONSE, load_approval_response, row)
+
+
+# An edit names a different version from the one that was shown
+
+
+def test_edit_response_matches_its_request() -> None:
+    check_response_matches_request(_request(), _response(decision="edit", **EDITED), "r.json")
+
+
+def test_edited_version_must_differ_from_the_requested_one() -> None:
+    request = _request()
+    response = _response(
+        decision="edit",
+        edited_artifact_id=request.artifact_id,
+        edited_content_hash=request.content_hash,
+    )
+    with pytest.raises(ContractValidationError) as caught:
+        check_response_matches_request(request, response, "response.json")
+    assert [(p.field, p.code) for p in caught.value.problems] == [
+        ("edited_artifact_id", "same_as_request"),
+        ("edited_content_hash", "same_as_request"),
+    ]
+
+
+def test_edit_with_unchanged_content_under_a_new_id_is_refused() -> None:
+    request = _request()
+    response = _response(
+        decision="edit", edited_artifact_id="method-v004", edited_content_hash=request.content_hash
+    )
+    with pytest.raises(ContractValidationError) as caught:
+        check_response_matches_request(request, response, "response.json")
+    assert [(p.field, p.code) for p in caught.value.problems] == [
+        ("edited_content_hash", "same_as_request")
+    ]

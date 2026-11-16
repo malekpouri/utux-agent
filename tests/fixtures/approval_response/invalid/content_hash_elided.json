@@ -7,5 +7,6 @@
   "answered_by": "human:alex",
   "answered_at": "2026-11-15T10:20:00Z",
   "feedback": null,
-  "edited_content": null
+  "edited_artifact_id": null,
+  "edited_content_hash": null
 }

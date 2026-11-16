@@ -63,6 +63,11 @@ INVALID: list[Row] = [
         "required_with_text",
     ),
     ("hash_without_stored_text.json", "text_hash", "not_allowed_without_text"),
+    (
+        "full_text_from_an_index_abstract.json",
+        "stored_text",
+        "stored_text_exceeds_source_version",
+    ),
     ("newer_schema_version.json", "schema_version", "schema_version_newer"),
     ("not_an_object.json", "<document>", "not_a_mapping"),
     ("malformed_json.json", "<document>", "invalid_json"),
@@ -159,3 +164,31 @@ def test_invalid_fixture_table() -> None:
 @pytest.mark.parametrize("row", INVALID, ids=[row[0] for row in INVALID])
 def test_invalid_fixture_fails_for_its_own_reason(row: Row) -> None:
     check_invalid(CONTRACT, load_source_record, row)
+
+
+def test_abstract_from_an_index_cannot_have_stored_full_text() -> None:
+    document = _record(source_version="index_abstract", stored_text="full_text")
+    assert problems(SourceRecord, document) == [
+        ("stored_text", "stored_text_exceeds_source_version")
+    ]
+
+
+@pytest.mark.parametrize("stored", ["abstract", None])
+def test_abstract_from_an_index_may_store_the_abstract_or_nothing(stored: str | None) -> None:
+    changes: dict[str, Any] = {"source_version": "index_abstract", "stored_text": stored}
+    if stored is None:
+        changes.update(
+            text_hash=None,
+            extraction_method=None,
+            extraction_tool_version=None,
+            extraction_quality=None,
+        )
+    record = SourceRecord.from_json(json.dumps(_record(**changes)))
+    assert (record.stored_text.value if record.stored_text else None) == stored
+
+
+@pytest.mark.parametrize("version", ["publisher", "preprint"])
+@pytest.mark.parametrize("stored", ["abstract", "full_text"])
+def test_other_versions_may_store_either_text(version: str, stored: str) -> None:
+    document = _record(source_version=version, stored_text=stored)
+    assert SourceRecord.from_json(json.dumps(document)).source_version.value == version

@@ -5,7 +5,9 @@ import json
 import pkgutil
 from pathlib import Path
 
+import jsonschema
 import pytest
+import yaml
 
 import utux.schemas
 from utux.errors import SchemaExportError, UtuxError
@@ -107,3 +109,77 @@ def test_evidence_schema_lists_the_three_entry_types(tmp_path: Path) -> None:
     items = schema["properties"]["evidence"]["items"]
     assert len(items["oneOf"]) == 3
     assert set(items["discriminator"]["mapping"]) == {"source", "result_record", "claim"}
+
+
+# The exported files work with a JSON Schema validator
+
+FIXTURE_DIRECTORY = {
+    "project_config": "project_config",
+    "artifact_metadata": "artifact_metadata",
+    "event": "event",
+    "claim_ledger_entry": "claim_ledger",
+    "result_record": "result_record",
+    "run_manifest": "run_manifest",
+    "approval_request": "approval_request",
+    "approval_response": "approval_response",
+    "source_record": "source_record",
+}
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+NOTE = "utux applies further rules between fields; passing this schema is necessary but not sufficient."
+
+
+def _exported(tmp_path: Path, name: str) -> dict[str, object]:
+    export_json_schemas(tmp_path)
+    schema = json.loads((tmp_path / f"{name}.schema.json").read_text(encoding="utf-8"))
+    assert isinstance(schema, dict)
+    return schema
+
+
+def _valid_fixtures(name: str) -> list[Path]:
+    return sorted((FIXTURES / FIXTURE_DIRECTORY[name] / "valid").iterdir())
+
+
+def _read(path: Path) -> object:
+    text = path.read_text(encoding="utf-8")
+    return yaml.safe_load(text) if path.suffix == ".yaml" else json.loads(text)
+
+
+def test_every_contract_has_valid_fixtures_to_check() -> None:
+    assert set(FIXTURE_DIRECTORY) == EXPECTED
+    for name in EXPECTED:
+        assert len(_valid_fixtures(name)) >= 2
+
+
+@pytest.mark.parametrize("name", sorted(EXPECTED))
+def test_exported_file_is_itself_a_valid_json_schema(tmp_path: Path, name: str) -> None:
+    jsonschema.Draft202012Validator.check_schema(_exported(tmp_path, name))
+
+
+@pytest.mark.parametrize("name", sorted(EXPECTED))
+def test_every_valid_fixture_passes_its_exported_schema(tmp_path: Path, name: str) -> None:
+    validator = jsonschema.Draft202012Validator(_exported(tmp_path, name))
+    for path in _valid_fixtures(name):
+        errors = [error.message for error in validator.iter_errors(_read(path))]
+        assert errors == [], f"{path.name}: {errors}"
+
+
+@pytest.mark.parametrize("name", sorted(EXPECTED))
+def test_exported_schema_refuses_an_unknown_key_and_a_missing_version(
+    tmp_path: Path, name: str
+) -> None:
+    """The validator is really applied: a broken document does not pass."""
+    validator = jsonschema.Draft202012Validator(_exported(tmp_path, name))
+    document = _read(_valid_fixtures(name)[0])
+    assert isinstance(document, dict)
+    assert not validator.is_valid({**document, "not_a_field": 1})
+    without_version = {key: value for key, value in document.items() if key != "schema_version"}
+    assert not validator.is_valid(without_version)
+
+
+@pytest.mark.parametrize("name", sorted(EXPECTED))
+def test_description_says_that_the_schema_is_not_sufficient(tmp_path: Path, name: str) -> None:
+    description = _exported(tmp_path, name)["description"]
+    assert isinstance(description, str)
+    assert description.endswith(NOTE)
+    # The model's own description is kept in front of the note.
+    assert len(description) > len(NOTE)
