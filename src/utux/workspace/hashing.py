@@ -23,8 +23,8 @@ Nothing is excluded by default. A caller may pass patterns in `exclude`. A
 pattern is a shell-style glob (`*`, `?`, `[...]`) that must match the whole
 normalised relative path of a file or directory; `*` also matches `/`, and
 matching is case-sensitive. An excluded directory is left out with everything
-below it and is not read. The workspace layer supplies the fixed list for a
-project (task M0-07).
+below it and is not read. For project content, `utux.workspace.layout`
+supplies the fixed list through `hash_project_directory`.
 
 A change to this format changes every directory hash, so it requires a new
 `schema_version` of the artifact metadata sidecar.
