@@ -21,6 +21,7 @@ does nothing else yet. See `docs/plan/M0.md` for what is being built.
 - [Schema conventions](docs/schema-conventions.md)
 - [Artifact metadata and content hashes](docs/artifact-metadata.md)
 - [The `ModelProvider` interface](docs/model-provider.md)
+- [Events and the event log](docs/event-log.md)
 
 ## Development
 

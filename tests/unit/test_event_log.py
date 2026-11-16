@@ -328,8 +328,7 @@ def test_partially_written_last_line_is_reported_on_read(tmp_path: Path) -> None
     path.write_text(_line(1) + _line(2) + _line(3)[:57], encoding="utf-8")
     events: list[Event] = []
     with pytest.raises(EventLogCorruptError) as caught:
-        for event in EventLog(path):
-            events.append(event)
+        events.extend(EventLog(path))
     # The complete events were delivered, and the damaged line was reported.
     assert [event.event_id for event in events] == ["e-000001", "e-000002"]
     error = caught.value
@@ -365,8 +364,7 @@ def test_line_that_is_not_a_valid_event_is_reported_with_its_line_number(tmp_pat
     path.write_text(_line(1) + _line(2, type="coffee_break") + _line(3), encoding="utf-8")
     events: list[Event] = []
     with pytest.raises(ContractValidationError) as caught:
-        for event in EventLog(path):
-            events.append(event)
+        events.extend(EventLog(path))
     assert [event.event_id for event in events] == ["e-000001"]
     assert caught.value.source == f"{path}:2"
     assert [(p.field, p.code) for p in caught.value.problems] == [("type", "enum")]
