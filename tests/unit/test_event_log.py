@@ -91,7 +91,7 @@ def test_append_writes_exactly_one_line_that_ends_with_a_newline(tmp_path: Path)
 
 def test_append_returns_the_stored_event(tmp_path: Path) -> None:
     log = _log(tmp_path)
-    event = log.append(_new(type=EventType.PROJECT_CREATED))
+    event = log.append(_new(type=EventType.PROJECT_CREATED, data={"utux_version": "0.1.0"}))
     assert isinstance(event, Event)
     assert event.schema_version == 1
     assert event.event_id == "e-000001"

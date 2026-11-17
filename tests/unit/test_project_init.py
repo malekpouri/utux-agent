@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 from datetime import UTC, datetime
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
@@ -61,6 +62,7 @@ def git_identity(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "GIT_COMMITTER_EMAIL",
     ):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("EMAIL", raising=False)
     return config
 
 
@@ -190,7 +192,7 @@ def test_first_event_is_project_created_with_a_valid_schema(tmp_path: Path) -> N
     assert event.ts == "2026-11-15T09:00:00.125Z"
     assert event.stage is None
     assert event.parent_id is None
-    assert event.data == {}
+    assert event.data == {"utux_version": version("utux")}
     assert event.artifacts == ()
 
 
@@ -240,6 +242,10 @@ def test_non_empty_directory_is_refused_and_nothing_changes(tmp_path: Path) -> N
         _init(target)
     assert "not empty" in str(caught.value)
     assert str(target) in str(caught.value)
+    assert (
+        "if it is left over from an interrupted utux init, remove it and run the command again"
+        in str(caught.value)
+    )
     assert _snapshot(target) == before
     assert issubclass(ProjectInitError, UtuxError)
 
@@ -283,6 +289,7 @@ def test_without_git_nothing_is_created(tmp_path: Path, monkeypatch: pytest.Monk
         "[user]\n\tname = Synthetic Person\n",
         "[user]\n\temail = person@example.org\n",
         '[user]\n\tname = ""\n\temail = person@example.org\n',
+        '[user]\n\tname = Synthetic Person\n\temail = ""\n',
     ],
 )
 def test_without_a_git_identity_nothing_is_created(
@@ -425,3 +432,158 @@ def test_hash_of_a_fresh_project_directory_is_that_of_an_empty_directory(tmp_pat
     empty.mkdir()
     for directory in ("code", "paper", "figures"):
         assert hash_project_directory(project / directory) == hash_directory(empty)
+
+
+# Git identity from the environment
+
+
+ENV_IDENTITY = {
+    "GIT_AUTHOR_NAME": "Env Author",
+    "GIT_AUTHOR_EMAIL": "author@example.org",
+    "GIT_COMMITTER_NAME": "Env Committer",
+    "GIT_COMMITTER_EMAIL": "committer@example.org",
+}
+
+
+def test_identity_given_through_the_environment_is_accepted(
+    tmp_path: Path, git_identity: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    git_identity.write_text("", encoding="utf-8")
+    for name, value in ENV_IDENTITY.items():
+        monkeypatch.setenv(name, value)
+    project = _init(tmp_path / "p")
+    assert _git(project, "log", "-1", "--format=%an <%ae> / %cn <%ce>").strip() == (
+        "Env Author <author@example.org> / Env Committer <committer@example.org>"
+    )
+
+
+def test_environment_and_configuration_may_be_combined(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """As in git: the environment names the author, the configuration the committer."""
+    monkeypatch.setenv("GIT_AUTHOR_NAME", "Env Author")
+    monkeypatch.setenv("GIT_AUTHOR_EMAIL", "author@example.org")
+    project = _init(tmp_path / "p")
+    assert _git(project, "log", "-1", "--format=%an <%ae> / %cn <%ce>").strip() == (
+        "Env Author <author@example.org> / Synthetic Person <person@example.org>"
+    )
+
+
+@pytest.mark.parametrize(
+    "given",
+    [
+        ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL"],  # no committer
+        ["GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"],  # no author
+        ["GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"],  # no email at all
+        ["GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"],  # no name at all
+    ],
+)
+def test_incomplete_environment_identity_is_refused(
+    tmp_path: Path, git_identity: Path, monkeypatch: pytest.MonkeyPatch, given: list[str]
+) -> None:
+    git_identity.write_text("", encoding="utf-8")
+    for name in given:
+        monkeypatch.setenv(name, ENV_IDENTITY[name])
+    with pytest.raises(ProjectInitError) as caught:
+        _init(tmp_path / "p")
+    assert 'git config --global user.name "Your Name"' in str(caught.value)
+    assert not (tmp_path / "p").exists()
+
+
+def test_identity_that_git_would_only_guess_is_refused(
+    tmp_path: Path, git_identity: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without settings git can make up a name and email from the account and host name."""
+    git_identity.write_text("", encoding="utf-8")
+    # EMAIL is one of the sources git guesses from.
+    monkeypatch.setenv("EMAIL", "guessed@example.org")
+    with pytest.raises(ProjectInitError):
+        _init(tmp_path / "p")
+    assert not (tmp_path / "p").exists()
+
+
+def test_commit_never_uses_a_guessed_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[str, ...]] = []
+    real = project_module._run_git
+
+    def spy(directory: Path, *arguments: str) -> str:
+        calls.append(arguments)
+        return real(directory, *arguments)
+
+    monkeypatch.setattr(project_module, "_run_git", spy)
+    _init(tmp_path / "p")
+    (commit,) = [call for call in calls if "commit" in call]
+    assert "user.useConfigOnly=true" in commit
+
+
+# The first commit follows the user's git configuration
+
+
+def test_commit_does_not_switch_off_signing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[str, ...]] = []
+    real = project_module._run_git
+
+    def spy(directory: Path, *arguments: str) -> str:
+        calls.append(arguments)
+        return real(directory, *arguments)
+
+    monkeypatch.setattr(project_module, "_run_git", spy)
+    _init(tmp_path / "p")
+    assert not any("gpgsign" in argument for call in calls for argument in call)
+
+
+@pytest.mark.parametrize("existed", [False, True])
+def test_signing_failure_fails_init_with_gits_reason_and_leaves_nothing(
+    tmp_path: Path, git_identity: Path, existed: bool
+) -> None:
+    # The user asks for signed commits, and the signing program fails.
+    signer = tmp_path / "failing-signer"
+    signer.write_text("#!/bin/sh\necho 'synthetic signing failure' >&2\nexit 1\n", encoding="utf-8")
+    signer.chmod(0o755)
+    git_identity.write_text(
+        "[user]\n\tname = Synthetic Person\n\temail = person@example.org\n"
+        f"[commit]\n\tgpgsign = true\n[gpg]\n\tprogram = {signer}\n",
+        encoding="utf-8",
+    )
+    target = tmp_path / "p"
+    if existed:
+        target.mkdir()
+    with pytest.raises(ProjectInitError) as caught:
+        _init(target)
+    message = str(caught.value)
+    assert message.startswith("git commit failed: ")
+    assert "sign" in message  # git's own reason
+    if existed:
+        assert list(target.iterdir()) == []
+    else:
+        assert not target.exists()
+
+
+# Profile and domain pack
+
+
+def test_profile_and_domain_pack_default_to_the_schema_defaults(tmp_path: Path) -> None:
+    config = load_project_config(_init(tmp_path / "p") / "utux.yaml")
+    assert (config.profile, config.domain_pack) == ("default", "generic")
+
+
+def test_profile_and_domain_pack_may_be_given(tmp_path: Path) -> None:
+    project = _init(tmp_path / "p", profile="local", domain_pack="bio-pilot")
+    config = load_project_config(project / "utux.yaml")
+    assert (config.profile, config.domain_pack) == ("local", "bio-pilot")
+
+
+@pytest.mark.parametrize(
+    ("option", "field"), [("profile", "profile"), ("domain_pack", "domain_pack")]
+)
+def test_invalid_profile_or_domain_pack_is_refused_and_nothing_is_created(
+    tmp_path: Path, option: str, field: str
+) -> None:
+    with pytest.raises(ContractValidationError) as caught:
+        _init(tmp_path / "p", **{option: "Not A Name"})
+    assert [p.field for p in caught.value.problems] == [field]
+    assert not (tmp_path / "p").exists()

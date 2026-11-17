@@ -21,6 +21,14 @@ def git_identity(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     )
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    for name in (
+        "GIT_AUTHOR_NAME",
+        "GIT_AUTHOR_EMAIL",
+        "GIT_COMMITTER_NAME",
+        "GIT_COMMITTER_EMAIL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("EMAIL", raising=False)
     return config
 
 
@@ -110,3 +118,38 @@ def test_init_is_listed_in_the_help() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     assert "init" in result.output
+
+
+BASE = ["--budget-usd", "20", "--data-policy", "local_only"]
+
+
+def test_profile_and_domain_pack_are_optional_with_the_schema_defaults(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["init", str(tmp_path / "p"), *BASE])
+    assert result.exit_code == 0, result.output
+    config = load_project_config(tmp_path / "p" / "utux.yaml")
+    assert (config.profile, config.domain_pack) == ("default", "generic")
+
+
+def test_profile_and_domain_pack_options(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app, ["init", str(tmp_path / "p"), *BASE, "--profile", "local", "--domain-pack", "ml"]
+    )
+    assert result.exit_code == 0, result.output
+    config = load_project_config(tmp_path / "p" / "utux.yaml")
+    assert (config.profile, config.domain_pack) == ("local", "ml")
+
+
+def test_invalid_profile_fails_with_the_field(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["init", str(tmp_path / "p"), *BASE, "--profile", "Not A Name"])
+    assert result.exit_code == 1
+    assert "profile" in result.output
+    assert not (tmp_path / "p").exists()
+
+
+def test_not_empty_message_says_what_to_do_after_an_interrupted_init(tmp_path: Path) -> None:
+    target = tmp_path / "busy"
+    target.mkdir()
+    (target / "utux.yaml").write_text("left over\n", encoding="utf-8")
+    result = runner.invoke(app, ["init", str(target), *BASE])
+    assert result.exit_code == 1
+    assert "interrupted utux init" in " ".join(result.output.split())
