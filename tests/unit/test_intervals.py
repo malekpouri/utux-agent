@@ -9,10 +9,10 @@ import math
 from pathlib import Path
 
 import pytest
-from utux.evalkit.intervals import claim_clusters, cluster_bootstrap, exact_binomial_interval
 
 from utux.errors import GoldSetError
 from utux.evalkit.gold import read_gold_release
+from utux.evalkit.intervals import claim_clusters, cluster_bootstrap, exact_binomial_interval
 
 RELEASE = (
     Path(__file__).resolve().parents[1] / "fixtures" / "gold_release" / "synthetic_release.jsonl"

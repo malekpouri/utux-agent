@@ -9,6 +9,9 @@ import json
 from pathlib import Path
 
 import pytest
+
+from utux.errors import GoldSetError
+from utux.evalkit.gold import GoldItem, read_gold_release
 from utux.evalkit.metrics import (
     ClaimPrediction,
     PairPrediction,
@@ -17,9 +20,6 @@ from utux.evalkit.metrics import (
     label_scores,
     metrics_only,
 )
-
-from utux.errors import GoldSetError
-from utux.evalkit.gold import GoldItem, read_gold_release
 from utux.schemas.claim_ledger import ClaimStatus, ScopeFlag, SourceLabel
 
 RELEASE = (

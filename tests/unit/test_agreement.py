@@ -8,6 +8,8 @@ invented examples or from the synthetic release listed in
 from pathlib import Path
 
 import pytest
+
+from utux.errors import GoldSetError
 from utux.evalkit.agreement import (
     annotation_agreement,
     cohens_kappa,
@@ -16,8 +18,6 @@ from utux.evalkit.agreement import (
     raw_agreement,
     span_overlap,
 )
-
-from utux.errors import GoldSetError
 from utux.evalkit.gold import read_gold_release
 
 RELEASE = (
