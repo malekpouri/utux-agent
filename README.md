@@ -17,6 +17,8 @@ The project is in milestone M0. What works today:
   left by an interrupted write, and records the repair.
 - `utux model ping` sends a short prompt to the model of a tier and prints
   the tokens and the cost; the call is logged as a `model_call` event.
+- `utux cost` prints the known cost of a project against its budget, per
+  stage and per actor; a model call is refused once the budget is exhausted.
 - `utux schema export <dir>` writes a JSON Schema file for every file
   contract.
 - The schemas of all file contracts, the append-only event log and the
@@ -24,8 +26,7 @@ The project is in milestone M0. What works today:
   OpenAI-compatible client for OpenRouter, a direct OpenAI key or a local
   server such as Ollama.
 
-What does not exist yet: cost accounting and budgets, and every pipeline
-stage. See `docs/plan/M0.md` for what is being
+What does not exist yet: every pipeline stage. See `docs/plan/M0.md` for what is being
 built.
 
 ## Quick start
@@ -81,6 +82,7 @@ the `OPENROUTER_API_KEY` environment variable. See
 - [The `ModelProvider` interface](docs/model-provider.md)
 - [Events and the event log](docs/event-log.md)
 - [Logged model calls and `utux model ping`](docs/model-calls.md)
+- [Cost and budget: `utux cost`](docs/cost.md)
 - [Claim ledger and result records](docs/claim-ledger.md)
 - [Run manifest, approvals, source record and schema export](docs/contracts.md)
 
