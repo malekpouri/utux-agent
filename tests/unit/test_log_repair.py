@@ -51,7 +51,7 @@ def _side_files(project: Path) -> list[str]:
 def test_fragment_is_saved_byte_for_byte_and_the_log_ends_with_its_last_complete_event(
     tmp_path: Path,
 ) -> None:
-    project, complete, fragment = _damaged(tmp_path)
+    project, _, fragment = _damaged(tmp_path)
     repair = repair_log(project / "events.jsonl", clock=_clock)
     assert repair is not None
     assert _side_files(project) == [SIDE_FILE]

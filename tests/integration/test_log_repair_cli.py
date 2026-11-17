@@ -13,11 +13,14 @@ PROJECT = Path(__file__).resolve().parents[1] / "fixtures" / "projects" / "valid
 runner = CliRunner(env={"NO_COLOR": "1", "TERM": "dumb"})
 
 
+FRAGMENT = b'{"schema_version": 1, "event_id": "e-0000'
+
+
 def _damaged(tmp_path: Path) -> Path:
     project = tmp_path / "p"
     shutil.copytree(PROJECT, project)
     with (project / "events.jsonl").open("ab") as stream:
-        stream.write(b'{"schema_version": 1, "event_id": "e-0000')
+        stream.write(FRAGMENT)
     return project
 
 
@@ -27,7 +30,7 @@ def test_repair_then_validate(tmp_path: Path) -> None:
     result = runner.invoke(app, ["log", "repair", str(project)])
     assert result.exit_code == 0, result.output
     assert "events.jsonl.fragment-" in result.output
-    assert "40 bytes" in result.output
+    assert f"{len(FRAGMENT)} bytes" in result.output
     assert "e-000003" in result.output
     assert runner.invoke(app, ["validate", str(project)]).exit_code == 0
 

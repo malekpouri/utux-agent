@@ -13,6 +13,8 @@ The project is in milestone M0. What works today:
   log with its first event, and a git repository with a first commit.
 - `utux validate` checks every contract file of a project and reports every
   problem.
+- `utux log repair` saves aside an incomplete last line of the event log,
+  left by an interrupted write, and records the repair.
 - `utux schema export <dir>` writes a JSON Schema file for every file
   contract.
 - The schemas of all file contracts, the append-only event log and the

@@ -202,7 +202,8 @@ class _Validator:
                         number,
                         DOCUMENT_FIELD,
                         "incomplete_line",
-                        "the line is incomplete; a write to the log was interrupted",
+                        "the line is incomplete; a write to the log was interrupted; "
+                        "run utux log repair",
                     )
                     continue
                 text = raw.decode("utf-8", errors="replace")
