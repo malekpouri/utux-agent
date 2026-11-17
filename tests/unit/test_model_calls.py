@@ -207,6 +207,29 @@ def test_unexpected_exception_of_a_provider_is_logged_once_and_raised(tmp_path: 
     assert event.status_reason == "unexpected_error"
 
 
+def test_interrupt_during_a_call_is_logged_and_raised_again(tmp_path: Path) -> None:
+    class Interrupted:
+        name = "interrupted"
+        is_external = False
+
+        def complete(self, request: ModelRequest) -> ModelResponse:
+            raise KeyboardInterrupt
+
+    caller, log = _caller(tmp_path, Interrupted())
+    with pytest.raises(KeyboardInterrupt):
+        _call(caller)
+    (event,) = _events(log)
+    assert event.type is EventType.MODEL_CALL
+    assert event.status is EventStatus.ERROR
+    assert event.status_reason == "interrupted"
+    assert event.model == "synthetic/model"
+    assert event.input_hash == input_hash(_request())
+    assert (event.output_hash, event.tokens_in, event.tokens_out) == (None, None, None)
+    assert event.cost_usd is None
+    assert event.duration_ms == 250
+    assert event.data == {"provider": "interrupted", "is_external": False}
+
+
 # Refusal under local_only
 
 
