@@ -1,0 +1,6 @@
+{
+  "error": {
+    "message": "Synthetic: insufficient credits",
+    "code": 402
+  }
+}

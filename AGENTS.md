@@ -132,6 +132,8 @@ no literature sources, no verification logic.
 - Unit tests are fast and offline. Any test that needs the network is marked `live`.
 - Tests never call a real model. Use recorded responses in `tests/fixtures/`
   through the provider fake. A live smoke test per provider is allowed, marked `live`.
+- Never run live tests yourself. To check that a live test is selected, use
+  `pytest --collect-only -m live`. Only the maintainer runs live tests.
 - Every schema has fixtures for valid and invalid documents, and a round-trip test.
 - Every interface has a conformance suite in `tests/conformance/` that any
   implementation must pass.
@@ -166,6 +168,8 @@ These rules exist because the project's value is trust in its outputs.
 
 - Secrets come from environment variables only. Never write a key to a file,
   a log line, an event, a test fixture or an error message.
+- If an API key is present in your environment, say so at once and do not
+  use it.
 - Recorded fixtures must be scrubbed of keys and account identifiers.
 - Model-written code will run only inside the hardened sandbox (M1). Never add
   a code path that executes model output on the host.
@@ -178,11 +182,15 @@ These rules exist because the project's value is trust in its outputs.
 - Ask before adding any runtime dependency. State what it is for, its licence
   and what the alternative would be.
 - Dependencies named in docs/spec.md or in an accepted ADR are pre-approved;
-  state them in the pull request.
+  state them in the pull request. LiteLLM is not pre-approved and is not used
+  in the core (ADR-0008).
+- A request for a new runtime dependency states its licence, the number of
+  packages it adds, anything it does at import time (network, files), and any
+  security incident of the last twelve months.
 - Type-stub packages for approved dependencies are pre-approved as
   development dependencies.
-- Permissive licences only in the core (Apache-2.0, MIT, BSD). Anything
-  copyleft goes in a separate optional plugin package, after approval.
+- Permissive licences only in the core (Apache-2.0, MIT, BSD, ISC, PSF-2.0).
+  Anything copyleft goes in a separate optional plugin package, after approval.
 - Pin through `uv.lock`. Do not edit the lock file by hand.
 - Prefer the standard library when the difference is small.
 

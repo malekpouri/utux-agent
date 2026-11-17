@@ -1,0 +1,6 @@
+{
+  "error": {
+    "message": "Synthetic: no auth credentials found",
+    "code": 401
+  }
+}

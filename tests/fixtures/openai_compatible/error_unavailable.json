@@ -1,0 +1,6 @@
+{
+  "error": {
+    "message": "Synthetic: no provider is available",
+    "code": 503
+  }
+}
