@@ -31,12 +31,14 @@ same reference claims. Each annotator's own entries are kept at every level.
 
 A claim has `claim_id` (the item id and `-c<n>`), `text`, `span` (start and
 end in the text unit, the end greater than the start and not beyond the
-text unit), `kind` (the five claim kinds of RFC-001), one or more `pairs`,
-`status`, `expert_would_review`, and:
+text unit), `kind` (the five claim kinds of RFC-001), `pairs`, `status`,
+`expert_would_review`, and:
 
-- `raw`: for each annotator, and only for them, their `status` and
-  `expert_would_review`, stored unchanged;
-- `adjudicated`: whether the adjudicator set the claim's values;
+- `raw`: for each annotator, and only for them, their `status`,
+  `expert_would_review` and `note` (text or null), stored unchanged;
+- `adjudicated`: whether the adjudicator set the claim's values, and
+  `adjudication_reason`: the adjudicator's written reason, text when
+  `adjudicated` is true and null otherwise;
 - `ambiguous`: the claim remained disputed after joint discussion. It stays
   in the release and is excluded from the primary metrics (M0-13b); the
   other claims of its item are kept.
@@ -45,15 +47,19 @@ text unit), `kind` (the five claim kinds of RFC-001), one or more `pairs`,
 `partially_supported`, `contradicted`, `insufficient_evidence`. `unverified`
 is not a reference label and is rejected (RFC-002, section 3).
 
+A claim has at least one pair, except a claim that cites no source: it has
+no pairs, its status is `insufficient_evidence`, and both raw statuses are
+`insufficient_evidence` too (`raw_status_without_pairs`).
+
 A pair has `pair_id` (the claim id and `-s<n>`), `source_id`,
 `source_group`, `text_hash`, `checked_text`, `extraction_quality`,
 `evidence_spans` (each a `passage_id` and increasing `offsets`, possibly
 none), `agreement_label` (the four agreement labels or `conflicting`),
 `scope_flags` (distinct flags of the seven in RFC-001), and:
 
-- `raw`: for each annotator, their `evidence_spans`, `agreement_label` and
-  `scope_flags`, stored unchanged;
-- `adjudicated`: whether the adjudicator set the pair's labels.
+- `raw`: for each annotator, their `evidence_spans`, `agreement_label`,
+  `scope_flags` and `note` (text or null), stored unchanged;
+- `adjudicated` and `adjudication_reason`: as for a claim.
 
 ### Annotation
 
@@ -64,7 +70,8 @@ none), `agreement_label` (the four agreement labels or `conflicting`),
 - `adjudicator`: the adjudicator's id, who is not one of the annotators. It
   is required when anything in the item was adjudicated, and null otherwise.
 - `claim_extraction`: `raw`, each annotator's own list of claims (`span` and
-  `text`, the span within the text unit), and `adjudicated`.
+  `text`, the span within the text unit), `adjudicated` and
+  `adjudication_reason`.
 
 ### Raw entries and adjudication
 
@@ -80,7 +87,12 @@ pair):
   extraction, the reference claims are then the agreed list.
 
 Claim lists, evidence spans and scope flags are compared as sets, so their
-order does not matter. An adjudicated value may differ from both raw
+order does not matter. Notes are not compared. Every level with `adjudicated`
+true has an `adjudication_reason` (`adjudication_reason_required`), and every
+other level has none (`adjudication_reason_not_allowed`).
+
+A worked example of one item, from the item builder to the stored JSON, is
+in [eval/example-item.md](eval/example-item.md). An adjudicated value may differ from both raw
 entries, and `adjudicated` may be true where the raw entries agree.
 
 ### The hidden record
