@@ -15,10 +15,11 @@ from utux.evalkit.agreement import (
     cohens_kappa,
     confusion_table,
     gwet_ac1,
+    match_claims,
     raw_agreement,
     span_overlap,
 )
-from utux.evalkit.gold import read_gold_release
+from utux.evalkit.gold import EvidenceSpan, read_gold_release
 
 RELEASE = (
     Path(__file__).resolve().parents[1] / "fixtures" / "gold_release" / "synthetic_release.jsonl"
@@ -160,3 +161,92 @@ def test_pair_label_and_flag_agreement_on_the_synthetic_release() -> None:
 def test_agreement_report_holds_no_item_or_claim_id() -> None:
     text = str(annotation_agreement(read_gold_release(RELEASE)).to_json())
     assert "G90" not in text
+
+
+# Claim extraction, review flag and spans at release level
+
+SOURCE_TEXT = "synthetic fixture content\n"  # the text whose SHA-256 the fixtures hold
+
+
+def _sources() -> dict[str, str]:
+    return {
+        pair.source_id: SOURCE_TEXT
+        for item in read_gold_release(RELEASE)
+        for claim in item.claims
+        for pair in claim.pairs
+    }
+
+
+def test_claim_lists_match_by_half_of_the_longer_span() -> None:
+    # (0, 10) and (5, 15) share 5 of 10 characters: a match.
+    assert match_claims([(0, 10)], [(5, 15)]) == 1
+    # (0, 10) and (6, 16) share 4 of 10: no match.
+    assert match_claims([(0, 10)], [(6, 16)]) == 0
+    # (0, 4) and (0, 10) share 4 of the longer 10: no match.
+    assert match_claims([(0, 4)], [(0, 10)]) == 0
+    # One to one: two spans on the first side cannot both match one span.
+    assert match_claims([(0, 10), (0, 10)], [(0, 10)]) == 1
+
+
+def test_claim_extraction_agreement_on_the_synthetic_release() -> None:
+    extraction = annotation_agreement(read_gold_release(RELEASE)).claim_extraction
+    # Each annotator lists the one claim of every item; the second annotator
+    # also lists (0, 18) in G9001 and G9006, which matches nothing.
+    # First 10 claims, second 12, matched 10: share 2 * 10 / 22 = 10/11.
+    assert (extraction.first, extraction.second, extraction.matched) == (10, 12, 10)
+    assert extraction.share == pytest.approx(10 / 11)
+
+
+def test_review_flag_agreement_on_the_synthetic_release() -> None:
+    review = annotation_agreement(read_gold_release(RELEASE)).expert_would_review
+    # Both annotators said no for all 10 claims.
+    assert review.units == 10
+    assert review.raw_agreement == pytest.approx(1.0)
+    assert review.cohens_kappa is None
+
+
+def test_span_agreement_needs_source_texts() -> None:
+    assert annotation_agreement(read_gold_release(RELEASE)).evidence_spans is None
+
+
+def test_span_agreement_at_release_level() -> None:
+    items = read_gold_release(RELEASE)
+    # Every pair: both annotators chose (10, 60): "fixture" and "content".
+    spans = annotation_agreement(items, _sources()).evidence_spans
+    assert spans is not None
+    assert spans.pairs == 11
+    assert spans.mean_f1 == pytest.approx(1.0)
+    assert spans.mean_iou == pytest.approx(1.0)
+
+
+def test_span_agreement_with_one_disagreeing_pair() -> None:
+    items = list(read_gold_release(RELEASE))
+    g9001 = items[1]
+    claim = g9001.claims[0]
+    pair = claim.pairs[0]
+    raw = dict(pair.raw)
+    # The second annotator now chose (0, 9): "synthetic" only. Shared: none.
+    raw["a92"] = raw["a92"].model_copy(
+        update={"evidence_spans": (EvidenceSpan(passage_id="p001", offsets=(0, 9)),)}
+    )
+    changed = claim.model_copy(update={"pairs": (pair.model_copy(update={"raw": raw}),)})
+    items[1] = g9001.model_copy(update={"claims": (changed,)})
+    spans = annotation_agreement(items, _sources()).evidence_spans
+    assert spans is not None
+    # Ten pairs with F1 and IoU 1, one with 0: means 10/11.
+    assert spans.mean_f1 == pytest.approx(10 / 11)
+    assert spans.mean_iou == pytest.approx(10 / 11)
+
+
+def test_a_source_text_that_does_not_match_its_hash_is_refused() -> None:
+    sources = _sources()
+    sources["synthetic:sg-synthetic-a-paper"] = "another text\n"
+    with pytest.raises(GoldSetError, match="synthetic:sg-synthetic-a-paper"):
+        annotation_agreement(read_gold_release(RELEASE), sources)
+
+
+def test_a_missing_source_text_is_refused() -> None:
+    sources = _sources()
+    del sources["synthetic:sg-synthetic-h-paper"]
+    with pytest.raises(GoldSetError, match="synthetic:sg-synthetic-h-paper"):
+        annotation_agreement(read_gold_release(RELEASE), sources)
