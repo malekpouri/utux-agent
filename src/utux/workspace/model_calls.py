@@ -43,6 +43,7 @@ from utux.workspace.layout import CONFIG_FILE, EVENT_LOG_FILE
 
 REFUSED_LOCAL_ONLY = "data_policy_local_only"
 UNEXPECTED_ERROR = "unexpected_error"
+INTERRUPTED = "interrupted"
 
 # The status reason of each typed error.
 STATUS_REASONS: tuple[tuple[type[ModelProviderError], str], ...] = (
@@ -136,6 +137,9 @@ class LoggedModelCaller:
             ModelProviderError: The call failed. It is logged with status
                 `error` and the status reason of its type; the same error is
                 raised again.
+            KeyboardInterrupt: The call was interrupted. It is logged with
+                status `error` and the status reason `interrupted`, then
+                raised again.
             EventLogError: The event could not be written.
         """
 
@@ -162,12 +166,14 @@ class LoggedModelCaller:
         started = self._clock()
         try:
             response = self._provider.complete(request)
-        except Exception as error:
-            # Logged, then raised again unchanged.
+        except (Exception, KeyboardInterrupt) as error:
+            # Logged, then raised again unchanged. An interrupt is logged too,
+            # because the request may already have reached the provider.
+            reason = INTERRUPTED if isinstance(error, KeyboardInterrupt) else status_reason(error)
             self._log.append(
                 event(
                     EventStatus.ERROR,
-                    status_reason=status_reason(error),
+                    status_reason=reason,
                     model=request.model,
                     duration_ms=self._milliseconds_since(started),
                 )

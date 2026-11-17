@@ -38,8 +38,10 @@ The status reason of a failed call is a stable code for the error type:
 | `ModelRequestRejectedError` | `model_request_rejected` |
 | `ModelInvalidResponseError` | `model_invalid_response` |
 | anything else raised by a provider | `unexpected_error` |
+| an interrupt (`KeyboardInterrupt`, Ctrl-C) during the call | `interrupted` |
 
-The error is raised again after it is logged.
+The error is raised again after it is logged. An interrupt is logged
+because the request may already have reached the provider and been billed.
 
 ### Hashes, never text
 
