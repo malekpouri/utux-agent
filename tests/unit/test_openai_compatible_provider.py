@@ -534,7 +534,8 @@ def _parts_of_key(text: str) -> list[str]:
 @pytest.mark.parametrize("filler", [270, 285, 290, 295, 299, 300])
 @pytest.mark.parametrize("as_json", [True, False])
 def test_key_echoed_across_the_cut_leaves_no_part_of_it(filler: int, as_json: bool) -> None:
-    reason = "x" * filler + SYNTHETIC_KEY + " and more synthetic text"
+    # The text after the key shares no eight characters with it.
+    reason = "x" * filler + SYNTHETIC_KEY + " and more filler"
     body: Any = {"error": {"message": reason}} if as_json else reason
     provider, _ = _provider(response(400, body))
     with pytest.raises(ModelRequestRejectedError) as caught:

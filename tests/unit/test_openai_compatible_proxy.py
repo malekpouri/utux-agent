@@ -95,6 +95,26 @@ def _provider(base_url: str, transport: Any, **options: Any) -> OpenAICompatible
             "https://openrouter.ai/x",
             "proxy.example:3128",
         ),
+        (
+            {"HTTPS_PROXY": "http://proxy.example:3128", "NO_PROXY": "router.ai"},
+            "https://openrouter.ai/x",
+            "proxy.example:3128",
+        ),
+        (
+            {"HTTPS_PROXY": "http://proxy.example:3128", "NO_PROXY": "OpenRouter.AI:443"},
+            "https://openrouter.ai/x",
+            None,
+        ),
+        (
+            {"HTTPS_PROXY": "http://proxy.example:3128", "NO_PROXY": "openrouter.ai:8443"},
+            "https://openrouter.ai/x",
+            "proxy.example:3128",
+        ),
+        (
+            {"HTTPS_PROXY": "http://proxy.example:3128", "NO_PROXY": "10.0.0.5"},
+            "https://10.0.0.5:8443/x",
+            None,
+        ),
     ],
 )
 def test_proxy_routing(environ: dict[str, str], url: str, expected: str | None) -> None:

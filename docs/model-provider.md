@@ -170,8 +170,10 @@ gives `cost_usd: null`.
 | HTTP 429 | `ModelRateLimitError`, with `retry_after_seconds` from a `Retry-After` header given in seconds | Yes |
 | HTTP 408, or no answer in time | `ModelTimeoutError` | No |
 | HTTP 5xx, or the host cannot be reached | `ModelUnavailableError` | Yes |
+| The system trust store cannot verify the host's certificate | `ModelUnavailableError`, saying that the system trust store could not verify the host | No |
 | Any other HTTP 4xx, including 402 | `ModelRequestRejectedError` | No |
-| HTTP 200 whose body is not a valid response, or a redirect | `ModelInvalidResponseError` | No |
+| HTTP 200 whose body holds an `error` object with a `code` from 400 to 599 | As the HTTP status of that code, with the message `error <code> in a 200 response` | As that status |
+| HTTP 200 whose body holds an `error` object without such a code, or is not a valid response, or a redirect | `ModelInvalidResponseError` | No |
 
 Retries wait `backoff_seconds`, doubling each time up to
 `max_backoff_seconds`, or as long as a `Retry-After` header asks. A retry is
@@ -179,8 +181,9 @@ made only when an attempt is left and the wait still fits into the request's
 timeout, so a call never takes longer than its timeout.
 
 The message of an error holds the provider's name, the HTTP status and the
-provider's reason, cut to 300 characters. If the provider echoes the key,
-it is replaced by `[redacted]`. The client logs nothing.
+provider's reason. If the provider echoes the key, it is replaced by
+`[redacted]` first, and only then is the message cut to 300 characters, so
+that a cut cannot leave part of the key behind. The client logs nothing.
 
 ### Transport
 
@@ -188,8 +191,31 @@ it is replaced by `[redacted]`. The client logs nothing.
 loads the system trust store. Before every blocking read it sets the socket
 timeout to the time that is left, so the timeout covers the whole exchange,
 not each read alone. Name resolution is bounded by the system resolver, not
-by the timeout. Proxy settings from the environment (`HTTPS_PROXY`) are not
-used. A response body larger than 16 MiB is refused.
+by the timeout. A response body larger than 16 MiB is refused.
+
+#### Proxies
+
+An https request goes through the proxy in `https_proxy` or `HTTPS_PROXY`
+(the lower-case variable wins), through an HTTP `CONNECT` tunnel. The request
+itself, its key included, travels inside the tunnel's TLS connection.
+
+- Only `http://` proxies are supported. A proxy without a scheme is taken as
+  `http://`, and the port defaults to 80. **SOCKS proxies are not
+  supported**, nor are `https://` proxies; either is a
+  `ModelProviderConfigError`.
+- Credentials in the proxy URL (`http://user:password@host:port`) are sent
+  as a `Proxy-Authorization: Basic` header on the `CONNECT` request. They are
+  never logged or put into an error; errors name the proxy as `host:port` at
+  most.
+- `no_proxy` or `NO_PROXY` exempts hosts: a comma-separated list where `*`
+  exempts every host, an entry exempts a host equal to it or ending in `.`
+  and the entry (a leading dot is ignored), and `host:port` exempts only that
+  port. Address ranges are not supported.
+- A loopback host never uses a proxy, and `HTTP_PROXY` is not read, since
+  plain http is only used for loopback hosts.
+- The proxy settings are read when the transport is created, that is when
+  the provider is created. `HttpTransport.proxy_for(url)` tells which proxy a
+  request would use.
 
 ### What the tests are based on
 
@@ -197,19 +223,23 @@ The tests use synthetic, hand-written responses
 (`tests/fixtures/openai_compatible`) and a loopback HTTP server inside the
 test. No response was recorded from a real service.
 
-One run of the live smoke test (`tests/integration/test_openrouter_live.py`)
-passed on 2026-11-17, against `openai/gpt-4o-mini`, with
-`{"usage": {"include": true}}` in the request. It shows only what the test
-asserts: the response parsed into a valid response, with `usage.prompt_tokens`
-and `usage.completion_tokens` above zero, a finish reason of `stop` or
-`length`, and a `usage.cost` that is a number of zero or more.
+The loopback proxy and TLS server in the tests are synthetic, with a
+certificate made for each test run.
+
+**Confirmed by one live run.** One run of the live smoke test
+(`tests/integration/test_openrouter_live.py`) passed on 2026-11-17, against
+`openai/gpt-4o-mini`, with `{"usage": {"include": true}}` in the request. It
+showed that `usage.cost` was present and numeric (a number of zero or more),
+that the response parsed into a valid response, with `usage.prompt_tokens`
+and `usage.completion_tokens` above zero, and that the finish reason was
+`stop` or `length`. utux treats `usage.cost` as US dollars.
 
 These parts of the real response format were not confirmed:
 
-- **Where OpenRouter reports cost, and in what unit.** The client reads
-  `usage.cost` and treats it as US dollars. OpenRouter's documentation, as the
-  author remembers it, gives the cost in credits, one credit being one US
-  dollar. Whether `usage.cost` also appears without
+- **The unit of `usage.cost`.** It is treated as US dollars. OpenRouter's
+  documentation, as the author remembers it, gives the cost in credits, one
+  credit being one US dollar; the live run showed only that the field is
+  numeric. Whether `usage.cost` also appears without
   `{"usage": {"include": true}}` was not checked.
 - **Cost with a key of the user's own (BYOK).** Whether `usage.cost` is then
   zero, and whether the upstream cost appears elsewhere, such as in
@@ -218,8 +248,10 @@ These parts of the real response format were not confirmed:
   401, 402, 408, 429 and 5xx responses, and whether a 429 carries a
   `Retry-After` header.
 - **An error inside a 200 response.** Whether OpenRouter ever answers 200
-  with an `error` object instead of `choices`; the client treats such a body
-  as an invalid response.
+  with an `error` object, and whether it has the shape
+  `{"error": {"message", "code"}}`. The client maps such an object by its
+  `code` (see the table above); the fixture `error_in_ok_response.json` is
+  synthetic.
 - **Finish reasons.** Which values occur besides `stop` and `length`;
   `native_finish_reason` is not read.
 - **`max_tokens`.** Whether every model behind OpenRouter honours it, rather

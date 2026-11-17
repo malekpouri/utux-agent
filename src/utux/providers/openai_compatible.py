@@ -12,6 +12,7 @@ The API key is read from an environment variable at each call. It is never
 stored, logged or put into an error message.
 """
 
+import base64
 import http.client
 import ipaddress
 import json
@@ -20,9 +21,9 @@ import os
 import ssl
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from pydantic import ValidationError
 
@@ -93,31 +94,87 @@ class Transport(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class _Proxy:
+    host: str
+    port: int
+    # Kept out of repr, so that it never reaches a log or an error.
+    authorization: str | None = field(repr=False)
+
+    @property
+    def label(self) -> str:
+        return f"{self.host}:{self.port}"
+
+
 class HttpTransport:
     """The real transport, on `http.client`, with the system trust store.
 
     The timeout covers the whole exchange: before every blocking read the
     socket timeout is set to the time that is left. Name resolution is not
-    covered; it is bounded by the system resolver. Proxy settings from the
-    environment are not used.
+    covered; it is bounded by the system resolver.
+
+    https requests go through the proxy in `https_proxy` or `HTTPS_PROXY`,
+    through an HTTP CONNECT tunnel, unless `no_proxy` or `NO_PROXY` names the
+    host. A loopback host never uses a proxy. Only `http://` proxies are
+    supported; SOCKS proxies are not. The proxy settings are read when the
+    transport is created.
     """
 
-    def __init__(self, *, max_body_bytes: int = _DEFAULT_MAX_BODY_BYTES) -> None:
+    def __init__(
+        self,
+        *,
+        max_body_bytes: int = _DEFAULT_MAX_BODY_BYTES,
+        ssl_context: ssl.SSLContext | None = None,
+        environ: Mapping[str, str] | None = None,
+    ) -> None:
         """Create the transport.
 
         Args:
             max_body_bytes: The largest response body accepted.
+            ssl_context: The TLS settings. By default, the system trust store.
+            environ: Where the proxy settings are read. By default, the
+                environment of the process.
+
+        Raises:
+            ModelProviderConfigError: If the proxy setting cannot be used. The
+                message never holds the proxy's credentials.
         """
         self._max_body_bytes = max_body_bytes
-        self._context = ssl.create_default_context()
+        self._context = ssl_context if ssl_context is not None else ssl.create_default_context()
+        settings = os.environ if environ is None else environ
+        self._proxy = _proxy_from(settings)
+        self._no_proxy = (settings.get("no_proxy") or settings.get("NO_PROXY") or "").strip()
+
+    def proxy_for(self, url: str) -> str | None:
+        """Return the proxy, as `host:port`, that a request to `url` goes through."""
+        proxy = self._route(url)
+        return None if proxy is None else proxy.label
+
+    def _route(self, url: str) -> _Proxy | None:
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
+        if self._proxy is None or parts.scheme != "https" or _is_loopback(host):
+            return None
+        if _bypasses(host, parts.port or 443, self._no_proxy):
+            return None
+        return self._proxy
 
     def __call__(self, request: HttpRequest, timeout_seconds: float) -> HttpResponse:
         """Send the request and return the response."""
         deadline = time.monotonic() + timeout_seconds
         parts = urlsplit(request.url)
         host = parts.hostname or ""
+        proxy = self._route(request.url)
         connection: http.client.HTTPConnection
-        if parts.scheme == "https":
+        if proxy is not None:
+            connection = http.client.HTTPSConnection(
+                proxy.host, proxy.port, timeout=timeout_seconds, context=self._context
+            )
+            headers = (
+                {} if proxy.authorization is None else {"Proxy-Authorization": proxy.authorization}
+            )
+            connection.set_tunnel(host, parts.port or 443, headers=headers)
+        elif parts.scheme == "https":
             connection = http.client.HTTPSConnection(
                 host, parts.port, timeout=timeout_seconds, context=self._context
             )
@@ -147,6 +204,66 @@ class HttpTransport:
             )
         finally:
             connection.close()
+
+
+def _proxy_from(settings: Mapping[str, str]) -> _Proxy | None:
+    """Read the https proxy from the environment, as curl and urllib do."""
+    variable = "https_proxy" if settings.get("https_proxy") else "HTTPS_PROXY"
+    value = (settings.get(variable) or "").strip()
+    if not value:
+        return None
+    if "://" not in value:
+        value = "http://" + value
+    parts = urlsplit(value)
+    scheme = parts.scheme.lower()
+    # Messages name the variable and the scheme only, never the URL, which
+    # may hold credentials.
+    if scheme.startswith("socks"):
+        raise ModelProviderConfigError(f"{variable}: SOCKS proxies are not supported")
+    if scheme != "http":
+        raise ModelProviderConfigError(
+            f"{variable}: only http:// proxies are supported, not {scheme}://"
+        )
+    if not parts.hostname:
+        raise ModelProviderConfigError(f"{variable}: the proxy URL has no host")
+    try:
+        port = parts.port or 80
+    except ValueError:
+        raise ModelProviderConfigError(f"{variable}: the proxy URL has an invalid port") from None
+    authorization = None
+    if parts.username is not None:
+        credentials = f"{unquote(parts.username)}:{unquote(parts.password or '')}"
+        authorization = "Basic " + base64.b64encode(credentials.encode()).decode("ascii")
+    return _Proxy(parts.hostname, port, authorization)
+
+
+def _bypasses(host: str, port: int, no_proxy: str) -> bool:
+    """Return whether `no_proxy` exempts a host from the proxy.
+
+    The value is a comma-separated list. `*` exempts every host. An entry
+    exempts a host equal to it or ending in `.` and the entry; a leading dot
+    is ignored. An entry with `:port` exempts only that port. Addresses are
+    compared as text; address ranges are not supported.
+    """
+    for raw in no_proxy.split(","):
+        entry = raw.strip().lower()
+        if not entry:
+            continue
+        if entry == "*":
+            return True
+        name, _, entry_port = entry.rpartition(":") if _has_port(entry) else (entry, "", "")
+        if entry_port and entry_port != str(port):
+            continue
+        name = name.lstrip(".").strip("[]")
+        if name and (host == name or host.endswith("." + name)):
+            return True
+    return False
+
+
+def _has_port(entry: str) -> bool:
+    if entry.startswith("["):
+        return "]:" in entry
+    return entry.count(":") == 1
 
 
 def _limit(connection: http.client.HTTPConnection, deadline: float) -> None:
@@ -260,6 +377,9 @@ class OpenAICompatibleProvider:
                 )
             try:
                 return self._attempt(http_request, remaining, request, key)
+            except _FinalError as final:
+                # Retrying cannot change the outcome.
+                raise final.error from None
             except (ModelRateLimitError, ModelUnavailableError) as error:
                 wait = self._wait(attempt, error)
                 # Retry only while attempts are left and the wait still fits
@@ -278,14 +398,25 @@ class OpenAICompatibleProvider:
             raise ModelTimeoutError(
                 f"{self._name}: no answer within {request.timeout_seconds} seconds"
             ) from None
+        except ssl.SSLCertVerificationError as error:
+            reason = _scrub(getattr(error, "verify_message", None) or str(error), key)
+            raise _FinalError(
+                ModelUnavailableError(
+                    f"{self._name}: the system trust store could not verify {self._host}: {reason}"
+                )
+            ) from None
         except (OSError, http.client.HTTPException) as error:
             reason = _scrub(type(error).__name__ + _detail(error), key)
             raise ModelUnavailableError(
                 f"{self._name}: cannot reach {self._host}: {reason}"
             ) from None
         if answer.status == 200:
-            return self._parse(answer.body, key)
-        raise self._status_error(answer, key)
+            return self._parse(answer, key)
+        raise self._status_error(
+            answer.status,
+            answer.header("retry-after"),
+            f"{self._name}: HTTP {answer.status}: {_reason(answer.body, key)}",
+        )
 
     def _read_key(self) -> str | None:
         if self._api_key_env is None:
@@ -329,28 +460,43 @@ class OpenAICompatibleProvider:
             return error.retry_after_seconds
         return float(min(self._max_backoff_seconds, self._backoff_seconds * 2 ** (attempt - 1)))
 
-    def _status_error(self, answer: HttpResponse, key: str | None) -> ModelProviderError:
-        status = answer.status
-        message = f"{self._name}: HTTP {status}: {_reason(answer.body, key)}"
+    def _status_error(
+        self, status: int, retry_after: str | None, message: str
+    ) -> ModelProviderError:
         if status in (401, 403):
             return ModelAuthenticationError(message)
         if status == 408:
             return ModelTimeoutError(message)
         if status == 429:
-            return ModelRateLimitError(message, _retry_after(answer.header("retry-after")))
+            return ModelRateLimitError(message, _retry_after(retry_after))
         if status >= 500:
             return ModelUnavailableError(message)
         if 400 <= status < 500:
             return ModelRequestRejectedError(message)
         return ModelInvalidResponseError(message)
 
-    def _parse(self, body: bytes, key: str | None) -> ModelResponse:
+    def _parse(self, answer: HttpResponse, key: str | None) -> ModelResponse:
+        body = answer.body
         try:
             document = json.loads(body, parse_constant=_refuse_constant)
         except (ValueError, UnicodeDecodeError):
             raise ModelInvalidResponseError(
                 f"{self._name}: the response is not JSON: {_scrub(_text(body), key)}"
             ) from None
+        if isinstance(document, dict) and isinstance(document.get("error"), dict):
+            # Some providers report a failure in a 200 response; it is mapped
+            # by its code, like an HTTP status.
+            code = document["error"].get("code")
+            reason = _reason(body, key)
+            if isinstance(code, int) and not isinstance(code, bool) and 400 <= code <= 599:
+                raise self._status_error(
+                    code,
+                    answer.header("retry-after"),
+                    f"{self._name}: error {code} in a 200 response: {reason}",
+                )
+            raise ModelInvalidResponseError(
+                f"{self._name}: the response holds an error without a usable code: {reason}"
+            )
         try:
             return _response_from(document)
         except _InvalidResponseError as problem:
@@ -379,6 +525,14 @@ def openrouter(
         sleep=sleep,
         clock=clock,
     )
+
+
+class _FinalError(Exception):
+    """Carries an error that is not retried, whatever its type."""
+
+    def __init__(self, error: ModelProviderError) -> None:
+        super().__init__(str(error))
+        self.error = error
 
 
 class _InvalidResponseError(Exception):
@@ -492,13 +646,17 @@ def _reason(body: bytes, key: str | None) -> str:
 
 
 def _text(body: bytes) -> str:
-    text = " ".join(body.decode("utf-8", errors="replace").split())
-    return text if len(text) <= _REASON_CHARACTERS else text[:_REASON_CHARACTERS] + "..."
+    return " ".join(body.decode("utf-8", errors="replace").split())
 
 
 def _scrub(text: str, key: str | None) -> str:
-    text = text if len(text) <= _REASON_CHARACTERS else text[:_REASON_CHARACTERS] + "..."
-    return text.replace(key, _REDACTED) if key else text
+    """Remove the key from a text, then cut it to length.
+
+    In this order, so that a cut cannot leave a part of the key behind.
+    """
+    if key:
+        text = text.replace(key, _REDACTED)
+    return text if len(text) <= _REASON_CHARACTERS else text[:_REASON_CHARACTERS] + "..."
 
 
 def _detail(error: BaseException) -> str:
