@@ -1,11 +1,12 @@
 """Validation of every contract file of a project.
 
 `validate_project` reads every contract file of a project, checks it
-against its schema, and checks the rules that span lines or files: ids are
-unique within `claims.jsonl` and `results.jsonl`, evidence ids refer to
-existing lines, file names match the ids they hold, and an approval response
-matches its request. It reports every problem it finds, not only the first,
-and changes nothing.
+against its schema, and checks the rules that span lines or files: the log
+starts with `project_created` and every parent exists; ids are unique within
+`claims.jsonl`, `results.jsonl` and the source records; evidence ids refer to
+existing lines and source records; every result's run has a manifest; file
+names match the ids they hold; and an approval response matches its request.
+It reports every problem it finds, not only the first, and changes nothing.
 """
 
 import json
@@ -22,8 +23,13 @@ from utux.schemas.approval import (
 )
 from utux.schemas.artifact_metadata import ArtifactMetadata
 from utux.schemas.base import ContractDocument
-from utux.schemas.claim_ledger import ClaimEvidence, ClaimLedgerEntry, ResultRecordEvidence
-from utux.schemas.event import Event, event_number, format_event_id
+from utux.schemas.claim_ledger import (
+    ClaimEvidence,
+    ClaimLedgerEntry,
+    ResultRecordEvidence,
+    SourceEvidence,
+)
+from utux.schemas.event import Event, EventType, event_number, format_event_id
 from utux.schemas.json_io import parse_json
 from utux.schemas.project_config import ProjectConfig
 from utux.schemas.result_record import ResultRecord
@@ -185,6 +191,8 @@ class _Validator:
             return
         self.files_checked += 1
         previous: tuple[int, int] | None = None  # number of the last valid event, and its line
+        # Ids of earlier lines, also of invalid ones, so a bad line is reported once.
+        seen: set[str] = set()
         with path.open("rb") as stream:
             # Read line by line, so a long log is never held in memory.
             for number, raw in enumerate(stream, start=1):
@@ -198,13 +206,32 @@ class _Validator:
                     )
                     continue
                 text = raw.decode("utf-8", errors="replace")
+                earlier = set(seen)
                 try:
-                    event = Event.validate_document(
-                        parse_json(text, EVENT_LOG_FILE), EVENT_LOG_FILE
-                    )
+                    data = parse_json(text, EVENT_LOG_FILE)
+                    if isinstance(data, dict) and isinstance(data.get("event_id"), str):
+                        seen.add(data["event_id"])
+                    event = Event.validate_document(data, EVENT_LOG_FILE)
                 except ContractValidationError as error:
                     self.add_error(EVENT_LOG_FILE, number, error)
                     continue
+                if number == 1 and event.type is not EventType.PROJECT_CREATED:
+                    self.add(
+                        EVENT_LOG_FILE,
+                        number,
+                        "type",
+                        "first_event_not_project_created",
+                        "the first event of the log must be project_created, "
+                        f"not {event.type.value}",
+                    )
+                if event.parent_id is not None and event.parent_id not in earlier:
+                    self.add(
+                        EVENT_LOG_FILE,
+                        number,
+                        "parent_id",
+                        "unknown_reference",
+                        f"{event.parent_id} is not an event in {EVENT_LOG_FILE}",
+                    )
                 current = event_number(event.event_id)
                 if previous is not None and current <= previous[0]:
                     self.add(
@@ -225,7 +252,12 @@ class _Validator:
             return None
         lines: list[_Line] = []
         first_use: dict[str, int] = {}
-        for number, content in enumerate(text.splitlines(), start=1):
+        # JSON Lines ends a line at "\n" only. str.splitlines() would also break
+        # at characters such as U+2028 and U+0085, which may appear in text.
+        parts = text.split("\n")
+        if parts[-1] == "":
+            parts.pop()
+        for number, content in enumerate(parts, start=1):
             raw_id: str | None = None
             document: T | None = None
             try:
@@ -249,7 +281,9 @@ class _Validator:
             lines.append(_Line(number, raw_id, document))
         return lines
 
-    def references(self, claims: list[_Line], results: list[_Line] | None) -> None:
+    def references(
+        self, claims: list[_Line], results: list[_Line] | None, source_ids: set[str]
+    ) -> None:
         """Check that evidence ids refer to lines that exist.
 
         The ids of lines that are themselves invalid still count, so that a
@@ -271,6 +305,15 @@ class _Validator:
                             "unknown_reference",
                             f"{entry.id} is not a result record in {RESULTS_FILE}",
                         )
+                elif isinstance(entry, SourceEvidence):
+                    if entry.source_id not in source_ids:
+                        self.add(
+                            CLAIM_LEDGER_FILE,
+                            line.number,
+                            f"evidence.{position}.source_id",
+                            "unknown_reference",
+                            f"{entry.source_id} has no source record in {SOURCES_DIRECTORY}/",
+                        )
                 elif isinstance(entry, ClaimEvidence) and entry.id not in claim_ids:
                     self.add(
                         CLAIM_LEDGER_FILE,
@@ -279,6 +322,23 @@ class _Validator:
                         "unknown_reference",
                         f"{entry.id} is not a claim in {CLAIM_LEDGER_FILE}",
                     )
+
+    def result_runs(self, results: list[_Line]) -> None:
+        """Check that every result record's run has a manifest."""
+        for line in results:
+            if not isinstance(line.document, ResultRecord):
+                continue
+            run_id = line.document.run_id
+            manifest = f"{RUNS_DIRECTORY}/{run_id}/{MANIFEST_FILE}"
+            # The manifest counts when it exists; whether it is valid is its own check.
+            if not (self.project / manifest).is_file():
+                self.add(
+                    RESULTS_FILE,
+                    line.number,
+                    "run_id",
+                    "unknown_reference",
+                    f"{run_id} has no run manifest {manifest}",
+                )
 
     def sidecars(self) -> None:
         for path in self.entries(META_DIRECTORY):
@@ -302,11 +362,42 @@ class _Validator:
                     f"the file is named {path.name} but describes {sidecar.artifact_id}",
                 )
 
-    def sources(self) -> None:
+    def sources(self) -> set[str]:
+        """Check the source records and return their source ids.
+
+        The ids of records that are themselves invalid still count, so that a
+        bad record is reported once.
+        """
+        first_use: dict[str, str] = {}
         for path in self.entries(SOURCES_DIRECTORY):
             # Other files hold the stored text of the sources.
-            if path.is_file() and path.suffix == ".json":
-                self.document(SourceRecord, self.relative(path))
+            if not (path.is_file() and path.suffix == ".json"):
+                continue
+            file = self.relative(path)
+            text = self.read_text(file)
+            if text is None:
+                continue
+            source_id: str | None = None
+            try:
+                data = parse_json(text, file)
+                if isinstance(data, dict) and isinstance(data.get("source_id"), str):
+                    source_id = data["source_id"]
+                SourceRecord.validate_document(data, file)
+            except ContractValidationError as error:
+                self.add_error(file, None, error)
+            if source_id is None:
+                continue
+            if source_id in first_use:
+                self.add(
+                    file,
+                    None,
+                    "source_id",
+                    "duplicate_id",
+                    f"{source_id} is already used by {first_use[source_id]}",
+                )
+            else:
+                first_use[source_id] = file
+        return set(first_use)
 
     def runs(self) -> None:
         for directory in self.entries(RUNS_DIRECTORY):
@@ -410,10 +501,12 @@ def validate_project(directory: Path) -> ValidationReport:
     validator.events()
     claims = validator.lines(ClaimLedgerEntry, CLAIM_LEDGER_FILE)
     results = validator.lines(ResultRecord, RESULTS_FILE)
+    source_ids = validator.sources()
     if claims is not None:
-        validator.references(claims, results)
+        validator.references(claims, results, source_ids)
+    if results is not None:
+        validator.result_runs(results)
     validator.sidecars()
-    validator.sources()
     validator.runs()
     validator.approvals()
     return _report(validator)
