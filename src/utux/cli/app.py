@@ -54,10 +54,23 @@ def init(
         DataPolicy,
         typer.Option("--data-policy", help="What may be sent to external services."),
     ],
+    profile: Annotated[
+        str | None, typer.Option("--profile", help="Profile. Default: the schema's default.")
+    ] = None,
+    domain_pack: Annotated[
+        str | None,
+        typer.Option("--domain-pack", help="Domain pack. Default: the schema's default."),
+    ] = None,
 ) -> None:
     """Create a new project in DIRECTORY."""
     try:
-        project = init_project(directory, budget_usd=budget_usd, data_policy=data_policy)
+        project = init_project(
+            directory,
+            budget_usd=budget_usd,
+            data_policy=data_policy,
+            profile=profile,
+            domain_pack=domain_pack,
+        )
     except UtuxError as error:
         typer.echo(f"error: {error}", err=True)
         raise typer.Exit(code=1) from error

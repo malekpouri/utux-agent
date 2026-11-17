@@ -289,7 +289,6 @@ def test_without_git_nothing_is_created(tmp_path: Path, monkeypatch: pytest.Monk
         "[user]\n\tname = Synthetic Person\n",
         "[user]\n\temail = person@example.org\n",
         '[user]\n\tname = ""\n\temail = person@example.org\n',
-        '[user]\n\tname = Synthetic Person\n\temail = ""\n',
     ],
 )
 def test_without_a_git_identity_nothing_is_created(
@@ -587,3 +586,12 @@ def test_invalid_profile_or_domain_pack_is_refused_and_nothing_is_created(
         _init(tmp_path / "p", **{option: "Not A Name"})
     assert [p.field for p in caught.value.problems] == [field]
     assert not (tmp_path / "p").exists()
+
+
+def test_explicitly_empty_email_is_accepted_as_git_accepts_it(
+    tmp_path: Path, git_identity: Path
+) -> None:
+    """An empty email that the user configured is not a guess; git commits with it."""
+    git_identity.write_text('[user]\n\tname = Synthetic Person\n\temail = ""\n', encoding="utf-8")
+    project = _init(tmp_path / "p")
+    assert _git(project, "log", "-1", "--format=%an <%ae>").strip() == "Synthetic Person <>"

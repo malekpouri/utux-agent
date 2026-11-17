@@ -70,6 +70,7 @@ Each event type defines its keys. A missing key is reported as
 
 | Type | Keys of `data` |
 | --- | --- |
+| `project_created` | `utux_version` (non-empty text): the version of utux that created the project; required |
 | `setting_changed` | `key` (non-empty text), `old_value`, `new_value`; all required |
 | every other type | none; `data` must be `{}` until the task that emits the type defines its keys |
 

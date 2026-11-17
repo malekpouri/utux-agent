@@ -65,7 +65,14 @@ class EventStatus(StrEnum):
 # The keys of `data` for each event type. A type that is not listed accepts
 # only an empty object, until the task that emits it defines its keys.
 _DATA_KEYS: dict[EventType, tuple[str, ...]] = {
+    EventType.PROJECT_CREATED: ("utux_version",),
     EventType.SETTING_CHANGED: ("key", "old_value", "new_value"),
+}
+
+# Keys of `data` whose value must be non-empty text.
+_TEXT_KEYS: dict[EventType, tuple[str, ...]] = {
+    EventType.PROJECT_CREATED: ("utux_version",),
+    EventType.SETTING_CHANGED: ("key",),
 }
 
 
@@ -105,10 +112,11 @@ def _check_data_keys(value: dict[str, Scalar], info: ValidationInfo) -> dict[str
         for key in value
         if key not in expected
     ]
-    if kind is EventType.SETTING_CHANGED and "key" in value:
-        name = value["key"]
-        if not isinstance(name, str) or not name:
-            errors.append({"type": "string_type", "loc": ("key",), "input": None})
+    for key in _TEXT_KEYS.get(kind, ()):
+        if key in value:
+            text = value[key]
+            if not isinstance(text, str) or not text:
+                errors.append({"type": "string_type", "loc": (key,), "input": None})
     if errors:
         raise ValidationError.from_exception_data("data", errors)
     return value

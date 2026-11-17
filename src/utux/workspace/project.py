@@ -12,6 +12,7 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
+from utux import __version__
 from utux.errors import ProjectInitError
 from utux.events.log import EventLog
 from utux.schemas.event import EventStatus, EventType, NewEvent
@@ -31,6 +32,9 @@ from utux.workspace.layout import (
 SYSTEM_ACTOR = "system:utux"
 FIRST_COMMIT_MESSAGE = "Create utux project"
 
+# Options for git that stop it from guessing an identity from the host.
+_NO_GUESSING = ("-c", "user.useConfigOnly=true")
+
 _NO_IDENTITY = (
     "git has no user identity, which the first commit of the project needs. Set it with:\n"
     '  git config --global user.name "Your Name"\n'
@@ -43,6 +47,8 @@ def init_project(
     *,
     budget_usd: float,
     data_policy: DataPolicy,
+    profile: str | None = None,
+    domain_pack: str | None = None,
     clock: Callable[[], datetime] | None = None,
 ) -> Path:
     """Create a new project in a directory that is empty or does not exist.
@@ -54,6 +60,8 @@ def init_project(
         directory: Where to create the project.
         budget_usd: The total budget of the project in US dollars.
         data_policy: What may be sent to external services.
+        profile: The profile, or None for the schema's default.
+        domain_pack: The domain pack, or None for the schema's default.
         clock: Returns the current time in UTC, for the first event. Tests
             pass a fixed time.
 
@@ -64,16 +72,21 @@ def init_project(
         ContractValidationError: If the options do not make a valid
             `utux.yaml`, for example a budget of zero.
         ProjectInitError: If the directory is not empty, git is missing or
-            has no user identity, or the project cannot be created.
+            has no user identity, or the project cannot be created. This
+            includes a failure of the first commit, for example because the
+            user's commit signing fails.
     """
-    config = ProjectConfig.validate_document(
-        {
-            "schema_version": ProjectConfig.SCHEMA_VERSION,
-            "data_policy": data_policy.value,
-            "budget": {"total_usd": budget_usd},
-        },
-        CONFIG_FILE,
-    )
+    document: dict[str, object] = {
+        "schema_version": ProjectConfig.SCHEMA_VERSION,
+        "data_policy": data_policy.value,
+        "budget": {"total_usd": budget_usd},
+    }
+    # Left out when not given, so that the schema's own default applies.
+    if profile is not None:
+        document["profile"] = profile
+    if domain_pack is not None:
+        document["domain_pack"] = domain_pack
+    config = ProjectConfig.validate_document(document, CONFIG_FILE)
     _check_target(directory)
     _check_git()
 
@@ -104,14 +117,20 @@ def _create(directory: Path, config: ProjectConfig, clock: Callable[[], datetime
 
     log_path = directory / EVENT_LOG_FILE
     log = EventLog(log_path) if clock is None else EventLog(log_path, clock=clock)
-    log.append(NewEvent(actor=SYSTEM_ACTOR, type=EventType.PROJECT_CREATED, status=EventStatus.OK))
+    log.append(
+        NewEvent(
+            actor=SYSTEM_ACTOR,
+            type=EventType.PROJECT_CREATED,
+            status=EventStatus.OK,
+            data={"utux_version": __version__},
+        )
+    )
 
     _run_git(directory, "init", "--quiet", "--initial-branch=main")
     _run_git(directory, "add", "--all")
-    # A signing setup of the user must not turn project creation into a prompt.
-    _run_git(
-        directory, "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", FIRST_COMMIT_MESSAGE
-    )
+    # The commit follows the user's git configuration, signing included. Only
+    # guessing an identity from the host is switched off, as in the check.
+    _run_git(directory, *_NO_GUESSING, "commit", "--quiet", "-m", FIRST_COMMIT_MESSAGE)
 
 
 def _gitignore_text() -> str:
@@ -130,33 +149,36 @@ def _check_target(directory: Path) -> None:
         raise ProjectInitError(f"cannot read {directory}: {error.strerror}") from error
     if not empty:
         raise ProjectInitError(
-            f"cannot create a project in {directory}: the directory is not empty"
+            f"cannot create a project in {directory}: the directory is not empty; "
+            "if it is left over from an interrupted utux init, remove it and run the command again"
         )
 
 
 def _check_git() -> None:
     if shutil.which("git") is None:
         raise ProjectInitError("git is not installed; a project is a git repository")
-    if _git_setting("user.name") is None or _git_setting("user.email") is None:
+    if not (_identity_known("GIT_AUTHOR_IDENT") and _identity_known("GIT_COMMITTER_IDENT")):
         raise ProjectInitError(_NO_IDENTITY)
 
 
-def _git_setting(name: str) -> str | None:
-    """Return a git setting as the new repository will see it, or None.
+def _identity_known(variable: str) -> bool:
+    """Return whether git has an author or committer identity it does not guess.
 
-    GIT_DIR points away from any repository, so the settings of a repository
-    that happens to surround the working directory are not read. The new
-    project is its own repository and would not see them either.
+    git takes the identity from its configuration or from the environment
+    (`GIT_AUTHOR_NAME` and the like), as it will for the commit. With
+    `user.useConfigOnly` it refuses to make one up from the account and host
+    name. GIT_DIR points away from any repository, so the settings of a
+    repository that happens to surround the working directory are not read;
+    the new project is its own repository and would not see them either.
     """
     result = subprocess.run(
-        ["git", "config", "--get", name],
+        ["git", *_NO_GUESSING, "var", variable],
         capture_output=True,
         text=True,
         check=False,
         env={**os.environ, "GIT_DIR": os.devnull},
     )
-    value = result.stdout.strip()
-    return value if result.returncode == 0 and value else None
+    return result.returncode == 0
 
 
 def _run_git(directory: Path, *arguments: str) -> str:
@@ -170,10 +192,24 @@ def _run_git(directory: Path, *arguments: str) -> str:
         env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
     )
     if result.returncode != 0:
-        step = next(argument for argument in arguments if not argument.startswith("-"))
+        step = _subcommand(arguments)
         detail = result.stderr.strip() or f"exit status {result.returncode}"
         raise ProjectInitError(f"git {step} failed: {detail}")
     return result.stdout
+
+
+def _subcommand(arguments: tuple[str, ...]) -> str:
+    """Return the git subcommand, skipping options such as `-c name=value`."""
+    position = 0
+    while position < len(arguments):
+        argument = arguments[position]
+        if argument == "-c":
+            position += 2
+        elif argument.startswith("-"):
+            position += 1
+        else:
+            return argument
+    return "command"
 
 
 def _first_missing(directory: Path) -> Path | None:
