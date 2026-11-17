@@ -45,6 +45,29 @@ INVALID = [
     ("synthetic_ambiguous_not_boolean.json", "claims.0.ambiguous", "bool_type"),
     ("synthetic_claim_id_of_another_item.json", "claims.0.claim_id", "claim_id_mismatch"),
     ("synthetic_claim_without_pairs.json", "claims.0.pairs", "too_short"),
+    ("synthetic_claim_without_pairs_not_insufficient.json", "claims.1.pairs", "too_short"),
+    (
+        "synthetic_raw_status_of_a_claim_without_pairs.json",
+        "claims.1.raw.a92.status",
+        "raw_status_without_pairs",
+    ),
+    (
+        "synthetic_claim_adjudicated_without_reason.json",
+        "claims.0.adjudication_reason",
+        "adjudication_reason_required",
+    ),
+    (
+        "synthetic_pair_reason_without_adjudication.json",
+        "claims.0.pairs.0.adjudication_reason",
+        "adjudication_reason_not_allowed",
+    ),
+    (
+        "synthetic_extraction_adjudicated_without_reason.json",
+        "annotation.claim_extraction.adjudication_reason",
+        "adjudication_reason_required",
+    ),
+    ("synthetic_empty_claim_note.json", "claims.0.raw.a91.note", "string_too_short"),
+    ("synthetic_pair_raw_without_note.json", "claims.0.pairs.0.raw.a91.note", "missing"),
     ("synthetic_span_beyond_text_unit.json", "claims.0.span", "span_out_of_range"),
     ("synthetic_span_end_before_start.json", "claims.0.span", "span_not_increasing"),
     ("synthetic_duplicate_claim_id.json", "claims.1.claim_id", "duplicate_id"),
@@ -397,3 +420,32 @@ def test_secondary_errors_are_distinct_codes() -> None:
     assert isinstance(hidden, dict)
     hidden["secondary_errors"] = ["magnitude_mismatch", "magnitude_mismatch"]
     assert _problems(document) == [("hidden.secondary_errors.1", "duplicate_error")]
+
+
+def test_a_claim_that_cites_no_source_has_no_pairs() -> None:
+    item = load_gold_item(FIXTURES / "valid" / "synthetic_claim_without_a_source.json")
+    claim = item.claims[1]
+    assert claim.pairs == ()
+    assert claim.status is GoldStatus.INSUFFICIENT_EVIDENCE
+    assert {raw.status for raw in claim.raw.values()} == {GoldStatus.INSUFFICIENT_EVIDENCE}
+
+
+def test_notes_and_adjudication_reasons_are_read() -> None:
+    item = load_gold_item(FIXTURES / "valid" / "synthetic_perturbed_item.json")
+    claim = item.claims[0]
+    assert claim.adjudication_reason == "Synthetic adjudication reason."
+    assert claim.raw["a91"].note is None
+    assert claim.pairs[0].raw["a92"].note == "Synthetic note."
+    assert claim.pairs[0].adjudication_reason == "Synthetic adjudication reason."
+    extraction = item.annotation.claim_extraction
+    assert extraction.adjudication_reason == "Synthetic adjudication reason."
+
+
+def test_a_claim_without_pairs_may_be_adjudicated_on_its_review_flag() -> None:
+    document = _document("synthetic_claim_without_a_source.json")
+    claim = _claim(document, 1)
+    claim["raw"]["a92"]["expert_would_review"] = True
+    claim["adjudicated"] = True
+    claim["adjudication_reason"] = "Synthetic adjudication reason."
+    _annotation(document)["adjudicator"] = "a90"
+    assert GoldItem.validate_document(document, "item.json").claims[1].pairs == ()

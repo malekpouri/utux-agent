@@ -22,14 +22,17 @@
       "raw": {
         "a91": {
           "status": "partially_supported",
-          "expert_would_review": false
+          "expert_would_review": false,
+          "note": null
         },
         "a92": {
           "status": "verified",
-          "expert_would_review": false
+          "expert_would_review": false,
+          "note": null
         }
       },
       "adjudicated": true,
+      "adjudication_reason": "Synthetic adjudication reason.",
       "ambiguous": false
     }
   ],
@@ -67,7 +70,8 @@
           }
         ]
       },
-      "adjudicated": true
+      "adjudicated": true,
+      "adjudication_reason": "Synthetic adjudication reason."
     }
   },
   "hidden": {
