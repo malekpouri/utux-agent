@@ -367,14 +367,14 @@ Every number in a manuscript has a source type, and each type is checked against
  "input_hash": "sha256:...", "output_hash": "sha256:...",
  "tokens_in": 5120, "tokens_out": 830, "cost_usd": 0.012, "duration_ms": 8400,
  "status": "ok", "status_reason": null, "retry_reason": null, "escalated_from": null,
- "data": {}, "artifacts": ["method-v003"]}
+ "data": {"provider": "openrouter", "is_external": true}, "artifacts": ["method-v003"]}
 ```
 
 Event types include stage start and end, model call, tool call, code execution, verification result, approval requested, approval answered, budget warning, setting changed and error. `retry_reason` and `escalated_from` record why a call was repeated or moved to a stronger tier.
 
 `status` is `ok`, `error` or `refused`. A refused action is one that utux itself declined, for example a call to an external provider under `local_only` or a call after the budget is exhausted. `status_reason` is a stable machine code that explains any status other than `ok`, such as `model_timeout` or `budget_exhausted`; it is null exactly when the status is `ok`. Free-text error messages are not stored.
 
-`data` holds the details that are specific to an event type, as a flat object of scalar values with documented keys per type. A `setting_changed` event, for example, carries the setting's key and its old and new values. Message content and source text never go into `data`.
+`data` holds the details that are specific to an event type, as a flat object of scalar values with documented keys per type. A `setting_changed` event, for example, carries the setting's key and its old and new values, and a `model_call` event carries the name of the provider and whether it is external, so the log shows which provider received which content hash. Message content and source text never go into `data`.
 
 An incomplete last line left by an interrupted write is never repaired automatically. `utux log repair` moves the fragment to a side file, restores the log to its last complete event and records the repair as an event.
 
