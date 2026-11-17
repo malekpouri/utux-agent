@@ -1,0 +1,7 @@
+schema_version: 2
+profile: default
+domain_pack: generic
+data_policy: local_only
+budget:
+  total_usd: 20.0
+  per_stage_usd: {}

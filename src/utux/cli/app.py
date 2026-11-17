@@ -10,6 +10,7 @@ from utux.errors import SchemaExportError, UtuxError
 from utux.schemas.export import export_json_schemas
 from utux.schemas.project_config import DataPolicy
 from utux.workspace.project import init_project
+from utux.workspace.validation import validate_project
 
 app = typer.Typer(
     name="utux",
@@ -75,6 +76,35 @@ def init(
         typer.echo(f"error: {error}", err=True)
         raise typer.Exit(code=1) from error
     typer.echo(f"Created project in {project}")
+
+
+@app.command("validate")
+def validate(
+    directory: Annotated[
+        Path, typer.Argument(help="The project directory. Default: the current directory.")
+    ] = Path(),
+    json_output: Annotated[
+        bool, typer.Option("--json", help="Print a machine-readable JSON report.")
+    ] = False,
+) -> None:
+    """Check every contract file of a project and report every problem."""
+    report = validate_project(directory)
+    if json_output:
+        typer.echo(report.to_json(), nl=False)
+    else:
+        for problem in report.problems:
+            typer.echo(problem.message)
+        if report.newer_schema_version:
+            typer.echo(
+                "This project was written by a newer version of utux; upgrade utux to work with it."
+            )
+        if report.valid:
+            typer.echo(f"The project is valid ({report.files_checked} contract files checked).")
+        else:
+            count = len(report.problems)
+            typer.echo(f"{count} {'problem' if count == 1 else 'problems'} found.")
+    if not report.valid:
+        raise typer.Exit(code=1)
 
 
 schema_app = typer.Typer(help="Work with the schemas of the file contracts.")

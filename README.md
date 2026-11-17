@@ -11,13 +11,15 @@ The project is in milestone M0. What works today:
 
 - `utux init` creates a project: its directory tree, `utux.yaml`, the event
   log with its first event, and a git repository with a first commit.
+- `utux validate` checks every contract file of a project and reports every
+  problem.
 - `utux schema export <dir>` writes a JSON Schema file for every file
   contract.
 - The schemas of all file contracts, the append-only event log and the
   `ModelProvider` interface exist as library code.
 
-What does not exist yet: validating a project, calling a model, cost
-accounting, and every pipeline stage. See `docs/plan/M0.md` for what is being
+What does not exist yet: calling a model, cost accounting, and every
+pipeline stage. See `docs/plan/M0.md` for what is being
 built.
 
 ## Quick start
@@ -25,6 +27,7 @@ built.
 ```bash
 uv sync
 uv run utux init my-project --budget-usd 20 --data-policy local_only
+uv run utux validate my-project
 ```
 
 `--budget-usd` and `--data-policy` are required and have no default. See
@@ -37,6 +40,7 @@ uv run utux init my-project --budget-usd 20 --data-policy local_only
 - [RFC-002: Gold Standard Dataset and Evaluation Protocol](docs/rfc/RFC-002.md)
 - [Architecture decision records](docs/adr/)
 - [Creating a project](docs/project.md)
+- [Validating a project](docs/validate.md)
 - [`utux.yaml` reference](docs/utux-yaml.md)
 - [Schema conventions](docs/schema-conventions.md)
 - [Artifact metadata and content hashes](docs/artifact-metadata.md)

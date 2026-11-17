@@ -1,0 +1,6 @@
+# Written by utux init.
+.DS_Store
+__pycache__/
+*.pyc
+.utux/checkpoints.sqlite
+.*.tmp
