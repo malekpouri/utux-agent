@@ -1,0 +1,7 @@
+{
+  "id": "gen-synthetic-0003",
+  "error": {
+    "message": "Synthetic: the upstream provider failed",
+    "code": 502
+  }
+}

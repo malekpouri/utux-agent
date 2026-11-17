@@ -518,3 +518,87 @@ def test_nothing_is_logged(caplog: pytest.LogCaptureFixture) -> None:
 
 def test_unexpected_http_response_type_is_not_assumed() -> None:
     assert HttpResponse(status=200, headers={}, body=b"").status == 200
+
+
+# The key is replaced before a message is cut
+
+
+def _parts_of_key(text: str) -> list[str]:
+    return [
+        SYNTHETIC_KEY[i : i + 8]
+        for i in range(len(SYNTHETIC_KEY) - 7)
+        if SYNTHETIC_KEY[i : i + 8] in text
+    ]
+
+
+@pytest.mark.parametrize("filler", [270, 285, 290, 295, 299, 300])
+@pytest.mark.parametrize("as_json", [True, False])
+def test_key_echoed_across_the_cut_leaves_no_part_of_it(filler: int, as_json: bool) -> None:
+    reason = "x" * filler + SYNTHETIC_KEY + " and more synthetic text"
+    body: Any = {"error": {"message": reason}} if as_json else reason
+    provider, _ = _provider(response(400, body))
+    with pytest.raises(ModelRequestRejectedError) as caught:
+        provider.complete(_request())
+    assert _parts_of_key(_all_text(caught.value)) == []
+
+
+def test_key_echoed_across_the_cut_of_a_connection_error_leaves_no_part_of_it() -> None:
+    provider, _ = _provider(ConnectionResetError(104, "x" * 280 + SYNTHETIC_KEY))
+    with pytest.raises(ModelUnavailableError) as caught:
+        provider.complete(_request())
+    assert _parts_of_key(_all_text(caught.value)) == []
+
+
+# An error object inside a 200 response
+
+
+@pytest.mark.parametrize(
+    ("code", "error"),
+    [
+        (400, ModelRequestRejectedError),
+        (401, ModelAuthenticationError),
+        (402, ModelRequestRejectedError),
+        (408, ModelTimeoutError),
+        (429, ModelRateLimitError),
+        (502, ModelUnavailableError),
+        (503, ModelUnavailableError),
+    ],
+)
+def test_error_object_in_a_200_response_maps_by_its_code(
+    code: int, error: type[ModelProviderError]
+) -> None:
+    document = fixture_json("error_in_ok_response.json")
+    document["error"]["code"] = code  # type: ignore[index]
+    provider, _ = _provider(response(200, document), max_attempts=1)
+    with pytest.raises(ModelProviderError) as caught:
+        provider.complete(_request())
+    assert type(caught.value) is error
+    assert str(caught.value) == (
+        f"openrouter: error {code} in a 200 response: Synthetic: the upstream provider failed"
+    )
+
+
+def test_error_object_in_a_200_response_is_retried_like_its_status() -> None:
+    time = FakeTime()
+    provider, transport = _provider(
+        [response(200, "error_in_ok_response.json"), OK_WITH_COST], time=time
+    )
+    assert provider.complete(_request()).content == "Synthetic reply."
+    assert len(transport.calls) == 2
+
+
+@pytest.mark.parametrize("code", [None, "502", True, 200, 302, 99, 700])
+def test_error_object_without_a_usable_code_is_an_invalid_response(code: object) -> None:
+    document = fixture_json("error_in_ok_response.json")
+    document["error"]["code"] = code  # type: ignore[index]
+    provider, _ = _provider(response(200, document))
+    with pytest.raises(ModelInvalidResponseError, match="error"):
+        provider.complete(_request())
+
+
+def test_error_object_wins_over_choices() -> None:
+    document = fixture_json("openrouter_completion_with_cost.json")
+    document["error"] = {"message": "Synthetic: failed", "code": 400}
+    provider, _ = _provider(response(200, document))
+    with pytest.raises(ModelRequestRejectedError):
+        provider.complete(_request())
