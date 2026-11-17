@@ -130,6 +130,31 @@ def _length(value: tuple[object, ...], low: int, high: int | None = None) -> Non
         )
 
 
+Note = NonEmptyText | None
+"""An annotator's free-text note, or null."""
+
+
+def _reason_problems(adjudicated: bool, reason: str | None) -> list[InitErrorDetails]:
+    """An adjudicated level has a written reason; any other level has none."""
+    if adjudicated and reason is None:
+        return [
+            field_problem(
+                "adjudication_reason_required",
+                "an adjudicated level states the adjudicator's reason",
+                "adjudication_reason",
+            )
+        ]
+    if not adjudicated and reason is not None:
+        return [
+            field_problem(
+                "adjudication_reason_not_allowed",
+                "must be null when this level was not adjudicated",
+                "adjudication_reason",
+            )
+        ]
+    return []
+
+
 def _distinct(values: tuple[str, ...], code: str, what: str) -> tuple[str, ...]:
     seen: set[str] = set()
     errors: list[InitErrorDetails] = []
@@ -163,6 +188,7 @@ class PairRaw(ContractPart):
     evidence_spans: tuple[EvidenceSpan, ...]
     agreement_label: SourceLabel
     scope_flags: tuple[ScopeFlag, ...]
+    note: Note
 
     @field_validator("scope_flags")
     @classmethod
@@ -193,6 +219,7 @@ class GoldPair(ContractPart):
     scope_flags: tuple[ScopeFlag, ...]
     raw: dict[str, PairRaw]
     adjudicated: StrictBool
+    adjudication_reason: NonEmptyText | None
 
     @field_validator("scope_flags")
     @classmethod
@@ -200,12 +227,24 @@ class GoldPair(ContractPart):
         _distinct(tuple(flag.value for flag in value), "duplicate_scope_flag", "scope flag")
         return value
 
+    @model_validator(mode="after")
+    def _reason_fits(self) -> Self:
+        raise_field_problems(
+            "GoldPair", _reason_problems(self.adjudicated, self.adjudication_reason)
+        )
+        return self
+
 
 class ClaimRaw(ContractPart):
     """One annotator's labels for a reference claim, stored unchanged."""
 
     status: GoldStatus
     expert_would_review: StrictBool
+    note: Note
+
+    def key(self) -> tuple[object, ...]:
+        """What is compared between annotators: the note is left out."""
+        return (self.status, self.expert_would_review)
 
 
 class GoldClaim(ContractPart):
@@ -225,13 +264,8 @@ class GoldClaim(ContractPart):
     expert_would_review: StrictBool
     raw: dict[str, ClaimRaw]
     adjudicated: StrictBool
+    adjudication_reason: NonEmptyText | None
     ambiguous: StrictBool
-
-    @field_validator("pairs")
-    @classmethod
-    def _has_a_pair(cls, value: tuple[GoldPair, ...]) -> tuple[GoldPair, ...]:
-        _length(value, 1)
-        return value
 
     @field_validator("span")
     @classmethod
@@ -240,7 +274,32 @@ class GoldClaim(ContractPart):
 
     @model_validator(mode="after")
     def _pair_ids_belong_to_the_claim(self) -> Self:
-        errors: list[InitErrorDetails] = []
+        errors = _reason_problems(self.adjudicated, self.adjudication_reason)
+        if not self.pairs:
+            # Only a claim that cites no source has no pairs (RFC-002, section 4).
+            if self.status is not GoldStatus.INSUFFICIENT_EVIDENCE:
+                errors.append(
+                    field_problem(
+                        "too_short",
+                        "a claim needs at least one pair unless its status is "
+                        "insufficient_evidence",
+                        "pairs",
+                    )
+                )
+            errors += [
+                field_problem(
+                    "raw_status_without_pairs",
+                    "a claim without pairs has the raw status insufficient_evidence",
+                    "raw",
+                    annotator,
+                    "status",
+                )
+                for annotator, raw in self.raw.items()
+                # Checked only for a claim whose own status allows no pairs;
+                # otherwise the missing pairs are the problem to report.
+                if self.status is GoldStatus.INSUFFICIENT_EVIDENCE
+                and raw.status is not GoldStatus.INSUFFICIENT_EVIDENCE
+            ]
         seen: set[str] = set()
         for index, pair in enumerate(self.pairs):
             if not pair.pair_id.startswith(f"{self.claim_id}-s"):
@@ -289,6 +348,14 @@ class ClaimExtraction(ContractPart):
 
     raw: dict[str, tuple[ExtractedClaim, ...]]
     adjudicated: StrictBool
+    adjudication_reason: NonEmptyText | None
+
+    @model_validator(mode="after")
+    def _reason_fits(self) -> Self:
+        raise_field_problems(
+            "ClaimExtraction", _reason_problems(self.adjudicated, self.adjudication_reason)
+        )
+        return self
 
 
 def _raw_key_problems(
@@ -537,9 +604,9 @@ class GoldItem(ContractDocument):
             entries = [claim.raw[a] for a in annotators if a in claim.raw]
             if len(entries) == 2:
                 first, second = entries
-                if first != second and not claim.adjudicated:
+                if first.key() != second.key() and not claim.adjudicated:
                     errors.append(_not_adjudicated("claims", i))
-                if first == second and not claim.adjudicated:
+                if first.key() == second.key() and not claim.adjudicated:
                     if claim.status is not first.status:
                         errors.append(_differs("status", "claims", i, "status"))
                     if claim.expert_would_review is not first.expert_would_review:
