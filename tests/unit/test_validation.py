@@ -24,6 +24,23 @@ CORRUPTED: list[tuple[str, str, int | None, str, str]] = [
     ("event_unknown_type", "events.jsonl", 2, "type", "enum"),
     ("event_log_incomplete_last_line", "events.jsonl", 2, "<document>", "incomplete_line"),
     ("event_ids_not_increasing", "events.jsonl", 2, "event_id", "event_id_not_increasing"),
+    (
+        "event_first_not_project_created",
+        "events.jsonl",
+        1,
+        "type",
+        "first_event_not_project_created",
+    ),
+    ("event_parent_unknown", "events.jsonl", 2, "parent_id", "unknown_reference"),
+    ("result_run_without_manifest", "results.jsonl", 1, "run_id", "unknown_reference"),
+    ("source_evidence_unknown", "claims.jsonl", 2, "evidence.0.source_id", "unknown_reference"),
+    (
+        "source_record_duplicate",
+        "sources/duplicate-of-example.json",
+        None,
+        "source_id",
+        "duplicate_id",
+    ),
     ("claim_line_not_json", "claims.jsonl", 2, "<document>", "invalid_json"),
     ("claim_duplicate_id", "claims.jsonl", 4, "id", "duplicate_id"),
     ("result_duplicate_id", "results.jsonl", 2, "id", "duplicate_id"),
@@ -286,3 +303,79 @@ def test_json_report_of_a_valid_project() -> None:
 def test_problem_is_a_plain_value() -> None:
     problem = ValidationProblem("utux.yaml", None, "colour", "unknown_key", "unknown key")
     assert problem.message == "utux.yaml: colour: unknown key"
+
+
+# Lines are split on "\n" only
+
+
+def test_line_separators_inside_a_line_do_not_split_it() -> None:
+    """U+2028 and U+0085 are line breaks to str.splitlines(), but not in JSON Lines."""
+    raw = (VALID / "claims.jsonl").read_text(encoding="utf-8")
+    assert "\u2028" in raw
+    assert "\u0085" in raw
+    assert raw.count("\n") == 4
+    assert len(raw.splitlines()) > 4  # what a wrong split would see
+    report = validate_project(VALID)
+    assert report.problems == ()
+    last = json.loads(raw.split("\n")[3])
+    assert last["id"] == "C041"
+    assert "\u2028" in last["text"]
+    assert "\u0085" in last["text"]
+
+
+def test_carriage_return_line_ends_are_accepted(tmp_path: Path) -> None:
+    project = tmp_path / "p"
+    shutil.copytree(VALID, project)
+    text = (project / "results.jsonl").read_text(encoding="utf-8")
+    (project / "results.jsonl").write_bytes(text.replace("\n", "\r\n").encode())
+    assert validate_project(project).problems == ()
+
+
+def test_blank_line_in_the_middle_is_reported(tmp_path: Path) -> None:
+    project = tmp_path / "p"
+    shutil.copytree(VALID, project)
+    text = (project / "results.jsonl").read_text(encoding="utf-8")
+    (project / "results.jsonl").write_text("\n" + text, encoding="utf-8")
+    assert _found(validate_project(project)) == [("results.jsonl", 1, "<document>", "invalid_json")]
+
+
+# Reasons of the checks across files
+
+
+def test_unknown_parent_reason(tmp_path: Path) -> None:
+    (problem,) = validate_project(build("event_parent_unknown", tmp_path)).problems
+    assert problem.reason == "e-000003 is not an event in events.jsonl"
+
+
+def test_run_without_manifest_reason(tmp_path: Path) -> None:
+    (problem,) = validate_project(build("result_run_without_manifest", tmp_path)).problems
+    assert problem.reason == "r099 has no run manifest runs/r099/manifest.json"
+
+
+def test_source_without_record_reason(tmp_path: Path) -> None:
+    (problem,) = validate_project(build("source_evidence_unknown", tmp_path)).problems
+    assert problem.reason == "doi:10.0000/other has no source record in sources/"
+
+
+def test_duplicate_source_record_names_the_other_file(tmp_path: Path) -> None:
+    (problem,) = validate_project(build("source_record_duplicate", tmp_path)).problems
+    assert problem.reason == (
+        "doi:10.0000/example is already used by sources/doi-10.0000-example.json"
+    )
+
+
+def test_first_event_reason(tmp_path: Path) -> None:
+    (problem,) = validate_project(build("event_first_not_project_created", tmp_path)).problems
+    assert (
+        problem.reason == "the first event of the log must be project_created, not setting_changed"
+    )
+
+
+def test_reference_to_an_invalid_source_record_is_not_reported_again(tmp_path: Path) -> None:
+    report = validate_project(build("source_record_without_licence", tmp_path))
+    assert [p.code for p in report.problems] == ["missing"]
+
+
+def test_run_whose_manifest_is_invalid_still_counts_as_existing(tmp_path: Path) -> None:
+    report = validate_project(build("manifest_missing_seeds", tmp_path))
+    assert [p.code for p in report.problems] == ["missing"]
