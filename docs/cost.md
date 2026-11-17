@@ -10,11 +10,16 @@ was not logged does not exist for utux, and a cost is never guessed.
 | --- | --- |
 | Reported a cost (zero included) | that cost, in the known cost |
 | Local provider (`is_external` false), no cost reported | zero, shown as "local, not billed" |
-| External provider, no cost reported, successful or failed | unknown cost: counted separately, adds nothing to the known cost |
+| Failed with `model_authentication`, `model_request_rejected` or `model_rate_limit` | zero, shown as "failed, not billed" |
+| External provider, no cost reported, successful or failed for any other reason (`model_timeout`, `model_unavailable`, `model_invalid_response`, `interrupted`, `unexpected_error`) | unknown cost: counted separately, adds nothing to the known cost |
 | Refused by utux (`status` `refused`) | no request was sent; counted as refused, costs nothing |
 
-A failed call to an external provider counts as unknown cost, because the
-provider may have billed it, for example after a timeout.
+"Failed, not billed" is an assumption about provider billing, not a confirmed
+fact. A rejected key, a rejected request and a rate limit usually mean that
+the provider refused the request before doing any work, so no provider is
+expected to bill it; utux has not confirmed this with any provider. The other
+failures can come after the provider has started work, for example a
+timeout, so their cost stays unknown when the provider is external.
 
 Amounts are summed as exact decimals of the logged values, so 0.1 and 0.2
 make 0.3.
@@ -54,26 +59,27 @@ uv run utux cost [DIRECTORY] [--json]
 ```
 
 It prints the known cost of the project against its budget, the number of
-calls made and refused, the local and unknown-cost calls, and the totals per
+calls made and refused, the local, failed-not-billed and unknown-cost calls, and the totals per
 stage and per actor. Every stage with a call or a budget is listed, in stage
 order, then the calls without a stage:
 
 ```text
 Known cost: 0.2156021 USD of a budget of 0.25 USD (0.0343979 USD left)
-Calls: 8 made, 1 refused
-Local, not billed: 1 call
-Unknown cost: 2 calls to an external provider reported no cost
+Calls: 13 made, 1 refused
+Local, not billed: 2 calls
+Failed, not billed: 3 calls (assumed: the provider rejected them)
+Unknown cost: 3 calls to an external provider reported no cost
 The budget cannot be fully enforced while calls of unknown cost exist: only the known cost is compared with the budget.
 
 Per stage:
-  ideation: 0.0156 USD, 3 calls
-  literature: 0 USD, 1 call, 1 of unknown cost
-  methodology: 0.2 USD of a budget of 0.2 USD, exhausted, 3 calls, 1 local, not billed, 1 of unknown cost
-  writing: 0 USD, 0 calls, 1 refused
-  no stage: 0.0000021 USD, 1 call
+  ideation: 0.0156 USD, 4 calls, 1 of unknown cost
+  literature: 0 USD, 2 calls, 1 failed, not billed, 1 of unknown cost
+  methodology: 0.2 USD of a budget of 0.2 USD, exhausted, 4 calls, 2 local, not billed, 1 of unknown cost
+  writing: 0 USD, 1 call, 1 failed, not billed, 1 refused
+  no stage: 0.0000021 USD, 2 calls, 1 failed, not billed
 
 Per actor:
-  agent:ideator: 0.0156 USD, 3 calls
+  agent:ideator: 0.0156 USD, 4 calls, 1 of unknown cost
   ...
 ```
 
@@ -89,6 +95,6 @@ With `--json` the same report is printed as one JSON object:
 | `per_actor` | one object per actor, with `actor`, sorted by actor |
 
 Each totals object has `known_cost_usd`, `calls`, `local_unbilled_calls`,
-`unknown_cost_calls` and `refused_calls`. The project and each stage also have
+`unknown_cost_calls`, `failed_unbilled_calls` and `refused_calls`. The project and each stage also have
 `budget_usd`, `remaining_usd` (never below zero) and `exhausted`; for a stage
 without a budget of its own these are null, null and false.
