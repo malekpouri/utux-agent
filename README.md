@@ -83,6 +83,7 @@ the `OPENROUTER_API_KEY` environment variable. See
 - [Events and the event log](docs/event-log.md)
 - [Logged model calls and `utux model ping`](docs/model-calls.md)
 - [Cost and budget: `utux cost`](docs/cost.md)
+- [Gold items, releases and the split](docs/gold-set.md)
 - [Claim ledger and result records](docs/claim-ledger.md)
 - [Run manifest, approvals, source record and schema export](docs/contracts.md)
 
