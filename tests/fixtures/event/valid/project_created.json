@@ -21,6 +21,8 @@
   "status_reason": null,
   "retry_reason": null,
   "escalated_from": null,
-  "data": {},
+  "data": {
+    "utux_version": "0.1.0"
+  },
   "artifacts": []
 }

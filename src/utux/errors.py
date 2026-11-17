@@ -131,3 +131,11 @@ class EventLogCorruptError(EventLogError):
 
 class SchemaExportError(UtuxError):
     """The JSON Schema files could not be written."""
+
+
+class AtomicWriteError(UtuxError):
+    """A file could not be written. The file it should replace is unchanged."""
+
+
+class ProjectInitError(UtuxError):
+    """A project could not be created. Nothing is left behind."""

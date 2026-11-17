@@ -76,6 +76,7 @@ INVALID = [
     ("setting_changed_without_new_value.json", "data.new_value", "missing"),
     ("setting_changed_value_is_nested.json", "data.new_value", "not_scalar"),
     ("setting_changed_key_is_not_text.json", "data.key", "string_type"),
+    ("project_created_without_utux_version.json", "data.utux_version", "missing"),
     ("newer_schema_version.json", "schema_version", "schema_version_newer"),
     ("not_an_object.json", "<document>", "not_a_mapping"),
     ("malformed_json.json", "<document>", "invalid_json"),
@@ -143,6 +144,7 @@ def test_event_with_only_the_fields_that_always_apply() -> None:
     assert event.stage is None
     assert event.cost_usd is None
     assert event.artifacts == ()
+    assert event.data == {"utux_version": "0.1.0"}
 
 
 def test_escalation_names_the_tier_the_call_came_from() -> None:
@@ -417,6 +419,31 @@ def test_other_types_need_no_model() -> None:
     assert event.model is None
 
 
+# data of project_created
+
+
+def _created(**data: object) -> dict[str, object]:
+    document = json.loads((FIXTURES / "valid" / "project_created.json").read_text("utf-8"))
+    assert isinstance(document, dict)
+    document["data"] = data
+    return document
+
+
+def test_project_created_carries_the_utux_version() -> None:
+    event = Event.from_json(json.dumps(_created(utux_version="1.2.3")))
+    assert event.data == {"utux_version": "1.2.3"}
+
+
+def test_project_created_needs_the_utux_version_and_no_other_key() -> None:
+    assert _problems(_created()) == [("data.utux_version", "missing")]
+    assert _problems(_created(utux_version="1.2.3", host="x")) == [("data.host", "unknown_key")]
+
+
+@pytest.mark.parametrize("value", ["", 1, None, True])
+def test_utux_version_is_non_empty_text(value: object) -> None:
+    assert _problems(_created(utux_version=value)) == [("data.utux_version", "string_type")]
+
+
 # data
 
 
@@ -467,7 +494,7 @@ def test_setting_key_is_non_empty_text(key: object) -> None:
 
 def test_types_without_defined_keys_accept_only_an_empty_object() -> None:
     for kind in EventType:
-        if kind is EventType.SETTING_CHANGED:
+        if kind in (EventType.SETTING_CHANGED, EventType.PROJECT_CREATED):
             continue
         document = _with(type=kind.value, data={})
         assert Event.from_json(json.dumps(document)).data == {}

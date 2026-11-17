@@ -7,11 +7,9 @@ claim needs evidence"; those are checked only by utux itself.
 """
 
 import json
-import os
-import tempfile
 from pathlib import Path
 
-from utux.errors import SchemaExportError
+from utux.errors import AtomicWriteError, SchemaExportError
 from utux.schemas.approval import ApprovalRequest, ApprovalResponse
 from utux.schemas.artifact_metadata import ArtifactMetadata
 from utux.schemas.base import ContractDocument
@@ -21,6 +19,7 @@ from utux.schemas.project_config import ProjectConfig
 from utux.schemas.result_record import ResultRecord
 from utux.schemas.run_manifest import RunManifest
 from utux.schemas.source_record import SourceRecord
+from utux.workspace.atomic import atomic_write_text
 
 JSON_SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
 
@@ -70,28 +69,9 @@ def export_json_schemas(directory: Path) -> tuple[Path, ...]:
         schema["description"] = f"{own}\n\n{NOT_SUFFICIENT}" if own else NOT_SUFFICIENT
         text = json.dumps(schema, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
         path = directory / f"{name}.schema.json"
-        _replace_file(path, text)
+        try:
+            atomic_write_text(path, text)
+        except AtomicWriteError as error:
+            raise SchemaExportError(str(error)) from error
         written.append(path)
     return tuple(written)
-
-
-def _replace_file(path: Path, text: str) -> None:
-    """Write a file through a temporary file in the same directory, then rename.
-
-    A reader never sees a partly written schema. The shared atomic writer of
-    the workspace package (task M0-07) will take the place of this function.
-    """
-    temporary: str | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            "w", encoding="utf-8", dir=path.parent, prefix=".", suffix=".tmp", delete=False
-        ) as stream:
-            temporary = stream.name
-            stream.write(text)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    except OSError as error:
-        if temporary is not None and os.path.exists(temporary):
-            os.unlink(temporary)
-        raise SchemaExportError(f"cannot write {path}: {error.strerror}") from error

@@ -6,8 +6,10 @@ from typing import Annotated
 import typer
 
 from utux import __version__
-from utux.errors import SchemaExportError
+from utux.errors import SchemaExportError, UtuxError
 from utux.schemas.export import export_json_schemas
+from utux.schemas.project_config import DataPolicy
+from utux.workspace.project import init_project
 
 app = typer.Typer(
     name="utux",
@@ -38,6 +40,41 @@ def root(
     """Run the root command; print help when no subcommand is given."""
     if ctx.invoked_subcommand is None:
         typer.echo(ctx.get_help())
+
+
+@app.command("init")
+def init(
+    directory: Annotated[
+        Path, typer.Argument(help="Directory of the new project. Empty, or not yet there.")
+    ],
+    budget_usd: Annotated[
+        float, typer.Option("--budget-usd", help="Total budget of the project in US dollars.")
+    ],
+    data_policy: Annotated[
+        DataPolicy,
+        typer.Option("--data-policy", help="What may be sent to external services."),
+    ],
+    profile: Annotated[
+        str | None, typer.Option("--profile", help="Profile. Default: the schema's default.")
+    ] = None,
+    domain_pack: Annotated[
+        str | None,
+        typer.Option("--domain-pack", help="Domain pack. Default: the schema's default."),
+    ] = None,
+) -> None:
+    """Create a new project in DIRECTORY."""
+    try:
+        project = init_project(
+            directory,
+            budget_usd=budget_usd,
+            data_policy=data_policy,
+            profile=profile,
+            domain_pack=domain_pack,
+        )
+    except UtuxError as error:
+        typer.echo(f"error: {error}", err=True)
+        raise typer.Exit(code=1) from error
+    typer.echo(f"Created project in {project}")
 
 
 schema_app = typer.Typer(help="Work with the schemas of the file contracts.")

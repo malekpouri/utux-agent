@@ -51,8 +51,9 @@ refused with a `HashingError` that names both.
 ### Exclusions
 
 `hash_directory(directory, exclude=[...])` leaves out what the patterns
-match. Nothing is excluded by default. The workspace layer supplies the fixed
-list for a project in task M0-07.
+match. Nothing is excluded by default. For project content, the workspace
+layer supplies a fixed list through `hash_project_directory`; see
+[Creating a project](project.md).
 
 - A pattern is a shell-style glob: `*`, `?` and `[...]`.
 - It must match the whole relative path, normalised and with `/` as

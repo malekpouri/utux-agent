@@ -7,10 +7,28 @@ to checked evidence or to a computed result.
 
 ## Status
 
-This is a stub. The project is at the start of milestone M0. Only the
-repository scaffold and the schemas of the file contracts exist. The `utux`
-command prints its help and version and can export the schemas with
-`utux schema export <dir>`; it cannot create or run a project yet. See `docs/plan/M0.md` for what is being built.
+The project is in milestone M0. What works today:
+
+- `utux init` creates a project: its directory tree, `utux.yaml`, the event
+  log with its first event, and a git repository with a first commit.
+- `utux schema export <dir>` writes a JSON Schema file for every file
+  contract.
+- The schemas of all file contracts, the append-only event log and the
+  `ModelProvider` interface exist as library code.
+
+What does not exist yet: validating a project, calling a model, cost
+accounting, and every pipeline stage. See `docs/plan/M0.md` for what is being
+built.
+
+## Quick start
+
+```bash
+uv sync
+uv run utux init my-project --budget-usd 20 --data-policy local_only
+```
+
+`--budget-usd` and `--data-policy` are required and have no default. See
+[Creating a project](docs/project.md).
 
 ## Documents
 
@@ -18,6 +36,7 @@ command prints its help and version and can export the schemas with
 - [RFC-001: Claim Support Verification Protocol](docs/rfc/RFC-001.md)
 - [RFC-002: Gold Standard Dataset and Evaluation Protocol](docs/rfc/RFC-002.md)
 - [Architecture decision records](docs/adr/)
+- [Creating a project](docs/project.md)
 - [`utux.yaml` reference](docs/utux-yaml.md)
 - [Schema conventions](docs/schema-conventions.md)
 - [Artifact metadata and content hashes](docs/artifact-metadata.md)
