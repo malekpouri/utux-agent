@@ -232,6 +232,11 @@ def _cost_lines(report: CostReport) -> list[str]:
     ]
     if total.local_unbilled_calls:
         lines.append(f"Local, not billed: {_count(total.local_unbilled_calls, 'call')}")
+    if total.failed_unbilled_calls:
+        lines.append(
+            f"Failed, not billed: {_count(total.failed_unbilled_calls, 'call')} "
+            "(assumed: the provider rejected them)"
+        )
     if total.unknown_cost_calls:
         lines.append(
             f"Unknown cost: {_count(total.unknown_cost_calls, 'call')} to an external provider "
@@ -263,6 +268,8 @@ def _totals(totals: CostTotals, limit: Decimal | None) -> str:
     parts.append(_count(totals.calls, "call"))
     if totals.local_unbilled_calls:
         parts.append(f"{totals.local_unbilled_calls} local, not billed")
+    if totals.failed_unbilled_calls:
+        parts.append(f"{totals.failed_unbilled_calls} failed, not billed")
     if totals.unknown_cost_calls:
         parts.append(f"{totals.unknown_cost_calls} of unknown cost")
     if totals.refused_calls:

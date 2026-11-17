@@ -7,10 +7,13 @@ sum a person would write down. A cost is never guessed:
 - A call that reported a cost counts with that cost, zero included.
 - A call to a local provider (`is_external` false) that reported no cost
   counts as zero and is shown as "local, not billed".
-- A call to an external provider that reported no cost, including a call that
-  failed, has an unknown cost. It is counted separately and adds nothing to
-  the known cost, so the budget cannot be fully enforced while such calls
-  exist.
+- A call that failed with `model_authentication`, `model_request_rejected`
+  or `model_rate_limit` counts as zero and is shown as "failed, not billed".
+  This is an assumption about provider billing, not a confirmed fact: these
+  errors usually mean the provider refused the request before doing any work.
+- Any other call to an external provider that reported no cost, failed or
+  not, has an unknown cost. It is counted separately and adds nothing to the
+  known cost, so the budget cannot be fully enforced while such calls exist.
 - A refused call made no request and costs nothing; it is counted as refused.
 """
 
@@ -26,6 +29,13 @@ from utux.schemas.project_config import Budget, load_project_config
 from utux.workspace.layout import CONFIG_FILE, EVENT_LOG_FILE
 
 ZERO = Decimal(0)
+
+# Failure reasons after which a call is assumed not to be billed: the provider
+# refused the request before doing any work. An assumption, not a fact that
+# any provider has confirmed.
+ASSUMED_NOT_BILLED = frozenset(
+    {"model_authentication", "model_request_rejected", "model_rate_limit"}
+)
 
 
 def usd(amount: float) -> Decimal:
@@ -46,7 +56,9 @@ class CostTotals:
         local_unbilled_calls: Calls to a local provider that reported no cost.
             They count as zero.
         unknown_cost_calls: Calls to an external provider that reported no
-            cost.
+            cost and did not fail with a reason in `ASSUMED_NOT_BILLED`.
+        failed_unbilled_calls: Failed calls whose reason is in
+            `ASSUMED_NOT_BILLED`. They count as zero.
         refused_calls: Calls that utux refused; no request was sent.
     """
 
@@ -54,6 +66,7 @@ class CostTotals:
     calls: int = 0
     local_unbilled_calls: int = 0
     unknown_cost_calls: int = 0
+    failed_unbilled_calls: int = 0
     refused_calls: int = 0
 
     def add(self, event: Event) -> "CostTotals":
@@ -63,6 +76,8 @@ class CostTotals:
         totals = replace(self, calls=self.calls + 1)
         if event.cost_usd is not None:
             return replace(totals, known_cost_usd=totals.known_cost_usd + usd(event.cost_usd))
+        if event.status is EventStatus.ERROR and event.status_reason in ASSUMED_NOT_BILLED:
+            return replace(totals, failed_unbilled_calls=totals.failed_unbilled_calls + 1)
         if event.data.get("is_external") is False:
             return replace(totals, local_unbilled_calls=totals.local_unbilled_calls + 1)
         return replace(totals, unknown_cost_calls=totals.unknown_cost_calls + 1)
@@ -74,6 +89,7 @@ class CostTotals:
             "calls": self.calls,
             "local_unbilled_calls": self.local_unbilled_calls,
             "unknown_cost_calls": self.unknown_cost_calls,
+            "failed_unbilled_calls": self.failed_unbilled_calls,
             "refused_calls": self.refused_calls,
         }
 
