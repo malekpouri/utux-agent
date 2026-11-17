@@ -105,4 +105,3 @@ def test_appending_a_second_models_key_is_rejected_as_the_readme_warns(tmp_path:
         stream.write("models:\n  tiers:\n    light: synthetic/light-model\n")
     problems = validate_project(project).problems
     assert any(problem.code == "duplicate_key" for problem in problems), problems
-
