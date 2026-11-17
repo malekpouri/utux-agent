@@ -50,26 +50,27 @@ def test_cost_prints_totals_per_stage_and_per_actor(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     lines = result.output.splitlines()
     assert "Known cost: 0.2156021 USD of a budget of 0.25 USD (0.0343979 USD left)" in lines
-    assert "Calls: 8 made, 1 refused" in lines
-    assert "Local, not billed: 1 call" in lines
-    assert "Unknown cost: 2 calls to an external provider reported no cost" in lines
+    assert "Calls: 13 made, 1 refused" in lines
+    assert "Local, not billed: 2 calls" in lines
+    assert "Failed, not billed: 3 calls (assumed: the provider rejected them)" in lines
+    assert "Unknown cost: 3 calls to an external provider reported no cost" in lines
     assert (
         "The budget cannot be fully enforced while calls of unknown cost exist: "
         "only the known cost is compared with the budget."
     ) in lines
     assert "Per stage:" in lines
-    assert "  ideation: 0.0156 USD, 3 calls" in lines
-    assert "  literature: 0 USD, 1 call, 1 of unknown cost" in lines
+    assert "  ideation: 0.0156 USD, 4 calls, 1 of unknown cost" in lines
+    assert "  literature: 0 USD, 2 calls, 1 failed, not billed, 1 of unknown cost" in lines
     assert (
-        "  methodology: 0.2 USD of a budget of 0.2 USD, exhausted, 3 calls, "
-        "1 local, not billed, 1 of unknown cost"
+        "  methodology: 0.2 USD of a budget of 0.2 USD, exhausted, 4 calls, "
+        "2 local, not billed, 1 of unknown cost"
     ) in lines
-    assert "  writing: 0 USD, 0 calls, 1 refused" in lines
-    assert "  no stage: 0.0000021 USD, 1 call" in lines
+    assert "  writing: 0 USD, 1 call, 1 failed, not billed, 1 refused" in lines
+    assert "  no stage: 0.0000021 USD, 2 calls, 1 failed, not billed" in lines
     assert "Per actor:" in lines
-    assert "  agent:ideator: 0.0156 USD, 3 calls" in lines
-    assert "  agent:planner: 0.2 USD, 2 calls, 1 local, not billed" in lines
-    assert "  system:utux: 0.0000021 USD, 1 call" in lines
+    assert "  agent:ideator: 0.0156 USD, 4 calls, 1 of unknown cost" in lines
+    assert "  agent:planner: 0.2 USD, 3 calls, 2 local, not billed" in lines
+    assert "  system:utux: 0.0000021 USD, 2 calls, 1 failed, not billed" in lines
     assert lines.index("Per stage:") < lines.index("Per actor:")
 
 
@@ -79,8 +80,9 @@ def test_cost_as_json(tmp_path: Path) -> None:
     report = json.loads(result.output)
     assert report["fully_enforceable"] is False
     assert report["total"]["known_cost_usd"] == 0.2156021
-    assert report["total"]["unknown_cost_calls"] == 2
-    assert report["total"]["local_unbilled_calls"] == 1
+    assert report["total"]["unknown_cost_calls"] == 3
+    assert report["total"]["local_unbilled_calls"] == 2
+    assert report["total"]["failed_unbilled_calls"] == 3
     assert [row["stage"] for row in report["per_stage"]][-1] is None
     assert report["per_stage"][2]["exhausted"] is True
     assert len(report["per_actor"]) == 6

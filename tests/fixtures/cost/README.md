@@ -19,3 +19,8 @@ give are computed by hand and written out in
 | e-000009 | none | system:utux | external, ok, 0.0000021 USD | known cost |
 | e-000010 | none | human:synthetic | setting_changed | not a model call |
 | e-000011 | ideation | agent:ideator | local, ok, 0 USD | known cost of zero |
+| e-000012 | literature | agent:searcher | external, error `model_rate_limit` | failed, not billed |
+| e-000013 | none | system:utux | external, error `model_authentication` | failed, not billed |
+| e-000014 | writing | agent:writer | external, error `model_request_rejected` | failed, not billed |
+| e-000015 | ideation | agent:ideator | external, error `interrupted` | unknown cost |
+| e-000016 | methodology | agent:planner | local, error `model_unavailable` | local, not billed |
