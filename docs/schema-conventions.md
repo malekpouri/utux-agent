@@ -72,6 +72,24 @@ instead of defining a new pattern.
   A repeated entry in a list is reported on its position, for example
   `input_artifacts.2`.
 
+### Codes shared by every contract
+
+| Code | Field | When |
+| --- | --- | --- |
+| `unreadable` | `<document>` | The file cannot be read, or is not UTF-8 text |
+| `invalid_json` | `<document>` | The file is not valid JSON |
+| `invalid_yaml` | `<document>` | The file is not valid YAML |
+| `duplicate_key` | the key | A key appears twice in one mapping |
+| `not_a_mapping` | `<document>` | The file does not hold a mapping at the top |
+| `schema_version_newer` | `schema_version` | The file was written with a newer schema version |
+| `schema_version_unsupported` | `schema_version` | An older schema version, without a migration |
+| `unknown_key` | the key | A key the schema does not define |
+| `utc_timestamp` | the field | A timestamp that is not ISO 8601 in UTC with `Z`, or a date that does not exist |
+
+Other codes are Pydantic's own (`missing`, `enum`, `string_pattern_mismatch`,
+`greater_than_equal` and similar) or are listed with the contract that
+raises them.
+
 ## `schema_version`
 
 - Each `ContractDocument` subclass sets the class constant `SCHEMA_VERSION`

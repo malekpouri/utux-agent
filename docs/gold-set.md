@@ -29,9 +29,9 @@ same reference claims. Each annotator's own entries are kept at every level.
 
 ### Claims and pairs
 
-A claim has `claim_id` (the item id and `-c<n>`), `text`, `span` (start and
-end in the text unit, the end greater than the start and not beyond the
-text unit), `kind` (the five claim kinds of RFC-001), `pairs`, `status`,
+A claim has `claim_id` (the item id and `-c<n>`; `claim_id_mismatch`),
+`text`, `span` (start and end in the text unit, the end greater than the
+start and not beyond the text unit; `span_out_of_range`), `kind` (the five claim kinds of RFC-001), `pairs`, `status`,
 `expert_would_review`, and:
 
 - `raw`: for each annotator, and only for them, their `status`,
@@ -51,7 +51,7 @@ A claim has at least one pair, except a claim that cites no source: it has
 no pairs, its status is `insufficient_evidence`, and both raw statuses are
 `insufficient_evidence` too (`raw_status_without_pairs`).
 
-A pair has `pair_id` (the claim id and `-s<n>`), `source_id`,
+A pair has `pair_id` (the claim id and `-s<n>`; `pair_id_mismatch`), `source_id`,
 `source_group`, `text_hash`, `checked_text`, `extraction_quality`,
 `evidence_spans` (each a `passage_id` and increasing `offsets`, possibly
 none), `agreement_label` (the four agreement labels or `conflicting`),
@@ -65,10 +65,13 @@ none), `agreement_label` (the four agreement labels or `conflicting`),
 
 `annotation` has:
 
-- `annotators`: exactly two distinct pseudonymous ids such as `a03`. A name
+- `annotators`: exactly two distinct pseudonymous ids such as `a03`
+  (`too_short`, `too_long`, `duplicate_annotator`). A name
   is rejected, so that no personal data enters a release.
-- `adjudicator`: the adjudicator's id, who is not one of the annotators. It
-  is required when anything in the item was adjudicated, and null otherwise.
+- `adjudicator`: the adjudicator's id, who is not one of the annotators
+  (`adjudicator_is_annotator`). It is required when anything in the item was
+  adjudicated (`adjudicator_required`), and null otherwise
+  (`adjudicator_not_allowed`).
 - `claim_extraction`: `raw`, each annotator's own list of claims (`span` and
   `text`, the span within the text unit), `adjudicated` and
   `adjudication_reason`.
@@ -104,7 +107,9 @@ entries, and `adjudicated` may be true where the raw entries agree.
 - A system-generated item has `{"generated_by": <code>}`, the code of the
   system and configuration that produced it, for example
   `utux-0.1.0-default`.
-- A natural item has no `hidden` key at all; `"hidden": null` is rejected.
+- A natural item has no `hidden` key at all; `"hidden": null` is rejected
+  (`hidden_not_allowed`). A perturbed or system-generated item without its
+  record gives `hidden_required`.
 
 The hidden record is never shown to annotators or to the system.
 
