@@ -4,7 +4,6 @@ The provider is the scripted fake, put in place of the profile's provider;
 no test reaches the network.
 """
 
-from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -21,7 +20,9 @@ from utux.workspace.validation import validate_project
 
 runner = CliRunner(env={"NO_COLOR": "1", "TERM": "dumb"})
 
-TIERS = "models:\n  tiers:\n    light: synthetic/light-model\n"
+# utux init writes every default, so the empty tier mapping is replaced.
+EMPTY_TIERS = "  tiers: {}\n"
+TIERS = "  tiers:\n    light: synthetic/light-model\n"
 
 
 @pytest.fixture(autouse=True)
@@ -50,8 +51,8 @@ class Use:
 
 
 @pytest.fixture
-def use(monkeypatch: pytest.MonkeyPatch) -> Iterator[Use]:
-    yield Use(monkeypatch)
+def use(monkeypatch: pytest.MonkeyPatch) -> Use:
+    return Use(monkeypatch)
 
 
 def _project(tmp_path: Path, policy: str = "external_allowed", tiers: str = TIERS) -> Path:
@@ -60,8 +61,10 @@ def _project(tmp_path: Path, policy: str = "external_allowed", tiers: str = TIER
         app, ["init", str(project), "--budget-usd", "5", "--data-policy", policy]
     )
     assert result.exit_code == 0, result.output
-    with (project / "utux.yaml").open("a", encoding="utf-8") as stream:
-        stream.write(tiers)
+    config = project / "utux.yaml"
+    text = config.read_text(encoding="utf-8")
+    assert text.count(EMPTY_TIERS) == 1
+    config.write_text(text.replace(EMPTY_TIERS, tiers), encoding="utf-8")
     return project
 
 
@@ -135,7 +138,7 @@ def test_refused_ping_is_logged_and_makes_no_call(tmp_path: Path, use: Use) -> N
 def test_tier_without_a_model_is_an_error_and_nothing_is_logged(tmp_path: Path, use: Use) -> None:
     provider = ScriptedModelProvider([ScriptedReply()])
     use(provider)
-    project = _project(tmp_path, tiers="")
+    project = _project(tmp_path, tiers=EMPTY_TIERS)
     before = (project / "events.jsonl").read_bytes()
     result = runner.invoke(app, ["model", "ping", "--tier", "strong", str(project)])
     assert result.exit_code == 1

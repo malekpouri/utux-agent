@@ -69,6 +69,7 @@ _DATA_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.PROJECT_CREATED: ("utux_version",),
     EventType.SETTING_CHANGED: ("key", "old_value", "new_value"),
     EventType.LOG_REPAIRED: ("fragment_file", "fragment_hash", "fragment_bytes"),
+    EventType.MODEL_CALL: ("provider", "is_external"),
 }
 
 # Keys of `data` whose value must be non-empty text.
@@ -76,6 +77,12 @@ _TEXT_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.PROJECT_CREATED: ("utux_version",),
     EventType.SETTING_CHANGED: ("key",),
     EventType.LOG_REPAIRED: ("fragment_file", "fragment_hash"),
+    EventType.MODEL_CALL: ("provider",),
+}
+
+# Keys of `data` whose value must be true or false.
+_BOOLEAN_KEYS: dict[EventType, tuple[str, ...]] = {
+    EventType.MODEL_CALL: ("is_external",),
 }
 
 # Keys of `data` whose value must be a content hash.
@@ -143,6 +150,15 @@ def _check_data_keys(value: dict[str, Scalar], info: ValidationInfo) -> dict[str
                         "input": None,
                     }
                 )
+    for key in _BOOLEAN_KEYS.get(kind, ()):
+        if key in value and not isinstance(value[key], bool):
+            errors.append(
+                {
+                    "type": PydanticCustomError("bool_type", "must be true or false"),
+                    "loc": (key,),
+                    "input": None,
+                }
+            )
     for key in _COUNT_KEYS.get(kind, ()):
         if key in value:
             count = value[key]

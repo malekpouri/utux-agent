@@ -146,3 +146,11 @@ class ModelProviderConfigError(UtuxError):
 
     Raised when the provider is created, not when it is called.
     """
+
+
+class ModelCallRefusedError(UtuxError):
+    """utux declined to make a model call, for example under the data policy.
+
+    No request was sent. This is not a `ModelProviderError`: the provider was
+    never asked.
+    """

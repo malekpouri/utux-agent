@@ -238,7 +238,7 @@ def test_message_content_is_not_stored_only_its_hash(tmp_path: Path) -> None:
     provider = ScriptedModelProvider(
         [ScriptedReply(content=REPLY_TEXT), ScriptedFailure(ModelTimeoutError("synthetic"))]
     )
-    caller, log = _caller(tmp_path, provider)
+    caller, _ = _caller(tmp_path, provider)
     _call(caller)
     with pytest.raises(ModelTimeoutError):
         _call(caller)

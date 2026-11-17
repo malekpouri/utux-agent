@@ -15,6 +15,8 @@ The project is in milestone M0. What works today:
   problem.
 - `utux log repair` saves aside an incomplete last line of the event log,
   left by an interrupted write, and records the repair.
+- `utux model ping` sends a short prompt to the model of a tier and prints
+  the tokens and the cost; the call is logged as a `model_call` event.
 - `utux schema export <dir>` writes a JSON Schema file for every file
   contract.
 - The schemas of all file contracts, the append-only event log and the
@@ -22,8 +24,8 @@ The project is in milestone M0. What works today:
   OpenAI-compatible client for OpenRouter, a direct OpenAI key or a local
   server such as Ollama.
 
-What does not exist yet: calling a model from the command line, logging
-model calls and their cost, cost accounting, and every pipeline stage. See `docs/plan/M0.md` for what is being
+What does not exist yet: cost accounting and budgets, and every pipeline
+stage. See `docs/plan/M0.md` for what is being
 built.
 
 ## Quick start
@@ -50,6 +52,7 @@ uv run utux validate my-project
 - [Artifact metadata and content hashes](docs/artifact-metadata.md)
 - [The `ModelProvider` interface](docs/model-provider.md)
 - [Events and the event log](docs/event-log.md)
+- [Logged model calls and `utux model ping`](docs/model-calls.md)
 - [Claim ledger and result records](docs/claim-ledger.md)
 - [Run manifest, approvals, source record and schema export](docs/contracts.md)
 

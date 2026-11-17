@@ -301,8 +301,9 @@ def test_parent_must_be_an_earlier_event() -> None:
 @pytest.mark.parametrize("field", ["run_id", "request_id", "model", "prompt_version"])
 def test_text_fields_may_be_null_but_not_empty(field: str) -> None:
     document = _valid_document()
-    # Not a model_call, which must name its model.
+    # Not a model_call, which must name its model and its provider.
     document["type"] = "stage_start"
+    document["data"] = {}
     document[field] = None
     assert getattr(Event.from_json(json.dumps(document)), field) is None
     document[field] = ""
