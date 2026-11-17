@@ -4,8 +4,8 @@ Save as `docs/eval/example-item.md`. Everything here is synthetic: Method
 Alpha, Method Beta, SynthImg and the source text are invented. The item uses
 the reserved ids G9100, a90, a91 and a92 and must never enter a release.
 
-The final JSON at the end validates against `utux.evalkit.gold.GoldItem` at
-commit 4258384.
+The final JSON at the end validates against `utux.evalkit.gold.GoldItem`;
+a test checks this.
 
 ## 1. What the item builder prepares
 
@@ -123,7 +123,8 @@ indentation.
                 }
               ],
               "agreement_label": "entails",
-              "scope_flags": []
+              "scope_flags": [],
+              "note": null
             },
             "a91": {
               "evidence_spans": [
@@ -136,10 +137,12 @@ indentation.
                 }
               ],
               "agreement_label": "entails",
-              "scope_flags": []
+              "scope_flags": [],
+              "note": null
             }
           },
-          "adjudicated": false
+          "adjudicated": false,
+          "adjudication_reason": null
         }
       ],
       "status": "verified",
@@ -147,14 +150,17 @@ indentation.
       "raw": {
         "a90": {
           "status": "verified",
-          "expert_would_review": false
+          "expert_would_review": false,
+          "note": null
         },
         "a91": {
           "status": "verified",
-          "expert_would_review": false
+          "expert_would_review": false,
+          "note": null
         }
       },
       "adjudicated": false,
+      "adjudication_reason": null,
       "ambiguous": false
     },
     {
@@ -200,7 +206,8 @@ indentation.
               "agreement_label": "contradicts",
               "scope_flags": [
                 "magnitude_mismatch"
-              ]
+              ],
+              "note": null
             },
             "a91": {
               "evidence_spans": [
@@ -215,10 +222,12 @@ indentation.
               "agreement_label": "partial",
               "scope_flags": [
                 "magnitude_mismatch"
-              ]
+              ],
+              "note": null
             }
           },
-          "adjudicated": true
+          "adjudicated": true,
+          "adjudication_reason": "The guideline maps magnitude_mismatch to contradicts (section 5.3): twice as fast cannot be true if the source measured 1.4 times."
         }
       ],
       "status": "contradicted",
@@ -226,14 +235,17 @@ indentation.
       "raw": {
         "a90": {
           "status": "contradicted",
-          "expert_would_review": false
+          "expert_would_review": false,
+          "note": null
         },
         "a91": {
           "status": "partially_supported",
-          "expert_would_review": true
+          "expert_would_review": true,
+          "note": null
         }
       },
       "adjudicated": true,
+      "adjudication_reason": "The guideline maps magnitude_mismatch to contradicts (section 5.3): twice as fast cannot be true if the source measured 1.4 times.",
       "ambiguous": false
     }
   ],
@@ -271,7 +283,8 @@ indentation.
           }
         ]
       },
-      "adjudicated": true
+      "adjudicated": true,
+      "adjudication_reason": "a91 kept two assertions in one claim, against section 4.2 of the guideline; the reference list is a90's two claims."
     }
   }
 }
