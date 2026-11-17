@@ -134,7 +134,7 @@ project_config.schema.json      artifact_metadata.schema.json
 event.schema.json               claim_ledger_entry.schema.json
 result_record.schema.json       run_manifest.schema.json
 approval_request.schema.json    approval_response.schema.json
-source_record.schema.json
+source_record.schema.json       gold_item.schema.json
 ```
 
 The directory is created if it does not exist. Existing schema files are
