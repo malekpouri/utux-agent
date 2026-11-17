@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 from utux.errors import AtomicWriteError, SchemaExportError
+from utux.evalkit.gold import GoldItem
 from utux.schemas.approval import ApprovalRequest, ApprovalResponse
 from utux.schemas.artifact_metadata import ArtifactMetadata
 from utux.schemas.base import ContractDocument
@@ -38,6 +39,7 @@ CONTRACTS: dict[str, type[ContractDocument]] = {
     "approval_request": ApprovalRequest,
     "approval_response": ApprovalResponse,
     "source_record": SourceRecord,
+    "gold_item": GoldItem,
 }
 """Every file contract, by the name used for its schema file."""
 
