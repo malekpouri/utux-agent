@@ -120,6 +120,8 @@ no literature sources, no verification logic.
 - File writes go through the atomic writer in `utux.workspace` (temporary file,
   then rename). Never write a contract file with a bare `open(..., "w")`.
 - `events.jsonl` is append-only. Never rewrite, reorder or delete lines.
+  The one exception is utux log repair, which removes only an incomplete last
+  fragment after saving it, and records the removal (docs/event-log.md).
 - Errors: raise typed exceptions from `utux.errors`; no bare `except`;
   no silent fallbacks.
 - Docstrings on public classes and functions. Comments explain why, not what.
