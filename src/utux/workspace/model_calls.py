@@ -6,6 +6,11 @@ sent and what came back, never the text itself, together with the tokens, the
 cost as the provider reported it, the duration, the status and the prompt
 version. Its `data` names the provider and whether it is external, so that the
 log shows which provider received which content hash.
+
+A call is refused before any request is sent when the data policy does not
+allow it, or when the known cost has reached the project budget or the budget
+of the call's stage. A refusal for the budget also writes a `budget_warning`
+event.
 """
 
 import json
@@ -15,7 +20,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from utux.budget.accounting import exhausted_budget, summarize_costs
 from utux.errors import (
+    BudgetExhaustedError,
     ModelAuthenticationError,
     ModelCallRefusedError,
     ModelInvalidResponseError,
@@ -37,11 +44,12 @@ from utux.interfaces.model_provider import (
 from utux.providers import profiles
 from utux.schemas.common import Stage, Tier
 from utux.schemas.event import EventStatus, EventType, NewEvent
-from utux.schemas.project_config import DataPolicy, load_project_config
+from utux.schemas.project_config import Budget, DataPolicy, load_project_config
 from utux.workspace.hashing import hash_bytes
 from utux.workspace.layout import CONFIG_FILE, EVENT_LOG_FILE
 
 REFUSED_LOCAL_ONLY = "data_policy_local_only"
+REFUSED_BUDGET = "budget_exhausted"
 UNEXPECTED_ERROR = "unexpected_error"
 INTERRUPTED = "interrupted"
 
@@ -100,6 +108,7 @@ class LoggedModelCaller:
         log: EventLog,
         provider: ModelProvider,
         data_policy: DataPolicy,
+        budget: Budget,
         *,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -110,12 +119,15 @@ class LoggedModelCaller:
             provider: The provider to call.
             data_policy: The project's data policy. Under `local_only`, calls
                 to an external provider are refused.
+            budget: The project's budget. A call is refused once the known
+                cost has reached it, or the budget of the call's stage.
             clock: A monotonic clock in seconds, for the duration. Tests pass
                 a fake.
         """
         self._log = log
         self._provider = provider
         self._data_policy = data_policy
+        self._budget = budget
         self._clock = clock
 
     def call(
@@ -134,6 +146,10 @@ class LoggedModelCaller:
         Raises:
             ModelCallRefusedError: The data policy does not allow the call.
                 It is logged with status `refused`; no request is sent.
+            BudgetExhaustedError: The project budget, or the budget of the
+                call's stage, is exhausted. The call is logged with status
+                `refused` and a `budget_warning` event follows it; no request
+                is sent.
             ModelProviderError: The call failed. It is logged with status
                 `error` and the status reason of its type; the same error is
                 raised again.
@@ -162,6 +178,29 @@ class LoggedModelCaller:
             raise ModelCallRefusedError(
                 f"the data policy local_only does not allow calls to the external provider "
                 f"{self._provider.name}"
+            )
+        exhausted = exhausted_budget(summarize_costs(self._log), self._budget, stage)
+        if exhausted is not None:
+            refused = self._log.append(
+                event(EventStatus.REFUSED, status_reason=REFUSED_BUDGET, model=request.model)
+            )
+            self._log.append(
+                NewEvent(
+                    actor=actor,
+                    type=EventType.BUDGET_WARNING,
+                    stage=exhausted.stage,
+                    parent_id=refused.event_id,
+                    status=EventStatus.OK,
+                    data={
+                        "spent_usd": float(exhausted.spent_usd),
+                        "total_usd": float(exhausted.total_usd),
+                    },
+                )
+            )
+            scope = "the project" if exhausted.stage is None else f"the stage {exhausted.stage}"
+            raise BudgetExhaustedError(
+                f"the budget of {scope} is exhausted: {exhausted.spent_usd} USD spent "
+                f"of {exhausted.total_usd} USD; no request was sent"
             )
         started = self._clock()
         try:
@@ -214,7 +253,8 @@ def ping_model(project: Path, tier: Tier) -> Ping:
         ContractValidationError: `utux.yaml` is missing or invalid.
         ModelProviderConfigError: No model is configured for the tier, or the
             profile has no provider. Nothing is logged.
-        ModelCallRefusedError: The data policy does not allow the call.
+        ModelCallRefusedError: The data policy does not allow the call, or
+            the budget is exhausted (`BudgetExhaustedError`).
         ModelProviderError: The call failed.
     """
     config = load_project_config(project / CONFIG_FILE)
@@ -224,7 +264,9 @@ def ping_model(project: Path, tier: Tier) -> Ping:
             f"no model is configured for the tier {tier.value} in {CONFIG_FILE} (models.tiers)"
         )
     provider = profiles.provider_for_profile(config.profile)
-    caller = LoggedModelCaller(EventLog(project / EVENT_LOG_FILE), provider, config.data_policy)
+    caller = LoggedModelCaller(
+        EventLog(project / EVENT_LOG_FILE), provider, config.data_policy, config.budget
+    )
     response = caller.call(
         ModelRequest(
             model=model,

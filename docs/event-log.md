@@ -73,6 +73,7 @@ Each event type defines its keys. A missing key is reported as
 | `project_created` | `utux_version` (non-empty text): the version of utux that created the project; required |
 | `setting_changed` | `key` (non-empty text), `old_value`, `new_value`; all required |
 | `model_call` | `provider` (non-empty text), `is_external` (true or false); both required. See [logged model calls](model-calls.md) |
+| `budget_warning` | `spent_usd`, the known cost so far, and `total_usd`, the budget it was compared with (numbers, 0 or more; codes `float_type` and `greater_than_equal`); both required. The event's `stage` names the stage whose budget is exhausted, null for the project budget. See [cost and budget](cost.md) |
 | `log_repaired` | `fragment_file` (non-empty text), `fragment_hash` (content hash), `fragment_bytes` (whole number, 0 or more); all required |
 | every other type | none; `data` must be `{}` until the task that emits the type defines its keys |
 

@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from utux.errors import (
+    EventLogError,
     ModelAuthenticationError,
     ModelCallRefusedError,
     ModelInvalidResponseError,
@@ -32,8 +33,8 @@ from utux.interfaces.model_provider import (
 )
 from utux.providers.scripted import ScriptedFailure, ScriptedModelProvider, ScriptedReply
 from utux.schemas.common import Stage
-from utux.schemas.event import Event, EventStatus, EventType
-from utux.schemas.project_config import DataPolicy
+from utux.schemas.event import Event, EventStatus, EventType, NewEvent
+from utux.schemas.project_config import Budget, DataPolicy
 from utux.workspace.model_calls import (
     LoggedModelCaller,
     input_hash,
@@ -76,7 +77,7 @@ def _caller(
     policy: DataPolicy = DataPolicy.EXTERNAL_ALLOWED,
 ) -> tuple[LoggedModelCaller, EventLog]:
     log = EventLog(tmp_path / "events.jsonl", clock=lambda: FIXED)
-    return LoggedModelCaller(log, provider, policy, clock=Ticks()), log
+    return LoggedModelCaller(log, provider, policy, Budget(total_usd=100.0), clock=Ticks()), log
 
 
 def _call(caller: LoggedModelCaller, request: ModelRequest | None = None) -> ModelResponse:
@@ -323,7 +324,29 @@ def test_response_is_not_returned_when_the_event_cannot_be_written(tmp_path: Pat
     log_path = tmp_path / "events.jsonl"
     log_path.write_bytes(b'{"schema_version": 1, "ev')  # an interrupted write
     provider = ScriptedModelProvider([ScriptedReply(content=REPLY_TEXT)])
-    caller = LoggedModelCaller(EventLog(log_path), provider, DataPolicy.EXTERNAL_ALLOWED)
+    caller = LoggedModelCaller(
+        EventLog(log_path), provider, DataPolicy.EXTERNAL_ALLOWED, Budget(total_usd=100.0)
+    )
     with pytest.raises(UtuxError) as caught:
         _call(caller)
     assert "utux log repair" in str(caught.value)
+
+
+def test_response_is_not_returned_when_its_event_fails_after_the_call(tmp_path: Path) -> None:
+    """The budget check reads the log first, so the log here is readable and
+    only the write of the call's event fails."""
+
+    class UnwritableLog(EventLog):
+        def append(self, event: NewEvent) -> Event:
+            raise EventLogError("synthetic: the disk is full")
+
+    provider = ScriptedModelProvider([ScriptedReply(content=REPLY_TEXT)])
+    caller = LoggedModelCaller(
+        UnwritableLog(tmp_path / "events.jsonl"),
+        provider,
+        DataPolicy.EXTERNAL_ALLOWED,
+        Budget(total_usd=100.0),
+    )
+    with pytest.raises(EventLogError, match="disk is full"):
+        _call(caller)
+    assert len(provider.requests) == 1

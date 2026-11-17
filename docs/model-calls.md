@@ -11,7 +11,7 @@ written, so no result is used without a record.
 | Field | Success | Failure | Refused |
 | --- | --- | --- | --- |
 | `status` | `ok` | `error` | `refused` |
-| `status_reason` | null | see below | `data_policy_local_only` |
+| `status_reason` | null | see below | `data_policy_local_only` or `budget_exhausted` |
 | `model` | the model that answered | the model asked for | the model asked for |
 | `input_hash` | hash of the request | hash of the request | hash of the request |
 | `output_hash` | hash of the answer's text | null | null |
@@ -65,6 +65,12 @@ specification lets external models see schemas and aggregate statistics that
 the user has approved, even under `local_only`; utux cannot yet tell such
 content apart, so under `local_only` every call to an external provider is
 refused. Finer control is left to M3.
+
+When the known cost has reached the project budget, or the budget of the
+call's stage, a call is refused the same way with `status_reason`
+`budget_exhausted`, a `budget_warning` event follows it, and
+`BudgetExhaustedError` (a `ModelCallRefusedError`) is raised. The data policy
+is checked first. See [Cost and budget](cost.md).
 
 ## `utux model ping`
 
