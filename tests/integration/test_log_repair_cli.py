@@ -62,3 +62,14 @@ def test_directory_defaults_to_the_current_one(
 
 def test_log_command_is_listed_in_the_help() -> None:
     assert "log" in runner.invoke(app, ["--help"]).output
+
+
+def test_interrupted_repair_is_reported_as_completed(tmp_path: Path) -> None:
+    project = tmp_path / "p"
+    shutil.copytree(PROJECT, project)
+    (project / "events.jsonl.fragment-20261116T100000.000Z").write_bytes(FRAGMENT)
+    result = runner.invoke(app, ["log", "repair", str(project)])
+    assert result.exit_code == 0, result.output
+    assert "interrupted repair" in result.output
+    assert "events.jsonl.fragment-20261116T100000.000Z" in result.output
+    assert runner.invoke(app, ["validate", str(project)]).exit_code == 0

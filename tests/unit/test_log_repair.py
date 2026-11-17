@@ -52,13 +52,13 @@ def test_fragment_is_saved_byte_for_byte_and_the_log_ends_with_its_last_complete
     tmp_path: Path,
 ) -> None:
     project, _, fragment = _damaged(tmp_path)
-    repair = repair_log(project / "events.jsonl", clock=_clock)
-    assert repair is not None
+    (repair,) = repair_log(project / "events.jsonl", clock=_clock)
     assert _side_files(project) == [SIDE_FILE]
     assert (project / SIDE_FILE).read_bytes() == fragment
     assert repair.fragment_file == SIDE_FILE
     assert repair.fragment_bytes == len(fragment)
     assert repair.fragment_hash == hash_bytes(fragment)
+    assert repair.interrupted is False
 
 
 def test_complete_lines_are_never_changed(tmp_path: Path) -> None:
@@ -74,8 +74,7 @@ def test_complete_lines_are_never_changed(tmp_path: Path) -> None:
 
 def test_repair_is_recorded_as_the_next_event(tmp_path: Path) -> None:
     project, _, fragment = _damaged(tmp_path)
-    repair = repair_log(project / "events.jsonl", clock=_clock)
-    assert repair is not None
+    (repair,) = repair_log(project / "events.jsonl", clock=_clock)
     events = list(EventLog(project / "events.jsonl"))
     assert [event.event_id for event in events] == ["e-000001", "e-000002", "e-000003"]
     last = events[-1]
@@ -118,8 +117,7 @@ def test_fragment_that_is_only_a_newline_short_is_still_a_fragment(tmp_path: Pat
     line.update(event_id="e-000003")
     whole = json.dumps(line).encode()
     (project / "events.jsonl").write_bytes(complete + whole)
-    repair = repair_log(project / "events.jsonl", clock=_clock)
-    assert repair is not None
+    (repair,) = repair_log(project / "events.jsonl", clock=_clock)
     assert (project / SIDE_FILE).read_bytes() == whole
     assert full_third  # the helper did write a fragment before
 
@@ -128,8 +126,7 @@ def test_log_that_is_only_a_fragment_is_repaired_to_its_repair_event(tmp_path: P
     """A crash while writing the very first event leaves nothing complete."""
     log = tmp_path / "events.jsonl"
     log.write_bytes(b'{"schema_version": 1, "event_')
-    repair = repair_log(log, clock=_clock)
-    assert repair is not None
+    (repair,) = repair_log(log, clock=_clock)
     (event,) = list(EventLog(log))
     assert event.event_id == "e-000001"
     assert event.type is EventType.LOG_REPAIRED
@@ -146,7 +143,7 @@ def test_log_with_a_complete_last_line_is_left_alone(tmp_path: Path, content: by
     if content is not None:
         log.write_bytes(content)
     before = log.read_bytes()
-    assert repair_log(log, clock=_clock) is None
+    assert repair_log(log, clock=_clock) == ()
     assert log.read_bytes() == before
     assert _side_files(project) == []
 
@@ -253,3 +250,86 @@ def test_validation_points_to_the_repair_command(tmp_path: Path) -> None:
     project, _, _ = _damaged(tmp_path)
     (problem,) = validate_project(project).problems
     assert "utux log repair" in problem.reason
+
+
+# Completing an interrupted repair
+
+
+def test_side_file_without_an_event_gets_its_missing_event(tmp_path: Path) -> None:
+    project = tmp_path / "p"
+    shutil.copytree(PROJECT, project)
+    fragment = b'{"schema_version": 1, "ev'
+    earlier = "events.jsonl.fragment-20261116T100000.000Z"
+    (project / earlier).write_bytes(fragment)
+    before = (project / "events.jsonl").read_bytes()
+    (repair,) = repair_log(project / "events.jsonl", clock=_clock)
+    assert repair.interrupted is True
+    assert repair.fragment_file == earlier
+    assert repair.fragment_bytes == len(fragment)
+    assert repair.fragment_hash == hash_bytes(fragment)
+    after = (project / "events.jsonl").read_bytes()
+    assert after.startswith(before)
+    last = list(EventLog(project / "events.jsonl"))[-1]
+    assert last == repair.event
+    assert last.type is EventType.LOG_REPAIRED
+    assert last.data == {
+        "fragment_file": earlier,
+        "fragment_hash": hash_bytes(fragment),
+        "fragment_bytes": len(fragment),
+    }
+    # The side file itself is kept as it was.
+    assert (project / earlier).read_bytes() == fragment
+    assert validate_project(project).problems == ()
+
+
+def test_repair_interrupted_after_the_cut_is_completed_by_running_it_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, complete, fragment = _damaged(tmp_path)
+
+    def stop(self: EventLog, fd: int, event: NewEvent, now: datetime) -> None:
+        raise KeyboardInterrupt
+
+    with monkeypatch.context() as patched:
+        patched.setattr(log_module.EventLog, "_store", stop)
+        with pytest.raises(KeyboardInterrupt):
+            repair_log(project / "events.jsonl", clock=_clock)
+    # The log is cut and the fragment saved, but the repair is not recorded.
+    assert (project / "events.jsonl").read_bytes() == complete
+    assert (project / SIDE_FILE).read_bytes() == fragment
+    assert [p.code for p in validate_project(project).problems] == ["unrecorded_fragment"]
+
+    (repair,) = repair_log(project / "events.jsonl", clock=_clock)
+    assert repair.interrupted is True
+    assert repair.fragment_file == SIDE_FILE
+    assert validate_project(project).problems == ()
+
+
+def test_recorded_side_file_is_not_recorded_twice(tmp_path: Path) -> None:
+    project, _, _ = _damaged(tmp_path)
+    repair_log(project / "events.jsonl", clock=_clock)
+    before = (project / "events.jsonl").read_bytes()
+    assert repair_log(project / "events.jsonl", clock=_clock) == ()
+    assert (project / "events.jsonl").read_bytes() == before
+
+
+def test_every_unrecorded_side_file_is_recorded_in_name_order(tmp_path: Path) -> None:
+    project = tmp_path / "p"
+    shutil.copytree(PROJECT, project)
+    names = [
+        "events.jsonl.fragment-20261116T100000.000Z",
+        "events.jsonl.fragment-20261115T090000.000Z",
+    ]
+    for name in names:
+        (project / name).write_bytes(b"{")
+    repairs = repair_log(project / "events.jsonl", clock=_clock)
+    assert [repair.fragment_file for repair in repairs] == sorted(names)
+    assert all(repair.interrupted for repair in repairs)
+
+
+def test_other_files_beside_the_log_are_not_fragments(tmp_path: Path) -> None:
+    project = tmp_path / "p"
+    shutil.copytree(PROJECT, project)
+    (project / "events.jsonl.bak").write_bytes(b"x")
+    (project / ".events.jsonl.fragment-x.0123.tmp").write_bytes(b"x")
+    assert repair_log(project / "events.jsonl", clock=_clock) == ()
