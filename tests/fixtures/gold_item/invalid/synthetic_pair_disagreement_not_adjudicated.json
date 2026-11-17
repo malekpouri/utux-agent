@@ -70,7 +70,7 @@
             }
           },
           "adjudicated": false,
-          "adjudication_reason": "Synthetic adjudication reason."
+          "adjudication_reason": null
         }
       ],
       "status": "partially_supported",

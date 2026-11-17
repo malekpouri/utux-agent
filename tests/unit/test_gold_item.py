@@ -336,6 +336,7 @@ def test_three_annotators_are_too_many() -> None:
 def test_adjudicated_may_be_true_where_the_raw_entries_agree() -> None:
     document = _document("synthetic_natural_item.json")
     _claim(document)["adjudicated"] = True
+    _claim(document)["adjudication_reason"] = "Synthetic adjudication reason."
     _annotation(document)["adjudicator"] = "a90"
     assert GoldItem.validate_document(document, "item.json").claims[0].adjudicated is True
 
