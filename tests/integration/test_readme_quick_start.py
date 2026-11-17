@@ -6,6 +6,7 @@ the scripted fake, put in place of the profile's provider; no test reaches
 the network.
 """
 
+import json
 import re
 import shlex
 from pathlib import Path
@@ -45,13 +46,18 @@ def _blocks(section: str, language: str) -> list[str]:
     return re.findall(rf"^```{language}\n(.*?)^```", section, re.MULTILINE | re.DOTALL)
 
 
-def _utux_commands(block: str) -> list[list[str]]:
-    commands = []
-    for line in block.splitlines():
-        words = shlex.split(line, comments=True)
-        if words[:3] == ["uv", "run", "utux"]:
-            commands.append(words[3:])
-    return commands
+# The install steps of the quick start. They are not run here: CI performs
+# them before the tests (it checks out the repository and runs `uv sync`), so
+# every other command must be a `uv run utux` command that this test runs.
+INSTALL = [
+    ["git", "clone", "https://github.com/malekpouri/utux-agent.git"],
+    ["cd", "utux-agent"],
+    ["uv", "sync"],
+]
+
+
+def _commands(block: str) -> list[list[str]]:
+    return [words for line in block.splitlines() if (words := shlex.split(line, comments=True))]
 
 
 def test_readme_quick_start_works_as_written(
@@ -60,36 +66,50 @@ def test_readme_quick_start_works_as_written(
     section = _quick_start()
     bash = _blocks(section, "bash")
     yaml = _blocks(section, "yaml")
-    assert len(bash) == 2, "expected one block before and one after the edit of utux.yaml"
     assert len(yaml) == 2, "expected the line to replace and its replacement"
     before, after = yaml
     assert "tiers: {}" in before
     assert "models:" not in after, "the replacement must not add a second models key"
 
+    commands = [command for block in bash for command in _commands(block)]
+    assert commands[: len(INSTALL)] == INSTALL
+    utux = commands[len(INSTALL) :]
+    assert all(command[:3] == ["uv", "run", "utux"] for command in utux), utux
+    steps = [command[3:] for command in utux]
+    assert [step[0] for step in steps] == ["init", "validate", "model", "cost", "cost"]
+
     provider = ScriptedModelProvider([ScriptedReply(content="pong", cost_usd=0.0000021)])
     monkeypatch.setattr(profiles, "provider_for_profile", lambda profile: provider)
     monkeypatch.chdir(tmp_path)
 
-    setup = _utux_commands(bash[0])
-    assert [command[0] for command in setup] == ["init", "validate"]
-    for command in setup:
-        result = runner.invoke(app, command)
-        assert result.exit_code == 0, (command, result.output)
-    project = tmp_path / setup[0][1]
+    outputs = []
+    for step in steps:
+        if step[0] == "model":
+            # The README edits utux.yaml between validate and ping.
+            config = tmp_path / steps[0][1] / "utux.yaml"
+            text = config.read_text(encoding="utf-8")
+            assert text.count(before) == 1, "utux init does not write the line the README edits"
+            config.write_text(text.replace(before, after), encoding="utf-8")
+            assert validate_project(config.parent).problems == ()
+        result = runner.invoke(app, step)
+        assert result.exit_code == 0, (step, result.output)
+        outputs.append(result.output)
 
-    config = project / "utux.yaml"
-    text = config.read_text(encoding="utf-8")
-    assert text.count(before) == 1, "utux init does not write the line the README edits"
-    config.write_text(text.replace(before, after), encoding="utf-8")
-    assert validate_project(project).problems == ()
-
-    (ping,) = _utux_commands(bash[1])
-    assert ping[:2] == ["model", "ping"]
-    result = runner.invoke(app, ping)
-    assert result.exit_code == 0, result.output
-    assert "cost 0.0000021 USD" in result.output
+    project = tmp_path / steps[0][1]
+    ping, cost, cost_json = outputs[2:]
+    assert "cost 0.0000021 USD" in ping
     call = list(EventLog(project / "events.jsonl"))[-1]
     assert (call.type, call.status) == (EventType.MODEL_CALL, EventStatus.OK)
+    assert "Known cost: 0.0000021 USD of a budget of 20 USD" in cost
+    assert json.loads(cost_json)["total"]["known_cost_usd"] == 0.0000021
+
+
+def test_readme_says_what_works_today_and_what_is_planned() -> None:
+    text = README.read_text(encoding="utf-8")
+    assert "## What works today" in text
+    assert "## What is planned" in text
+    for command in ("utux init", "utux validate", "utux model ping", "utux cost"):
+        assert command in text
 
 
 def test_appending_a_second_models_key_is_rejected_as_the_readme_warns(tmp_path: Path) -> None:
