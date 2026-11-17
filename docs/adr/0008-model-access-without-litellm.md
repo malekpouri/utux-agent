@@ -70,3 +70,6 @@ Nothing in utux accesses the network when it is imported.
   decision.
 - `docs/spec.md`, section 5, "Six pluggable interfaces", row `ModelProvider`.
 - `docs/adr/0007-model-provider-contract.md`: cost is never guessed.
+- Reports on the LiteLLM incidents, given by the maintainer:
+  - https://bleepingcomputer.com/news/security/litellm-release-pipeline-hacked-to-distribute-info-stealer-malware
+  - https://letsdatascience.com/news/litellm-breach-exposes-ai-supply-chain-risk-69f3c6f7
