@@ -1,0 +1,6 @@
+{
+  "error": {
+    "message": "Synthetic: rate limit exceeded",
+    "code": 429
+  }
+}

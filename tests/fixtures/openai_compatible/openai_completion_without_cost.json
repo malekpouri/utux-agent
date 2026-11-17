@@ -1,0 +1,21 @@
+{
+  "id": "chatcmpl-synthetic-0001",
+  "object": "chat.completion",
+  "created": 1794800000,
+  "model": "synthetic-local-model",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": {
+        "role": "assistant",
+        "content": "Synthetic local reply."
+      }
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 20,
+    "completion_tokens": 4,
+    "total_tokens": 24
+  }
+}
