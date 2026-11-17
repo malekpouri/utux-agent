@@ -5,34 +5,62 @@ computational research project from idea to reviewed manuscript. Its defining
 property is scientific reliability: every claim in an output must be traceable
 to checked evidence or to a computed result.
 
-## Status
+## What works today
 
-The project is in milestone M0. What works today:
+The project is in milestone M0, foundations. It does not yet do research:
+there are no agents and no pipeline stages. What works:
 
 - `utux init` creates a project: its directory tree, `utux.yaml`, the event
   log with its first event, and a git repository with a first commit.
 - `utux validate` checks every contract file of a project and reports every
   problem.
+- `utux model ping` sends a short prompt to the model of a tier and prints
+  the tokens and the cost. Every model call is logged as a `model_call`
+  event, with hashes of what was sent instead of the text.
+- `utux cost` prints the known cost of a project against its budget, per
+  stage and per actor. A model call is refused once the budget is exhausted,
+  and every call to an external provider is refused under the data policy
+  `local_only`.
 - `utux log repair` saves aside an incomplete last line of the event log,
   left by an interrupted write, and records the repair.
-- `utux model ping` sends a short prompt to the model of a tier and prints
-  the tokens and the cost; the call is logged as a `model_call` event.
-- `utux cost` prints the known cost of a project against its budget, per
-  stage and per actor; a model call is refused once the budget is exhausted.
 - `utux schema export <dir>` writes a JSON Schema file for every file
   contract.
-- The schemas of all file contracts, the append-only event log and the
-  `ModelProvider` interface exist as library code, with one provider: an
-  OpenAI-compatible client for OpenRouter, a direct OpenAI key or a local
-  server such as Ollama.
+- As library code: the schemas of all file contracts, the append-only event
+  log, the `ModelProvider` interface with one OpenAI-compatible client
+  (OpenRouter, a direct OpenAI key, or a local server such as Ollama), and
+  the evaluation toolkit for the gold-standard set (item schema, group-aware
+  split, annotator agreement, metrics and intervals).
 
-What does not exist yet: every pipeline stage. See `docs/plan/M0.md` for what is being
-built.
+## What is planned
+
+Following the roadmap in section 12 of the [specification](docs/spec.md):
+
+- **M0, in progress:** the evaluation protocol and gold set v0, written and
+  labelled by people.
+- **M1:** stages 3 to 5 (methodology, implementation, experiment) on
+  LangGraph, with model-written code run only in a hardened Docker sandbox,
+  run manifests and result records. See [the M1 plan](docs/plan/M1.md).
+- **M2:** claim verification against the literature, scored on the gold set.
+- **M3:** the full pipeline from question to reviewed manuscript, with
+  approval gates and model routing.
+- **M4:** the benchmark against the hypotheses of the specification.
+- **M5:** the v1 release.
+
+Nothing on this list exists yet.
 
 ## Quick start
 
+You need Python 3.12 or newer, [uv](https://docs.astral.sh/uv/) and git.
+
 ```bash
+git clone https://github.com/malekpouri/utux-agent.git
+cd utux-agent
 uv sync
+```
+
+Create a project and check it:
+
+```bash
 uv run utux init my-project --budget-usd 20 --data-policy external_allowed
 uv run utux validate my-project
 ```
@@ -68,6 +96,15 @@ With the `default` profile this is a real, paid call to OpenRouter and needs
 the `OPENROUTER_API_KEY` environment variable. See
 [Logged model calls and `utux model ping`](docs/model-calls.md).
 
+See what the project has spent, as text or as JSON:
+
+```bash
+uv run utux cost my-project
+uv run utux cost my-project --json
+```
+
+See [Cost and budget](docs/cost.md).
+
 ## Documents
 
 - [Technical Product Specification](docs/spec.md)
@@ -86,6 +123,9 @@ the `OPENROUTER_API_KEY` environment variable. See
 - [Gold items, releases and the split](docs/gold-set.md)
 - [Agreement, metrics and intervals](docs/evaluation-toolkit.md)
 - [Annotation guideline, draft](docs/eval/annotation-guideline.md)
+- [Worked example of a gold item](docs/eval/example-item.md)
+- [M0 plan](docs/plan/M0.md) and [M1 plan](docs/plan/M1.md)
+- [Contributing](CONTRIBUTING.md) and [Security](SECURITY.md)
 - [Claim ledger and result records](docs/claim-ledger.md)
 - [Run manifest, approvals, source record and schema export](docs/contracts.md)
 
