@@ -32,6 +32,20 @@ CORRUPTED: list[tuple[str, str, int | None, str, str]] = [
         "first_event_not_project_created",
     ),
     ("event_parent_unknown", "events.jsonl", 2, "parent_id", "unknown_reference"),
+    (
+        "fragment_without_repair_event",
+        "events.jsonl.fragment-20261116T110712.125Z",
+        None,
+        "<document>",
+        "unrecorded_fragment",
+    ),
+    (
+        "repair_event_without_fragment",
+        "events.jsonl",
+        3,
+        "data.fragment_file",
+        "missing_fragment_file",
+    ),
     ("result_run_without_manifest", "results.jsonl", 1, "run_id", "unknown_reference"),
     ("source_evidence_unknown", "claims.jsonl", 2, "evidence.0.source_id", "unknown_reference"),
     (
@@ -379,3 +393,78 @@ def test_reference_to_an_invalid_source_record_is_not_reported_again(tmp_path: P
 def test_run_whose_manifest_is_invalid_still_counts_as_existing(tmp_path: Path) -> None:
     report = validate_project(build("manifest_missing_seeds", tmp_path))
     assert [p.code for p in report.problems] == ["missing"]
+
+
+# Fragment side files of utux log repair
+
+
+FRAGMENT = b'{"schema_version": 1, "event_'
+FRAGMENT_FILE = "events.jsonl.fragment-20261116T110712.125Z"
+
+
+def _with_repair_event(tmp_path: Path, **data: object) -> Path:
+    """A valid project with a fragment side file and a log_repaired event for it."""
+    from utux.workspace.hashing import hash_bytes
+
+    project = tmp_path / "p"
+    shutil.copytree(VALID, project)
+    (project / FRAGMENT_FILE).write_bytes(FRAGMENT)
+    lines = (project / "events.jsonl").read_text(encoding="utf-8")
+    event = json.loads(lines.split("\n")[1])
+    event.update(
+        event_id="e-000003",
+        type="log_repaired",
+        actor="system:utux",
+        data={
+            "fragment_file": FRAGMENT_FILE,
+            "fragment_hash": hash_bytes(FRAGMENT),
+            "fragment_bytes": len(FRAGMENT),
+            **data,
+        },
+    )
+    (project / "events.jsonl").write_text(lines + json.dumps(event) + "\n", encoding="utf-8")
+    return project
+
+
+def test_recorded_fragment_is_valid(tmp_path: Path) -> None:
+    report = validate_project(_with_repair_event(tmp_path))
+    assert report.problems == ()
+    assert report.files_checked == 10
+
+
+def test_fragment_of_another_length_is_reported_on_the_event(tmp_path: Path) -> None:
+    project = _with_repair_event(tmp_path, fragment_bytes=len(FRAGMENT) + 1)
+    (problem,) = validate_project(project).problems
+    assert (problem.file, problem.line, problem.field, problem.code) == (
+        "events.jsonl",
+        3,
+        "data.fragment_bytes",
+        "fragment_mismatch",
+    )
+    assert problem.reason == (f"{FRAGMENT_FILE} has {len(FRAGMENT)} bytes, not {len(FRAGMENT) + 1}")
+
+
+def test_fragment_with_another_hash_is_reported_on_the_event(tmp_path: Path) -> None:
+    project = _with_repair_event(tmp_path, fragment_hash="sha256:" + "0" * 64)
+    assert _found(validate_project(project)) == [
+        ("events.jsonl", 3, "data.fragment_hash", "fragment_mismatch")
+    ]
+
+
+@pytest.mark.parametrize(
+    "name", ["../outside", "sub/events.jsonl.fragment-x", "notes.txt", "events.jsonl.fragment-"]
+)
+def test_fragment_file_must_be_a_fragment_name_beside_the_log(tmp_path: Path, name: str) -> None:
+    """The name comes from the log, so it is checked before any file is opened."""
+    (tmp_path / "outside").write_bytes(FRAGMENT)
+    project = _with_repair_event(tmp_path, fragment_file=name)
+    found = _found(validate_project(project))
+    assert ("events.jsonl", 3, "data.fragment_file", "invalid_fragment_file") in found
+
+
+def test_every_side_file_and_every_event_is_checked(tmp_path: Path) -> None:
+    project = _with_repair_event(tmp_path)
+    (project / "events.jsonl.fragment-20261116T120000.000Z").write_bytes(b"x")
+    assert _found(validate_project(project)) == [
+        ("events.jsonl.fragment-20261116T120000.000Z", None, "<document>", "unrecorded_fragment")
+    ]

@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from utux.errors import DOCUMENT_FIELD, ContractValidationError
+from utux.events.log import FRAGMENT_SUFFIX, fragment_files
 from utux.schemas.approval import (
     ApprovalRequest,
     ApprovalResponse,
@@ -36,6 +37,7 @@ from utux.schemas.result_record import ResultRecord
 from utux.schemas.run_manifest import RunManifest
 from utux.schemas.source_record import SourceRecord
 from utux.schemas.yaml_io import parse_yaml
+from utux.workspace.hashing import hash_bytes
 from utux.workspace.layout import (
     CLAIM_LEDGER_FILE,
     CONFIG_FILE,
@@ -51,6 +53,7 @@ RUNS_DIRECTORY = "runs"
 APPROVALS_DIRECTORY = "approvals"
 MANIFEST_FILE = "manifest.json"
 
+_FRAGMENT_NAME = re.compile(re.escape(EVENT_LOG_FILE + FRAGMENT_SUFFIX) + r"[^/\\]+")
 _APPROVAL_FILE = re.compile(r"^(?P<id>.+)\.(?P<kind>request|response)\.json$")
 
 
@@ -137,6 +140,8 @@ class _Validator:
         self.project = project
         self.problems: list[ValidationProblem] = []
         self.files_checked = 0
+        # (line, data) of every valid log_repaired event.
+        self.repairs: list[tuple[int, dict[str, object]]] = []
 
     def add(self, file: str, line: int | None, field: str, code: str, reason: str) -> None:
         self.problems.append(ValidationProblem(file, line, field, code, reason))
@@ -202,7 +207,8 @@ class _Validator:
                         number,
                         DOCUMENT_FIELD,
                         "incomplete_line",
-                        "the line is incomplete; a write to the log was interrupted",
+                        "the line is incomplete; a write to the log was interrupted; "
+                        "run utux log repair",
                     )
                     continue
                 text = raw.decode("utf-8", errors="replace")
@@ -224,6 +230,8 @@ class _Validator:
                         "the first event of the log must be project_created, "
                         f"not {event.type.value}",
                     )
+                if event.type is EventType.LOG_REPAIRED:
+                    self.repairs.append((number, dict(event.data)))
                 if event.parent_id is not None and event.parent_id not in earlier:
                     self.add(
                         EVENT_LOG_FILE,
@@ -471,6 +479,73 @@ class _Validator:
                 f"the file is named for {named} but holds {document.approval_id}",
             )
 
+    def fragments(self) -> None:
+        """Check fragment side files and `log_repaired` events against each other."""
+        sides = fragment_files(self.project / EVENT_LOG_FILE)
+        self.files_checked += len(sides)
+        recorded: set[str] = set()
+        for number, data in self.repairs:
+            name = data["fragment_file"]
+            # The name comes from the log; it must name a side file beside the
+            # log before any file is opened by it.
+            if not isinstance(name, str) or _FRAGMENT_NAME.fullmatch(name) is None:
+                self.add(
+                    EVENT_LOG_FILE,
+                    number,
+                    "data.fragment_file",
+                    "invalid_fragment_file",
+                    f"must be a file name {EVENT_LOG_FILE}{FRAGMENT_SUFFIX}<time> beside the log",
+                )
+                continue
+            recorded.add(name)
+            path = self.project / name
+            if not path.is_file():
+                self.add(
+                    EVENT_LOG_FILE,
+                    number,
+                    "data.fragment_file",
+                    "missing_fragment_file",
+                    f"{name} does not exist",
+                )
+                continue
+            try:
+                content = path.read_bytes()
+            except OSError as error:
+                self.add(
+                    name,
+                    None,
+                    DOCUMENT_FIELD,
+                    "unreadable",
+                    f"the file cannot be read: {error.strerror}",
+                )
+                continue
+            if len(content) != data["fragment_bytes"]:
+                self.add(
+                    EVENT_LOG_FILE,
+                    number,
+                    "data.fragment_bytes",
+                    "fragment_mismatch",
+                    f"{name} has {len(content)} bytes, not {data['fragment_bytes']}",
+                )
+            if hash_bytes(content) != data["fragment_hash"]:
+                self.add(
+                    EVENT_LOG_FILE,
+                    number,
+                    "data.fragment_hash",
+                    "fragment_mismatch",
+                    f"{name} has the hash {hash_bytes(content)}, not {data['fragment_hash']}",
+                )
+        for side in sides:
+            if side.name not in recorded:
+                self.add(
+                    side.name,
+                    None,
+                    DOCUMENT_FIELD,
+                    "unrecorded_fragment",
+                    f"no log_repaired event in {EVENT_LOG_FILE} records this fragment; "
+                    "run utux log repair",
+                )
+
     def entries(self, directory: str) -> Iterator[Path]:
         """Yield the entries of a project directory in name order, without `.gitkeep`."""
         path = self.project / directory
@@ -499,6 +574,7 @@ def validate_project(directory: Path) -> ValidationReport:
         return _report(validator)
     validator.config()
     validator.events()
+    validator.fragments()
     claims = validator.lines(ClaimLedgerEntry, CLAIM_LEDGER_FILE)
     results = validator.lines(ResultRecord, RESULTS_FILE)
     source_ids = validator.sources()

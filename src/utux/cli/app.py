@@ -7,8 +7,10 @@ import typer
 
 from utux import __version__
 from utux.errors import SchemaExportError, UtuxError
+from utux.events.log import repair_log
 from utux.schemas.export import export_json_schemas
 from utux.schemas.project_config import DataPolicy
+from utux.workspace.layout import EVENT_LOG_FILE
 from utux.workspace.project import init_project
 from utux.workspace.validation import validate_project
 
@@ -105,6 +107,44 @@ def validate(
             typer.echo(f"{count} {'problem' if count == 1 else 'problems'} found.")
     if not report.valid:
         raise typer.Exit(code=1)
+
+
+log_app = typer.Typer(help="Work with the event log of a project.")
+app.add_typer(log_app, name="log")
+
+
+@log_app.callback()
+def log_root() -> None:
+    """Work with the event log of a project."""
+
+
+@log_app.command("repair")
+def log_repair(
+    directory: Annotated[
+        Path, typer.Argument(help="The project directory. Default: the current directory.")
+    ] = Path(),
+) -> None:
+    """Save an incomplete last line of the event log aside and record the repair."""
+    try:
+        repairs = repair_log(directory / EVENT_LOG_FILE)
+    except UtuxError as error:
+        typer.echo(f"error: {error}", err=True)
+        raise typer.Exit(code=1) from error
+    if not repairs:
+        typer.echo(f"nothing to repair: the last line of {EVENT_LOG_FILE} is complete")
+        return
+    for repair in repairs:
+        if repair.interrupted:
+            typer.echo(
+                f"Completed an interrupted repair: recorded {repair.fragment_file} "
+                f"({repair.fragment_bytes} bytes) as {repair.event.event_id}."
+            )
+        else:
+            typer.echo(
+                f"Saved the incomplete last line ({repair.fragment_bytes} bytes) "
+                f"to {repair.fragment_file}."
+            )
+            typer.echo(f"The log now ends with {repair.event.event_id}, which records the repair.")
 
 
 schema_app = typer.Typer(help="Work with the schemas of the file contracts.")

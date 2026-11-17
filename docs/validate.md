@@ -60,6 +60,7 @@ absolute path.
 | --- | --- | --- |
 | `utux.yaml` | project configuration | Required |
 | `events.jsonl` | event, per line | Required. A last line without its newline is an interrupted write (`incomplete_line`). Event ids increase from line to line (`event_id_not_increasing`). The first event is `project_created` (`first_event_not_project_created`). Every `parent_id` names an earlier event in the log (`unknown_reference`) |
+| `events.jsonl.fragment-*` | none | Side files of `utux log repair`. Each is recorded by a `log_repaired` event, and each such event's file exists with the recorded length and hash. See [the event log](event-log.md#side-files-and-utux-validate) |
 | `claims.jsonl` | claim ledger entry, per line | Required; may be empty. Ids are unique (`duplicate_id`). Every `claim` evidence id is a claim in the file, every `result_record` evidence id is a record in `results.jsonl`, and every `source` evidence `source_id` has a source record in `sources/` (`unknown_reference`) |
 | `results.jsonl` | result record, per line | Required; may be empty. Ids are unique (`duplicate_id`). Every `run_id` has `runs/<run_id>/manifest.json` (`unknown_reference`) |
 | `.utux/meta/<artifact_id>.json` | artifact metadata | The file name matches `artifact_id` (`name_mismatch`). Any other file here is `unexpected_file` |
@@ -67,6 +68,7 @@ absolute path.
 | `runs/<run_id>/manifest.json` | run manifest | `run_id` matches the directory (`name_mismatch`). A run directory without a manifest is a run that has not ended and is accepted. Other files of a run are not read |
 | `approvals/<id>.request.json` | approval request | The file name matches `approval_id` (`name_mismatch`) |
 | `approvals/<id>.response.json` | approval response | The file name matches `approval_id`. A request with the same id exists (`request_missing`). The response matches its request: same `approval_id`, `artifact_id` and `content_hash`, and for an edit a different version (`differs_from_request`, `same_as_request`). Any other file here is `unexpected_file` |
+
 
 A missing required file has code `missing_file`. `.gitkeep` files are
 ignored. Files that are not contracts, such as `code/`, `paper/` and the

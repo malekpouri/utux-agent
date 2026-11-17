@@ -72,6 +72,7 @@ Each event type defines its keys. A missing key is reported as
 | --- | --- |
 | `project_created` | `utux_version` (non-empty text): the version of utux that created the project; required |
 | `setting_changed` | `key` (non-empty text), `old_value`, `new_value`; all required |
+| `log_repaired` | `fragment_file` (non-empty text), `fragment_hash` (content hash), `fragment_bytes` (whole number, 0 or more); all required |
 | every other type | none; `data` must be `{}` until the task that emits the type defines its keys |
 
 Message content and source text never go into `data`. An event records what
@@ -112,7 +113,9 @@ for event in log:
 
 The log has no operation that rewrites, reorders or removes a line, and it
 never opens the file in a mode that can truncate it: it writes through a
-handle opened for appending only, and reads through a read-only handle.
+handle opened for appending only, and reads through a read-only handle. The
+one exception is `utux log repair`, described below, which removes an
+incomplete fragment that is not a line, and only when a person asks for it.
 
 Append-only is enforced by utux, not by the file system, so the log is not
 tamper-proof (specification, section 7).
@@ -134,11 +137,56 @@ before that line are still delivered.
 
 ### After a crash
 
-A last line without its newline is never dropped, completed or overwritten.
-`append()` refuses to write to such a log, because the new event would be
-joined to the broken line.
+A last line without its newline is never dropped, completed or overwritten
+automatically. `append()` refuses to write to such a log, because the new
+event would be joined to the broken line, and reading and `utux validate`
+report it.
 
-The log is never repaired automatically. `utux log repair` (task M0-08b) will
-move the fragment to a side file, restore the log to its last complete
-event and record the repair as a `log_repaired` event. Until that task is
-done, the damaged line has to be removed by a person, outside utux.
+A person repairs the log with:
+
+```bash
+uv run utux log repair [DIRECTORY]
+```
+
+The command, while it holds the lock of the log:
+
+1. checks that the last complete line is a valid event, and refuses with
+   nothing changed if it is not;
+2. saves the incomplete fragment byte for byte to
+   `events.jsonl.fragment-<time>` beside the log, for example
+   `events.jsonl.fragment-20261116T110712.125Z`, and refuses with nothing
+   changed if that file already exists or cannot be written;
+3. removes the fragment from the end of the log, so that the log ends with
+   its last complete event;
+4. appends a `log_repaired` event with the side file's name, the fragment's
+   hash and its length in bytes.
+
+Complete lines are never changed. A log whose last line is complete is left
+alone, and the command says that there is nothing to repair. The side file
+is kept for audit; utux does not delete it.
+
+If the fragment was the whole log, as when a crash interrupts the very first
+event, the repaired log starts with `log_repaired`, and `utux validate`
+reports that the first event is not `project_created`.
+
+### An interrupted repair
+
+If the process is stopped between steps 3 and 4, the log is complete but
+has no `log_repaired` event, and the side file holds the fragment.
+`utux validate` reports the side file as `unrecorded_fragment`. Running
+`utux log repair` again completes the repair: on a log whose last line is
+complete, every side file that no `log_repaired` event records gets its
+missing event, in name order, and the command says that an interrupted
+repair was completed. If every side file is recorded, nothing changes.
+
+### Side files and `utux validate`
+
+`utux validate` checks the side files and the `log_repaired` events against
+each other, in both directions:
+
+- every `events.jsonl.fragment-*` file is named by a `log_repaired` event
+  (`unrecorded_fragment`, on the side file);
+- every `log_repaired` event names a side file beside the log
+  (`invalid_fragment_file`) that exists (`missing_fragment_file`) and whose
+  length and hash match `fragment_bytes` and `fragment_hash`
+  (`fragment_mismatch`). These are reported on the event's line.

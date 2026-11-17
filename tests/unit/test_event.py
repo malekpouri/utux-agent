@@ -77,6 +77,7 @@ INVALID = [
     ("setting_changed_value_is_nested.json", "data.new_value", "not_scalar"),
     ("setting_changed_key_is_not_text.json", "data.key", "string_type"),
     ("project_created_without_utux_version.json", "data.utux_version", "missing"),
+    ("log_repaired_without_fragment_hash.json", "data.fragment_hash", "missing"),
     ("newer_schema_version.json", "schema_version", "schema_version_newer"),
     ("not_an_object.json", "<document>", "not_a_mapping"),
     ("malformed_json.json", "<document>", "invalid_json"),
@@ -494,7 +495,8 @@ def test_setting_key_is_non_empty_text(key: object) -> None:
 
 def test_types_without_defined_keys_accept_only_an_empty_object() -> None:
     for kind in EventType:
-        if kind in (EventType.SETTING_CHANGED, EventType.PROJECT_CREATED):
+        # These types define keys of their own, tested separately.
+        if kind in (EventType.SETTING_CHANGED, EventType.PROJECT_CREATED, EventType.LOG_REPAIRED):
             continue
         document = _with(type=kind.value, data={})
         assert Event.from_json(json.dumps(document)).data == {}
@@ -525,3 +527,40 @@ def test_new_event_takes_status_reason_and_data() -> None:
         model="synthetic/model",
     )
     assert refused.status_reason == "budget_exhausted"
+
+
+# data of log_repaired
+
+
+def _repaired(**changes: object) -> dict[str, object]:
+    document = json.loads((FIXTURES / "valid" / "log_repaired.json").read_text("utf-8"))
+    assert isinstance(document, dict)
+    document["data"] = {**document["data"], **changes}
+    return document
+
+
+def test_log_repaired_carries_file_hash_and_byte_length() -> None:
+    event = load_event(FIXTURES / "valid" / "log_repaired.json")
+    assert event.type is EventType.LOG_REPAIRED
+    assert event.data == {
+        "fragment_file": "events.jsonl.fragment-20261116T110712.125Z",
+        "fragment_hash": SYNTHETIC_HASH,
+        "fragment_bytes": 57,
+    }
+
+
+@pytest.mark.parametrize("value", [-1, 1.5, True, "57", None])
+def test_fragment_bytes_is_a_whole_number_of_zero_or_more(value: object) -> None:
+    assert _problems(_repaired(fragment_bytes=value)) == [("data.fragment_bytes", "int_type")]
+
+
+@pytest.mark.parametrize("value", ["sha256:...", "md5:abc", "", 3])
+def test_fragment_hash_is_a_content_hash(value: object) -> None:
+    assert [field for field, _ in _problems(_repaired(fragment_hash=value))] == [
+        "data.fragment_hash"
+    ]
+
+
+@pytest.mark.parametrize("value", ["", None, 4])
+def test_fragment_file_is_non_empty_text(value: object) -> None:
+    assert _problems(_repaired(fragment_file=value)) == [("data.fragment_file", "string_type")]

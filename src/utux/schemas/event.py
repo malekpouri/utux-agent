@@ -6,6 +6,7 @@ every field, with null where a field does not apply.
 """
 
 import json
+import re
 from enum import StrEnum
 from pathlib import Path
 from typing import ClassVar, Self
@@ -67,13 +68,27 @@ class EventStatus(StrEnum):
 _DATA_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.PROJECT_CREATED: ("utux_version",),
     EventType.SETTING_CHANGED: ("key", "old_value", "new_value"),
+    EventType.LOG_REPAIRED: ("fragment_file", "fragment_hash", "fragment_bytes"),
 }
 
 # Keys of `data` whose value must be non-empty text.
 _TEXT_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.PROJECT_CREATED: ("utux_version",),
     EventType.SETTING_CHANGED: ("key",),
+    EventType.LOG_REPAIRED: ("fragment_file", "fragment_hash"),
 }
+
+# Keys of `data` whose value must be a content hash.
+_HASH_KEYS: dict[EventType, tuple[str, ...]] = {
+    EventType.LOG_REPAIRED: ("fragment_hash",),
+}
+
+# Keys of `data` whose value must be a whole number of zero or more.
+_COUNT_KEYS: dict[EventType, tuple[str, ...]] = {
+    EventType.LOG_REPAIRED: ("fragment_bytes",),
+}
+
+_SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 def _check_status_reason(value: str | None, info: ValidationInfo) -> str | None:
@@ -117,6 +132,30 @@ def _check_data_keys(value: dict[str, Scalar], info: ValidationInfo) -> dict[str
             text = value[key]
             if not isinstance(text, str) or not text:
                 errors.append({"type": "string_type", "loc": (key,), "input": None})
+            elif key in _HASH_KEYS.get(kind, ()) and not _SHA256.match(text):
+                errors.append(
+                    {
+                        "type": PydanticCustomError(
+                            "string_pattern_mismatch",
+                            "must be sha256: and 64 lower-case hexadecimal digits",
+                        ),
+                        "loc": (key,),
+                        "input": None,
+                    }
+                )
+    for key in _COUNT_KEYS.get(kind, ()):
+        if key in value:
+            count = value[key]
+            if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+                errors.append(
+                    {
+                        "type": PydanticCustomError(
+                            "int_type", "must be a whole number of zero or more"
+                        ),
+                        "loc": (key,),
+                        "input": None,
+                    }
+                )
     if errors:
         raise ValidationError.from_exception_data("data", errors)
     return value
