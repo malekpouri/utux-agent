@@ -13,19 +13,37 @@
       "a91",
       "a92"
     ],
-    "adjudicated": true,
     "adjudicator": "a90",
-    "raw_labels": {
-      "a91": {
-        "agreement_label": "partial",
-        "status": "partially_supported"
+    "claim_extraction": {
+      "raw": {
+        "a91": [
+          {
+            "span": [
+              0,
+              78
+            ],
+            "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9001."
+          }
+        ],
+        "a92": [
+          {
+            "span": [
+              0,
+              78
+            ],
+            "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9001."
+          },
+          {
+            "span": [
+              0,
+              18
+            ],
+            "text": "Synthetic method A."
+          }
+        ]
       },
-      "a92": {
-        "agreement_label": "entails",
-        "status": "verified"
-      }
-    },
-    "ambiguous": false
+      "adjudicated": true
+    }
   },
   "hidden": {
     "target_error": "overgeneralisation",

@@ -5,6 +5,7 @@ hand, in `tests/fixtures/gold_release/README.md`. Every expected value below
 follows from that table.
 """
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -39,7 +40,7 @@ def _changed(items: list[GoldItem], item_id: str, change: dict[str, Any]) -> lis
     result = []
     for item in items:
         if item.item_id == item_id:
-            document = item.model_dump(mode="json")
+            document = json.loads(item.to_json_line())
             _apply(document, change)
             item = GoldItem.validate_document(document, item_id)
         result.append(item)

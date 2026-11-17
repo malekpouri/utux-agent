@@ -36,11 +36,54 @@
           "agreement_label": "partial",
           "scope_flags": [
             "overgeneralisation"
-          ]
+          ],
+          "raw": {
+            "a91": {
+              "evidence_spans": [
+                {
+                  "passage_id": "p001",
+                  "offsets": [
+                    10,
+                    60
+                  ]
+                }
+              ],
+              "agreement_label": "partial",
+              "scope_flags": [
+                "overgeneralisation"
+              ]
+            },
+            "a92": {
+              "evidence_spans": [
+                {
+                  "passage_id": "p001",
+                  "offsets": [
+                    10,
+                    60
+                  ]
+                }
+              ],
+              "agreement_label": "entails",
+              "scope_flags": []
+            }
+          },
+          "adjudicated": true
         }
       ],
       "status": "partially_supported",
-      "expert_would_review": false
+      "expert_would_review": false,
+      "raw": {
+        "a91": {
+          "status": "partially_supported",
+          "expert_would_review": false
+        },
+        "a92": {
+          "status": "verified",
+          "expert_would_review": false
+        }
+      },
+      "adjudicated": true,
+      "ambiguous": false
     },
     {
       "claim_id": "G9001-c1",
@@ -70,11 +113,54 @@
           "agreement_label": "partial",
           "scope_flags": [
             "overgeneralisation"
-          ]
+          ],
+          "raw": {
+            "a91": {
+              "evidence_spans": [
+                {
+                  "passage_id": "p001",
+                  "offsets": [
+                    10,
+                    60
+                  ]
+                }
+              ],
+              "agreement_label": "partial",
+              "scope_flags": [
+                "overgeneralisation"
+              ]
+            },
+            "a92": {
+              "evidence_spans": [
+                {
+                  "passage_id": "p001",
+                  "offsets": [
+                    10,
+                    60
+                  ]
+                }
+              ],
+              "agreement_label": "entails",
+              "scope_flags": []
+            }
+          },
+          "adjudicated": true
         }
       ],
       "status": "partially_supported",
-      "expert_would_review": false
+      "expert_would_review": false,
+      "raw": {
+        "a91": {
+          "status": "partially_supported",
+          "expert_would_review": false
+        },
+        "a92": {
+          "status": "verified",
+          "expert_would_review": false
+        }
+      },
+      "adjudicated": true,
+      "ambiguous": false
     }
   ],
   "annotation": {
@@ -82,19 +168,37 @@
       "a91",
       "a92"
     ],
-    "adjudicated": true,
     "adjudicator": "a90",
-    "raw_labels": {
-      "a91": {
-        "agreement_label": "partial",
-        "status": "partially_supported"
+    "claim_extraction": {
+      "raw": {
+        "a91": [
+          {
+            "span": [
+              0,
+              78
+            ],
+            "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9001."
+          }
+        ],
+        "a92": [
+          {
+            "span": [
+              0,
+              78
+            ],
+            "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9001."
+          },
+          {
+            "span": [
+              0,
+              18
+            ],
+            "text": "Synthetic method A."
+          }
+        ]
       },
-      "a92": {
-        "agreement_label": "entails",
-        "status": "verified"
-      }
-    },
-    "ambiguous": false
+      "adjudicated": true
+    }
   },
   "hidden": {
     "target_error": "overgeneralisation",
