@@ -48,9 +48,22 @@ then refused before any request is sent, and two events are written:
 `BudgetExhaustedError` is raised. Every later call is refused the same way
 until the budget is raised.
 
-A call can overshoot: the cost of a call is known only after it returns, so
-the call that crosses the budget is completed and logged, and the next one is
-refused.
+### Known limits
+
+The budget stop has three known limits:
+
+1. **The call that crosses the budget completes.** The cost of a call is
+   known only after it returns, so the check before a call cannot stop the
+   call that takes the known cost over the budget. That call is completed and
+   logged; the next one is refused.
+2. **Parallel calls can each pass the check.** Calls that start before any
+   of them is logged all see the same known cost, so each can pass, and
+   together they can exceed the budget by more than one call. There is no
+   lock between the check and the call.
+3. **An external provider that reports no cost is not limited at all.** Its
+   calls add nothing to the known cost, so they never exhaust a budget.
+   `utux cost` shows them as unknown cost and says that the budget cannot be
+   fully enforced.
 
 ## `utux cost`
 
@@ -59,8 +72,8 @@ uv run utux cost [DIRECTORY] [--json]
 ```
 
 It prints the known cost of the project against its budget, the number of
-calls made and refused, the local, failed-not-billed and unknown-cost calls, and the totals per
-stage and per actor. Every stage with a call or a budget is listed, in stage
+calls made and refused, the local, failed-not-billed and unknown-cost
+calls, and the totals per stage and per actor. Every stage with a call or a budget is listed, in stage
 order, then the calls without a stage:
 
 ```text
