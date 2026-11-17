@@ -178,11 +178,15 @@ These rules exist because the project's value is trust in its outputs.
 - Ask before adding any runtime dependency. State what it is for, its licence
   and what the alternative would be.
 - Dependencies named in docs/spec.md or in an accepted ADR are pre-approved;
-  state them in the pull request.
+  state them in the pull request. LiteLLM is not pre-approved and is not used
+  in the core (ADR-0008).
+- A request for a new runtime dependency states its licence, the number of
+  packages it adds, anything it does at import time (network, files), and any
+  security incident of the last twelve months.
 - Type-stub packages for approved dependencies are pre-approved as
   development dependencies.
-- Permissive licences only in the core (Apache-2.0, MIT, BSD). Anything
-  copyleft goes in a separate optional plugin package, after approval.
+- Permissive licences only in the core (Apache-2.0, MIT, BSD, ISC, PSF-2.0).
+  Anything copyleft goes in a separate optional plugin package, after approval.
 - Pin through `uv.lock`. Do not edit the lock file by hand.
 - Prefer the standard library when the difference is small.
 
