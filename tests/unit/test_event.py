@@ -507,6 +507,7 @@ def test_types_without_defined_keys_accept_only_an_empty_object() -> None:
             EventType.PROJECT_CREATED,
             EventType.LOG_REPAIRED,
             EventType.MODEL_CALL,
+            EventType.BUDGET_WARNING,
         ):
             continue
         document = _with(type=kind.value, data={})
