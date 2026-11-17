@@ -15,7 +15,7 @@ from utux.events.log import EventLog
 from utux.interfaces.model_provider import ModelProvider
 from utux.providers import profiles
 from utux.providers.scripted import ScriptedFailure, ScriptedModelProvider, ScriptedReply
-from utux.schemas.event import EventStatus, EventType
+from utux.schemas.event import EventStatus, EventType, NewEvent
 from utux.workspace.validation import validate_project
 
 runner = CliRunner(env={"NO_COLOR": "1", "TERM": "dumb"})
@@ -133,6 +133,34 @@ def test_refused_ping_is_logged_and_makes_no_call(tmp_path: Path, use: Use) -> N
     assert provider.requests == ()
     call = list(EventLog(project / "events.jsonl"))[-1]
     assert (call.status, call.status_reason) == (EventStatus.REFUSED, "data_policy_local_only")
+
+
+def test_ping_after_the_budget_is_exhausted_is_refused_and_makes_no_call(
+    tmp_path: Path, use: Use
+) -> None:
+    provider = ScriptedModelProvider([ScriptedReply()])
+    use(provider)
+    project = _project(tmp_path)  # budget 5 USD
+    EventLog(project / "events.jsonl").append(
+        NewEvent(
+            actor="agent:planner",
+            type=EventType.MODEL_CALL,
+            status=EventStatus.OK,
+            model="synthetic/model",
+            cost_usd=5.0,
+            data={"provider": "synthetic-provider", "is_external": True},
+        )
+    )
+    result = runner.invoke(app, ["model", "ping", str(project)])
+    assert result.exit_code == 1
+    assert "budget" in result.output
+    assert "Traceback" not in result.output
+    assert provider.requests == ()
+    call, warning = list(EventLog(project / "events.jsonl"))[-2:]
+    assert (call.status, call.status_reason) == (EventStatus.REFUSED, "budget_exhausted")
+    assert warning.type is EventType.BUDGET_WARNING
+    assert warning.data == {"spent_usd": 5.0, "total_usd": 5.0}
+    assert validate_project(project).problems == ()
 
 
 def test_tier_without_a_model_is_an_error_and_nothing_is_logged(tmp_path: Path, use: Use) -> None:

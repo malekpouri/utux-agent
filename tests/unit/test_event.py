@@ -80,6 +80,9 @@ INVALID = [
     ("log_repaired_without_fragment_hash.json", "data.fragment_hash", "missing"),
     ("model_call_without_provider.json", "data.provider", "missing"),
     ("model_call_is_external_not_boolean.json", "data.is_external", "bool_type"),
+    ("budget_warning_without_spent_usd.json", "data.spent_usd", "missing"),
+    ("budget_warning_negative_total.json", "data.total_usd", "greater_than_equal"),
+    ("budget_warning_spent_not_a_number.json", "data.spent_usd", "float_type"),
     ("newer_schema_version.json", "schema_version", "schema_version_newer"),
     ("not_an_object.json", "<document>", "not_a_mapping"),
     ("malformed_json.json", "<document>", "invalid_json"),
@@ -601,3 +604,44 @@ def test_model_call_is_external_is_a_boolean(value: object) -> None:
 def test_model_call_accepts_no_other_data_key() -> None:
     document = _with(data={"provider": "openrouter", "is_external": True, "prompt": "x"})
     assert _problems(document) == [("data.prompt", "unknown_key")]
+
+
+# data of budget_warning
+
+
+def _budget_warning(data: object) -> dict[str, object]:
+    document = json.loads((FIXTURES / "valid" / "budget_warning.json").read_text(encoding="utf-8"))
+    assert isinstance(document, dict)
+    document["data"] = data
+    return document
+
+
+def test_budget_warning_holds_the_spent_amount_and_the_budget() -> None:
+    event = load_event(FIXTURES / "valid" / "budget_warning.json")
+    assert event.type is EventType.BUDGET_WARNING
+    assert event.data == {"spent_usd": 20.0125, "total_usd": 20.0}
+    assert _problems(_budget_warning({})) == [
+        ("data.spent_usd", "missing"),
+        ("data.total_usd", "missing"),
+    ]
+
+
+@pytest.mark.parametrize("value", ["1.0", None, True, False])
+def test_budget_warning_amounts_are_numbers(value: object) -> None:
+    document = _budget_warning({"spent_usd": 1.0, "total_usd": value})
+    assert _problems(document) == [("data.total_usd", "float_type")]
+
+
+def test_budget_warning_amounts_are_not_negative() -> None:
+    document = _budget_warning({"spent_usd": -0.5, "total_usd": 1.0})
+    assert _problems(document) == [("data.spent_usd", "greater_than_equal")]
+
+
+def test_budget_warning_accepts_whole_numbers_and_zero() -> None:
+    event = Event.from_json(json.dumps(_budget_warning({"spent_usd": 0, "total_usd": 20})))
+    assert event.data == {"spent_usd": 0, "total_usd": 20}
+
+
+def test_budget_warning_accepts_no_other_data_key() -> None:
+    document = _budget_warning({"spent_usd": 1.0, "total_usd": 1.0, "stage": "methodology"})
+    assert _problems(document) == [("data.stage", "unknown_key")]

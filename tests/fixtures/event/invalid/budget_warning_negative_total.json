@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "event_id": "e-000916",
+  "run_id": "p-7f3a",
+  "request_id": "q-0412",
+  "parent_id": "e-000915",
+  "ts": "2026-11-15T10:42:07Z",
+  "actor": "agent:planner",
+  "stage": "methodology",
+  "type": "budget_warning",
+  "model": null,
+  "prompt_version": null,
+  "tool_version": null,
+  "input_hash": null,
+  "output_hash": null,
+  "tokens_in": null,
+  "tokens_out": null,
+  "cost_usd": null,
+  "duration_ms": null,
+  "status": "ok",
+  "status_reason": null,
+  "retry_reason": null,
+  "escalated_from": null,
+  "data": {
+    "spent_usd": 20.0125,
+    "total_usd": -1.0
+  },
+  "artifacts": []
+}
