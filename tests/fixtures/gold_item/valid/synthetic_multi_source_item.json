@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "item_id": "G9003",
+  "gold_version": "0.0",
+  "split": "test",
+  "domain": "biomedicine",
+  "origin": "system_generated",
+  "hard_case": null,
+  "text_unit": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9003 [1].",
+  "claims": [
+    {
+      "claim_id": "G9003-c1",
+      "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9003.",
+      "span": [
+        0,
+        78
+      ],
+      "kind": "finding",
+      "pairs": [
+        {
+          "pair_id": "G9003-c1-s1",
+          "source_id": "synthetic:sg-synthetic-c-paper",
+          "source_group": "sg-synthetic-c",
+          "text_hash": "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41",
+          "checked_text": "full_text",
+          "extraction_quality": "good",
+          "evidence_spans": [
+            {
+              "passage_id": "p001",
+              "offsets": [
+                10,
+                60
+              ]
+            }
+          ],
+          "agreement_label": "partial",
+          "scope_flags": [
+            "overgeneralisation"
+          ]
+        },
+        {
+          "pair_id": "G9003-c1-s2",
+          "source_id": "synthetic:sg-synthetic-d-paper",
+          "source_group": "sg-synthetic-d",
+          "text_hash": "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41",
+          "checked_text": "abstract",
+          "extraction_quality": "degraded",
+          "evidence_spans": [],
+          "agreement_label": "contradicts",
+          "scope_flags": [
+            "direction_mismatch",
+            "magnitude_mismatch"
+          ]
+        }
+      ],
+      "status": "contradicted",
+      "expert_would_review": true
+    }
+  ],
+  "annotation": {
+    "annotators": [
+      "a91",
+      "a92"
+    ],
+    "adjudicated": true,
+    "adjudicator": "a90",
+    "raw_labels": {
+      "a91": {
+        "agreement_label": "partial",
+        "status": "partially_supported"
+      },
+      "a92": {
+        "agreement_label": "entails",
+        "status": "verified"
+      }
+    },
+    "ambiguous": true
+  },
+  "hidden": null
+}

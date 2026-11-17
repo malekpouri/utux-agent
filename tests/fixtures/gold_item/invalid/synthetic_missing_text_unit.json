@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "item_id": "G9001",
+  "gold_version": "0.0",
+  "split": "dev",
+  "domain": "ml",
+  "origin": "perturbed",
+  "hard_case": null,
+  "claims": [
+    {
+      "claim_id": "G9001-c1",
+      "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9001.",
+      "span": [
+        0,
+        78
+      ],
+      "kind": "finding",
+      "pairs": [
+        {
+          "pair_id": "G9001-c1-s1",
+          "source_id": "synthetic:sg-synthetic-b-paper",
+          "source_group": "sg-synthetic-b",
+          "text_hash": "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41",
+          "checked_text": "full_text",
+          "extraction_quality": "good",
+          "evidence_spans": [
+            {
+              "passage_id": "p001",
+              "offsets": [
+                10,
+                60
+              ]
+            }
+          ],
+          "agreement_label": "partial",
+          "scope_flags": [
+            "overgeneralisation"
+          ]
+        }
+      ],
+      "status": "partially_supported",
+      "expert_would_review": false
+    }
+  ],
+  "annotation": {
+    "annotators": [
+      "a91",
+      "a92"
+    ],
+    "adjudicated": true,
+    "adjudicator": "a90",
+    "raw_labels": {
+      "a91": {
+        "agreement_label": "partial",
+        "status": "partially_supported"
+      },
+      "a92": {
+        "agreement_label": "entails",
+        "status": "verified"
+      }
+    },
+    "ambiguous": false
+  },
+  "hidden": {
+    "target_error": "overgeneralisation",
+    "secondary_errors": [],
+    "error_class": "single_error",
+    "confirmed_by": "a90",
+    "source_item": "G9000"
+  }
+}
