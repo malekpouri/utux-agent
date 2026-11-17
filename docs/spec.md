@@ -152,7 +152,7 @@ Each interface is a Python `Protocol`. Implementations are separate packages dis
 
 | Interface | Problem it solves | Contract | v1 implementations | Status in v1 | Reason for the status |
 | --- | --- | --- | --- | --- | --- |
-| `ModelProvider` | Users have different providers, budgets and access, and models change often | `complete(request) -> response`; the request carries a model already chosen by the core's router, and the response carries usage and cost | OpenRouter, direct OpenAI / Anthropic / Gemini keys, Ollama | Public | Many models and providers |
+| `ModelProvider` | Users have different providers, budgets and access, and models change often | `complete(request) -> response`; the request carries a model already chosen by the core's router, and the response carries usage and cost | OpenRouter, a direct OpenAI key and local OpenAI-compatible servers such as Ollama, through one OpenAI-compatible client in the core (ADR-0008) | Public | Many models and providers |
 | `LiteratureSource` | Each field has its own databases | `search()`, `fetch()`, `resolve(identifier)` | OpenAlex, arXiv, Semantic Scholar, PubMed through BioMCP; several can be active at once | Public | Many scientific sources, and new ones per field |
 | `ToolProvider` | Domain tools cannot be hard-coded into a general core | Lists and calls domain tools | MCP client; any MCP server is added by configuration | Public | Connects MCP servers and specialised tools |
 | `Executor` | Compute differs: laptop, GPU workstation, cluster | `run(step) -> artifacts` (code, logs, figures, manifest) | Local Docker sandbox | Internal | Docker is the only real implementation so far |
@@ -211,7 +211,7 @@ Python 3.12+ is the implementation language. The table lists the v1 default for 
 | Layer | v1 default | Also supported in v1 | Deferred |
 | --- | --- | --- | --- |
 | Orchestration | LangGraph, validated by the M1 spike below | None; fixed layer | None |
-| Model access | OpenRouter through LiteLLM | Direct OpenAI, Anthropic and Gemini keys; Ollama | Other OpenAI-compatible local servers |
+| Model access | OpenRouter through a small OpenAI-compatible client in the core | Direct OpenAI key and local OpenAI-compatible servers such as Ollama, through the same client | Direct Anthropic and Gemini keys, through an optional provider package |
 | Literature | OpenAlex, arXiv | Semantic Scholar; PubMed and NCBI through BioMCP in the bio pilot | PaperQA2 for full-text Q&A |
 | Citation resolution | Crossref, with OpenAlex and arXiv as fallbacks | None | None |
 | Domain tools | MCP client with permission manifests | Any MCP server by configuration | Curated server list per pack |
@@ -226,7 +226,7 @@ Python 3.12+ is the implementation language. The table lists the v1 default for 
 
 ### Recommendations added to the initial proposal
 
-- **LiteLLM under OpenRouter.** OpenRouter stays the default gateway. LiteLLM gives one code path for OpenRouter, direct provider keys and Ollama, and reports cost per call.
+- **Model access without LiteLLM.** Models are reached through one small OpenAI-compatible client in the core, for the reasons recorded in ADR-0008.
 - **ML pack first, thin bio pilot alongside.** The main test domain is machine learning, so OpenAlex, arXiv and Semantic Scholar are the first literature sources. BioMCP and PubMed enter v1 only through the bio pilot pack (section 5).
 - **Pydantic schemas** for every file contract in section 7, so agents and humans get the same validation errors.
 - **One git repository per project.** Each stage completion is a commit. Rollback, diff and branching two methods from one idea come for free.
