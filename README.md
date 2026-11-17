@@ -122,6 +122,7 @@ See [Cost and budget](docs/cost.md).
 - [Cost and budget: `utux cost`](docs/cost.md)
 - [Gold items, releases and the split](docs/gold-set.md)
 - [Agreement, metrics and intervals](docs/evaluation-toolkit.md)
+- [Evaluation protocol, draft](docs/eval/protocol.md)
 - [Annotation guideline, draft](docs/eval/annotation-guideline.md)
 - [Worked example of a gold item](docs/eval/example-item.md)
 - [M0 plan](docs/plan/M0.md) and [M1 plan](docs/plan/M1.md)
