@@ -73,8 +73,8 @@ uv run utux cost [DIRECTORY] [--json]
 
 It prints the known cost of the project against its budget, the number of
 calls made and refused, the local, failed-not-billed and unknown-cost
-calls, and the totals per stage and per actor. Every stage with a call or a budget is listed, in stage
-order, then the calls without a stage:
+calls, and the totals per stage and per actor. Every stage with a call or a
+budget is listed, in stage order, then the calls without a stage:
 
 ```text
 Known cost: 0.2156021 USD of a budget of 0.25 USD (0.0343979 USD left)
