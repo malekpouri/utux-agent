@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "item_id": "G9002",
+  "gold_version": "0.0",
+  "split": "dev",
+  "domain": "ml",
+  "origin": "natural",
+  "hard_case": null,
+  "text_unit": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9002 [1]. Synthetic method C is new.",
+  "claims": [
+    {
+      "claim_id": "G9002-c1",
+      "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9002.",
+      "span": [
+        0,
+        78
+      ],
+      "kind": "finding",
+      "pairs": [
+        {
+          "pair_id": "G9002-c1-s1",
+          "source_id": "synthetic:sg-synthetic-c-paper",
+          "source_group": "sg-synthetic-c",
+          "text_hash": "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41",
+          "checked_text": "full_text",
+          "extraction_quality": "good",
+          "evidence_spans": [
+            {
+              "passage_id": "p001",
+              "offsets": [
+                10,
+                60
+              ]
+            }
+          ],
+          "agreement_label": "partial",
+          "scope_flags": [
+            "overgeneralisation"
+          ],
+          "raw": {
+            "a91": {
+              "evidence_spans": [
+                {
+                  "passage_id": "p001",
+                  "offsets": [
+                    10,
+                    60
+                  ]
+                }
+              ],
+              "agreement_label": "partial",
+              "scope_flags": [
+                "overgeneralisation"
+              ],
+              "note": null
+            },
+            "a92": {
+              "evidence_spans": [
+                {
+                  "passage_id": "p001",
+                  "offsets": [
+                    10,
+                    60
+                  ]
+                }
+              ],
+              "agreement_label": "partial",
+              "scope_flags": [
+                "overgeneralisation"
+              ],
+              "note": null
+            }
+          },
+          "adjudicated": false,
+          "adjudication_reason": null
+        }
+      ],
+      "status": "partially_supported",
+      "expert_would_review": false,
+      "raw": {
+        "a91": {
+          "status": "partially_supported",
+          "expert_would_review": false,
+          "note": null
+        },
+        "a92": {
+          "status": "partially_supported",
+          "expert_would_review": false,
+          "note": null
+        }
+      },
+      "adjudicated": false,
+      "adjudication_reason": null,
+      "ambiguous": false
+    },
+    {
+      "claim_id": "G9002-c2",
+      "text": "Synthetic method C is new.",
+      "span": [
+        84,
+        110
+      ],
+      "kind": "finding",
+      "pairs": [],
+      "status": "insufficient_evidence",
+      "expert_would_review": false,
+      "raw": {
+        "a91": {
+          "status": "insufficient_evidence",
+          "expert_would_review": false,
+          "note": null
+        },
+        "a92": {
+          "status": "insufficient_evidence",
+          "expert_would_review": false,
+          "note": null
+        }
+      },
+      "adjudicated": false,
+      "adjudication_reason": null,
+      "ambiguous": false
+    }
+  ],
+  "annotation": {
+    "annotators": [
+      "a91",
+      "a92"
+    ],
+    "adjudicator": null,
+    "claim_extraction": {
+      "raw": {
+        "a91": [
+          {
+            "span": [
+              0,
+              78
+            ],
+            "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9002."
+          },
+          {
+            "span": [
+              84,
+              110
+            ],
+            "text": "Synthetic method C is new."
+          }
+        ],
+        "a92": [
+          {
+            "span": [
+              0,
+              78
+            ],
+            "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9002."
+          },
+          {
+            "span": [
+              84,
+              110
+            ],
+            "text": "Synthetic method C is new."
+          }
+        ]
+      },
+      "adjudicated": false,
+      "adjudication_reason": null
+    }
+  }
+}

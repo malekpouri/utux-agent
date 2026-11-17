@@ -51,7 +51,8 @@
               "agreement_label": "partial",
               "scope_flags": [
                 "overgeneralisation"
-              ]
+              ],
+              "note": null
             },
             "a92": {
               "evidence_spans": [
@@ -66,10 +67,12 @@
               "agreement_label": "partial",
               "scope_flags": [
                 "overgeneralisation"
-              ]
+              ],
+              "note": null
             }
           },
-          "adjudicated": false
+          "adjudicated": false,
+          "adjudication_reason": null
         }
       ],
       "status": "partially_supported",
@@ -77,14 +80,17 @@
       "raw": {
         "a91": {
           "status": "partially_supported",
-          "expert_would_review": false
+          "expert_would_review": false,
+          "note": null
         },
         "a92": {
           "status": "partially_supported",
-          "expert_would_review": false
+          "expert_would_review": false,
+          "note": null
         }
       },
       "adjudicated": false,
+      "adjudication_reason": null,
       "ambiguous": false
     }
   ],
@@ -115,7 +121,8 @@
           }
         ]
       },
-      "adjudicated": false
+      "adjudicated": false,
+      "adjudication_reason": null
     }
   },
   "hidden": {

@@ -42,7 +42,8 @@
           }
         ]
       },
-      "adjudicated": true
+      "adjudicated": true,
+      "adjudication_reason": "Synthetic adjudication reason."
     }
   },
   "hidden": {
