@@ -18,10 +18,12 @@ The project is in milestone M0. What works today:
 - `utux schema export <dir>` writes a JSON Schema file for every file
   contract.
 - The schemas of all file contracts, the append-only event log and the
-  `ModelProvider` interface exist as library code.
+  `ModelProvider` interface exist as library code, with one provider: an
+  OpenAI-compatible client for OpenRouter, a direct OpenAI key or a local
+  server such as Ollama.
 
-What does not exist yet: calling a model, cost accounting, and every
-pipeline stage. See `docs/plan/M0.md` for what is being
+What does not exist yet: calling a model from the command line, logging
+model calls and their cost, cost accounting, and every pipeline stage. See `docs/plan/M0.md` for what is being
 built.
 
 ## Quick start

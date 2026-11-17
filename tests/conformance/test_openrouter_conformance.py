@@ -11,7 +11,7 @@ from model_provider_suite import Failure, ModelProviderConformance
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "unit"))
 
-from provider_fakes import (  # noqa: E402
+from provider_fakes import (
     OK_WITH_COST,
     OK_WITHOUT_COST,
     SYNTHETIC_KEY,
@@ -19,8 +19,8 @@ from provider_fakes import (  # noqa: E402
     response,
 )
 
-from utux.interfaces.model_provider import ModelProvider  # noqa: E402
-from utux.providers.openai_compatible import openrouter  # noqa: E402
+from utux.interfaces.model_provider import ModelProvider
+from utux.providers.openai_compatible import openrouter
 
 FAILURES = {
     Failure.AUTHENTICATION: response(401, "error_unauthorized.json"),

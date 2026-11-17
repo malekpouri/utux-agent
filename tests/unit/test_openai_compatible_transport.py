@@ -4,6 +4,7 @@ The server runs on 127.0.0.1 inside the test; nothing leaves the machine.
 Every response it gives is synthetic.
 """
 
+import contextlib
 import json
 import threading
 import time
@@ -22,10 +23,10 @@ SEEN: list[dict[str, Any]] = []
 
 
 class Handler(BaseHTTPRequestHandler):
-    def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+    def log_message(self, format: str, *args: Any) -> None:
         """Keep the test output quiet."""
 
-    def do_POST(self) -> None:  # noqa: N802
+    def do_POST(self) -> None:
         length = int(self.headers["Content-Length"])
         body = json.loads(self.rfile.read(length))
         SEEN.append({"path": self.path, "headers": dict(self.headers), "body": body})
@@ -36,10 +37,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Length", "1000")
             self.end_headers()
-            for _ in range(30):
-                self.wfile.write(b" ")
-                self.wfile.flush()
-                time.sleep(0.1)
+            with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+                for _ in range(30):
+                    self.wfile.write(b" ")
+                    self.wfile.flush()
+                    time.sleep(0.1)
             return
         payload = fixture_body("openai_completion_without_cost.json")
         if behaviour == "synthetic/big":
@@ -48,7 +50,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
-        self.wfile.write(payload)
+        # The client may stop reading early, as it does for a body that is too large.
+        with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+            self.wfile.write(payload)
 
 
 @pytest.fixture
@@ -123,5 +127,5 @@ def test_body_larger_than_the_limit_is_refused(server: str) -> None:
 def test_nothing_listening_is_unavailable() -> None:
     # A port on the loopback interface that nothing listens on.
     provider = _local("http://127.0.0.1:9/v1", sleep=lambda _: None)
-    with pytest.raises(ModelUnavailableError, match="127.0.0.1"):
+    with pytest.raises(ModelUnavailableError, match=r"127\.0\.0\.1"):
         provider.complete(_request(timeout=2.0))

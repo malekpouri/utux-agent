@@ -139,3 +139,10 @@ class AtomicWriteError(UtuxError):
 
 class ProjectInitError(UtuxError):
     """A project could not be created. Nothing is left behind."""
+
+
+class ModelProviderConfigError(UtuxError):
+    """A model provider is configured in a way that cannot work.
+
+    Raised when the provider is created, not when it is called.
+    """

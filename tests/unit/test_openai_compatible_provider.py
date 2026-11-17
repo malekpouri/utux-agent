@@ -3,6 +3,7 @@
 Every response here is synthetic and hand-written. No test reaches the network.
 """
 
+import contextlib
 import json
 import logging
 import traceback
@@ -338,7 +339,7 @@ def test_timeout_and_connection_failure() -> None:
     with pytest.raises(ModelTimeoutError, match="30"):
         provider.complete(_request())
     provider, transport = _provider(ConnectionRefusedError(111, "synthetic: refused"))
-    with pytest.raises(ModelUnavailableError, match="openrouter.ai"):
+    with pytest.raises(ModelUnavailableError, match=r"openrouter\.ai"):
         provider.complete(_request())
     assert len(transport.calls) == 3  # retried
 
@@ -378,7 +379,7 @@ def test_retries_are_bounded() -> None:
 def test_rate_limit_waits_as_long_as_the_provider_asks() -> None:
     time = FakeTime()
     limited = response(429, "error_rate_limited.json", {"Retry-After": "2"})
-    provider, transport = _provider([limited, OK_WITH_COST], time=time)
+    provider, _ = _provider([limited, OK_WITH_COST], time=time)
     provider.complete(_request())
     assert time.slept == [2.0]
 
@@ -509,10 +510,8 @@ def test_nothing_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.DEBUG)
     for script in (OK_WITH_COST, response(401, "error_unauthorized.json"), TimeoutError("x")):
         provider, _ = _provider(script)
-        try:
+        with contextlib.suppress(ModelProviderError):
             provider.complete(_request())
-        except ModelProviderError:
-            pass
     assert caplog.records == []
     assert SYNTHETIC_KEY not in caplog.text
 
