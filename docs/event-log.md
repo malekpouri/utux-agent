@@ -72,6 +72,7 @@ Each event type defines its keys. A missing key is reported as
 | --- | --- |
 | `project_created` | `utux_version` (non-empty text): the version of utux that created the project; required |
 | `setting_changed` | `key` (non-empty text), `old_value`, `new_value`; all required |
+| `model_call` | `provider` (non-empty text), `is_external` (true or false); both required. See [logged model calls](model-calls.md) |
 | `log_repaired` | `fragment_file` (non-empty text), `fragment_hash` (content hash), `fragment_bytes` (whole number, 0 or more); all required |
 | every other type | none; `data` must be `{}` until the task that emits the type defines its keys |
 

@@ -20,7 +20,10 @@
   "status": "ok",
   "retry_reason": null,
   "escalated_from": null,
-  "data": {},
+  "data": {
+    "provider": "synthetic-provider",
+    "is_external": true
+  },
   "artifacts": [
     "method-v003"
   ]

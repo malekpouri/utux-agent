@@ -21,6 +21,9 @@
   "status_reason": "data_policy_local_only",
   "retry_reason": null,
   "escalated_from": null,
-  "data": {},
+  "data": {
+    "provider": "synthetic-provider",
+    "is_external": true
+  },
   "artifacts": []
 }

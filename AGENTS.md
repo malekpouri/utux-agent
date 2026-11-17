@@ -199,8 +199,10 @@ These rules exist because the project's value is trust in its outputs.
 Stop and ask the maintainer instead of guessing when:
 
 - The task's acceptance criteria are ambiguous or contradict the spec or an RFC.
-- A change would alter a schema that is already used by committed fixtures
-  (this needs a version bump and a migration).
+- Before the first release, a schema may change without a version bump when
+  no released code has written files of that kind; say so in the pull
+  request. After the first release, an incompatible change needs a new
+  schema_version and a migration.
 - A change would touch a public interface.
 - You need a new dependency, a new top-level directory or a new CLI command
   that the plan does not name.

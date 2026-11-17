@@ -15,6 +15,8 @@ The project is in milestone M0. What works today:
   problem.
 - `utux log repair` saves aside an incomplete last line of the event log,
   left by an interrupted write, and records the repair.
+- `utux model ping` sends a short prompt to the model of a tier and prints
+  the tokens and the cost; the call is logged as a `model_call` event.
 - `utux schema export <dir>` writes a JSON Schema file for every file
   contract.
 - The schemas of all file contracts, the append-only event log and the
@@ -22,20 +24,48 @@ The project is in milestone M0. What works today:
   OpenAI-compatible client for OpenRouter, a direct OpenAI key or a local
   server such as Ollama.
 
-What does not exist yet: calling a model from the command line, logging
-model calls and their cost, cost accounting, and every pipeline stage. See `docs/plan/M0.md` for what is being
+What does not exist yet: cost accounting and budgets, and every pipeline
+stage. See `docs/plan/M0.md` for what is being
 built.
 
 ## Quick start
 
 ```bash
 uv sync
-uv run utux init my-project --budget-usd 20 --data-policy local_only
+uv run utux init my-project --budget-usd 20 --data-policy external_allowed
 uv run utux validate my-project
 ```
 
 `--budget-usd` and `--data-policy` are required and have no default. See
-[Creating a project](docs/project.md).
+[Creating a project](docs/project.md). Under `--data-policy local_only`,
+every call to an external provider such as OpenRouter is refused.
+
+`utux model ping` needs a model under `models.tiers` in `utux.yaml`.
+`utux init` already writes a `models` section with an empty tier mapping, so
+edit that section in `my-project/utux.yaml`. Replace this line:
+
+```yaml
+  tiers: {}
+```
+
+with:
+
+```yaml
+  tiers:
+    light: openai/gpt-4o-mini
+```
+
+Do not append a second `models:` key at the end of the file; a key that
+appears twice is rejected as a duplicate. Then send a short prompt to the
+model of the `light` tier:
+
+```bash
+uv run utux model ping my-project --tier light
+```
+
+With the `default` profile this is a real, paid call to OpenRouter and needs
+the `OPENROUTER_API_KEY` environment variable. See
+[Logged model calls and `utux model ping`](docs/model-calls.md).
 
 ## Documents
 
@@ -50,6 +80,7 @@ uv run utux validate my-project
 - [Artifact metadata and content hashes](docs/artifact-metadata.md)
 - [The `ModelProvider` interface](docs/model-provider.md)
 - [Events and the event log](docs/event-log.md)
+- [Logged model calls and `utux model ping`](docs/model-calls.md)
 - [Claim ledger and result records](docs/claim-ledger.md)
 - [Run manifest, approvals, source record and schema export](docs/contracts.md)
 

@@ -21,6 +21,9 @@
   "status_reason": "model_timeout",
   "retry_reason": "check_rejected",
   "escalated_from": "standard",
-  "data": {},
+  "data": {
+    "provider": "synthetic-provider",
+    "is_external": true
+  },
   "artifacts": []
 }

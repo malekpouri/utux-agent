@@ -78,6 +78,8 @@ INVALID = [
     ("setting_changed_key_is_not_text.json", "data.key", "string_type"),
     ("project_created_without_utux_version.json", "data.utux_version", "missing"),
     ("log_repaired_without_fragment_hash.json", "data.fragment_hash", "missing"),
+    ("model_call_without_provider.json", "data.provider", "missing"),
+    ("model_call_is_external_not_boolean.json", "data.is_external", "bool_type"),
     ("newer_schema_version.json", "schema_version", "schema_version_newer"),
     ("not_an_object.json", "<document>", "not_a_mapping"),
     ("malformed_json.json", "<document>", "invalid_json"),
@@ -134,7 +136,7 @@ def test_model_call_fixture_reads_every_field() -> None:
     assert event.status_reason is None
     assert event.retry_reason is None
     assert event.escalated_from is None
-    assert event.data == {}
+    assert event.data == {"provider": "synthetic-provider", "is_external": True}
     assert event.artifacts == ("method-v003",)
 
 
@@ -299,8 +301,9 @@ def test_parent_must_be_an_earlier_event() -> None:
 @pytest.mark.parametrize("field", ["run_id", "request_id", "model", "prompt_version"])
 def test_text_fields_may_be_null_but_not_empty(field: str) -> None:
     document = _valid_document()
-    # Not a model_call, which must name its model.
+    # Not a model_call, which must name its model and its provider.
     document["type"] = "stage_start"
+    document["data"] = {}
     document[field] = None
     assert getattr(Event.from_json(json.dumps(document)), field) is None
     document[field] = ""
@@ -496,7 +499,12 @@ def test_setting_key_is_non_empty_text(key: object) -> None:
 def test_types_without_defined_keys_accept_only_an_empty_object() -> None:
     for kind in EventType:
         # These types define keys of their own, tested separately.
-        if kind in (EventType.SETTING_CHANGED, EventType.PROJECT_CREATED, EventType.LOG_REPAIRED):
+        if kind in (
+            EventType.SETTING_CHANGED,
+            EventType.PROJECT_CREATED,
+            EventType.LOG_REPAIRED,
+            EventType.MODEL_CALL,
+        ):
             continue
         document = _with(type=kind.value, data={})
         assert Event.from_json(json.dumps(document)).data == {}
@@ -564,3 +572,32 @@ def test_fragment_hash_is_a_content_hash(value: object) -> None:
 @pytest.mark.parametrize("value", ["", None, 4])
 def test_fragment_file_is_non_empty_text(value: object) -> None:
     assert _problems(_repaired(fragment_file=value)) == [("data.fragment_file", "string_type")]
+
+
+# data of model_call
+
+
+def test_model_call_names_its_provider_and_whether_it_is_external() -> None:
+    assert _problems(_with(data={})) == [
+        ("data.provider", "missing"),
+        ("data.is_external", "missing"),
+    ]
+    event = Event.from_json(json.dumps(_with(data={"provider": "ollama", "is_external": False})))
+    assert event.data == {"provider": "ollama", "is_external": False}
+
+
+@pytest.mark.parametrize("value", ["", None, 3, True])
+def test_model_call_provider_is_non_empty_text(value: object) -> None:
+    document = _with(data={"provider": value, "is_external": True})
+    assert _problems(document) == [("data.provider", "string_type")]
+
+
+@pytest.mark.parametrize("value", ["yes", 1, 0, None])
+def test_model_call_is_external_is_a_boolean(value: object) -> None:
+    document = _with(data={"provider": "openrouter", "is_external": value})
+    assert _problems(document) == [("data.is_external", "bool_type")]
+
+
+def test_model_call_accepts_no_other_data_key() -> None:
+    document = _with(data={"provider": "openrouter", "is_external": True, "prompt": "x"})
+    assert _problems(document) == [("data.prompt", "unknown_key")]

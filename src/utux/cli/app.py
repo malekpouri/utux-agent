@@ -1,5 +1,6 @@
 """Root command of the `utux` CLI."""
 
+from decimal import Decimal
 from pathlib import Path
 from typing import Annotated
 
@@ -8,9 +9,11 @@ import typer
 from utux import __version__
 from utux.errors import SchemaExportError, UtuxError
 from utux.events.log import repair_log
+from utux.schemas.common import Tier
 from utux.schemas.export import export_json_schemas
 from utux.schemas.project_config import DataPolicy
 from utux.workspace.layout import EVENT_LOG_FILE
+from utux.workspace.model_calls import ping_model
 from utux.workspace.project import init_project
 from utux.workspace.validation import validate_project
 
@@ -145,6 +148,51 @@ def log_repair(
                 f"to {repair.fragment_file}."
             )
             typer.echo(f"The log now ends with {repair.event.event_id}, which records the repair.")
+
+
+model_app = typer.Typer(help="Work with the models of a project.")
+app.add_typer(model_app, name="model")
+
+
+@model_app.callback()
+def model_root() -> None:
+    """Work with the models of a project."""
+
+
+@model_app.command("ping")
+def model_ping(
+    directory: Annotated[
+        Path, typer.Argument(help="The project directory. Default: the current directory.")
+    ] = Path(),
+    tier: Annotated[Tier, typer.Option("--tier", help="The tier whose model is asked.")] = (
+        Tier.LIGHT
+    ),
+) -> None:
+    """Send a fixed short prompt to the model of a tier and print tokens and cost."""
+    try:
+        ping = ping_model(directory, tier)
+    except UtuxError as error:
+        typer.echo(f"error: {error}", err=True)
+        raise typer.Exit(code=1) from error
+    usage = ping.response.usage
+    cost = (
+        "cost unknown: the provider reported none"
+        if ping.response.cost_usd is None
+        else f"cost {_decimal(ping.response.cost_usd)} USD"
+    )
+    typer.echo(
+        f"{ping.response.model} answered through {ping.provider}: "
+        f"{_count(usage.tokens_in, 'token')} in, {_count(usage.tokens_out, 'token')} out, {cost}"
+    )
+
+
+def _count(number: int, word: str) -> str:
+    return f"{number} {word}" if number == 1 else f"{number} {word}s"
+
+
+def _decimal(value: float) -> str:
+    """Write a cost without an exponent, as precise as the float was given."""
+    return format(Decimal(repr(value)), "f")
 
 
 schema_app = typer.Typer(help="Work with the schemas of the file contracts.")
