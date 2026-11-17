@@ -6,14 +6,25 @@ the same split. A perturbed item stays with the natural item it was made
 from, even when it is attached to a different paper.
 
 The split reads item ids, source groups and the origin link only. It never
-reads or changes a label.
+reads or changes a label. The split report reads labels only to count them,
+and shows no item text.
 """
 
 import random
-from collections.abc import Sequence
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass
 
 from utux.errors import GoldSetError
-from utux.evalkit.gold import GoldItem, GoldSplit
+from utux.evalkit.gold import (
+    Domain,
+    GoldItem,
+    GoldSplit,
+    GoldStatus,
+    HardCase,
+    Origin,
+    PerturbationRecord,
+)
+from utux.schemas.claim_ledger import CheckedText, ScopeFlag
 
 
 def split_groups(items: Sequence[GoldItem]) -> list[frozenset[str]]:
@@ -49,7 +60,7 @@ def split_groups(items: Sequence[GoldItem]) -> list[frozenset[str]]:
     for item in items:
         for _, _, pair in item.pairs():
             join(item.item_id, first_of_group.setdefault(pair.source_group, item.item_id))
-        if item.hidden is not None:
+        if isinstance(item.hidden, PerturbationRecord):
             origin = item.hidden.source_item
             if origin not in parent:
                 raise GoldSetError(
@@ -104,3 +115,120 @@ def assign_splits(
         for item_id in group:
             split_of[item_id] = split
     return {item.item_id: split_of[item.item_id] for item in items}
+
+
+NO_HARD_CASE = "none"
+
+# Each stratum of RFC-002, section 3: its key, its heading, its unit, its
+# values, and the values one item contributes.
+_Values = Callable[[GoldItem], Iterable[str]]
+_STRATA: tuple[tuple[str, str, str, tuple[str, ...], _Values], ...] = (
+    (
+        "gold_status",
+        "Gold status",
+        "claim",
+        tuple(status.value for status in GoldStatus),
+        lambda item: (claim.status.value for claim in item.claims),
+    ),
+    (
+        "scope_flag",
+        "Scope flag",
+        "pair",
+        tuple(flag.value for flag in ScopeFlag),
+        lambda item: (flag.value for _, _, pair in item.pairs() for flag in pair.scope_flags),
+    ),
+    (
+        "domain",
+        "Domain",
+        "item",
+        tuple(domain.value for domain in Domain),
+        lambda item: (item.domain.value,),
+    ),
+    (
+        "evidence_text",
+        "Evidence text",
+        "pair",
+        tuple(checked.value for checked in CheckedText),
+        lambda item: (pair.checked_text.value for _, _, pair in item.pairs()),
+    ),
+    (
+        "item_source",
+        "Item source",
+        "item",
+        tuple(origin.value for origin in Origin),
+        lambda item: (item.origin.value,),
+    ),
+    (
+        "hard_case",
+        "Hard case",
+        "item",
+        (*(case.value for case in HardCase), NO_HARD_CASE),
+        lambda item: (NO_HARD_CASE if item.hard_case is None else item.hard_case.value,),
+    ),
+)
+
+
+@dataclass(frozen=True)
+class SplitReport:
+    """Counts per stratum in each split, to judge a split before it is used.
+
+    Attributes:
+        items: The number of items in each split.
+        counts: For each split, for each stratum, the count of each value.
+            Gold status is counted per claim, scope flag and evidence text
+            per pair, domain, item source and hard case per item.
+    """
+
+    items: dict[GoldSplit, int]
+    counts: dict[GoldSplit, dict[str, dict[str, int]]]
+
+    @property
+    def dev_share(self) -> float:
+        """The share of items in `dev`."""
+        return self.items[GoldSplit.DEV] / sum(self.items.values())
+
+    def to_json(self) -> dict[str, object]:
+        """Return the report as a JSON object. It holds counts only."""
+        return {
+            "items": {split.value: count for split, count in self.items.items()},
+            "dev_share": self.dev_share,
+            **{split.value: counts for split, counts in self.counts.items()},
+        }
+
+    def lines(self) -> list[str]:
+        """Return the report as lines of text. They hold counts only."""
+        dev, test = self.counts[GoldSplit.DEV], self.counts[GoldSplit.TEST]
+        lines = [
+            f"Items: dev {self.items[GoldSplit.DEV]}, test {self.items[GoldSplit.TEST]}. "
+            f"Dev share: {self.dev_share:.3f}"
+        ]
+        for key, heading, unit, values, _ in _STRATA:
+            lines.append(f"{heading} (per {unit}):")
+            lines += [
+                f"  {value}: dev {dev[key][value]}, test {test[key][value]}" for value in values
+            ]
+        return lines
+
+
+def split_report(items: Sequence[GoldItem]) -> SplitReport:
+    """Count, for each split, the values of every stratum of RFC-002, section 3.
+
+    Every value of a stratum is listed, with zero where it does not occur, so
+    that the two splits can be compared line by line.
+
+    Raises:
+        GoldSetError: There are no items.
+    """
+    if not items:
+        raise GoldSetError("the release has no items to report on")
+    counts: dict[GoldSplit, dict[str, dict[str, int]]] = {
+        split: {key: dict.fromkeys(values, 0) for key, _, _, values, _ in _STRATA}
+        for split in GoldSplit
+    }
+    sizes = dict.fromkeys(GoldSplit, 0)
+    for item in items:
+        sizes[item.split] += 1
+        for key, _, _, _, values_of in _STRATA:
+            for value in values_of(item):
+                counts[item.split][key][value] += 1
+    return SplitReport(sizes, counts)

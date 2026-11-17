@@ -1,9 +1,12 @@
 """The gold item schema of RFC-002, section 4, and the checks across a release.
 
 One gold item is one text unit with its reference claims, the claim-source
-pairs, the reference labels, both annotators' raw labels and, for a perturbed
-item, the hidden construction record. A release is a JSON Lines file with one
-item per line.
+pairs and the reference labels. Annotation has two phases (RFC-002, section
+5): each annotator first lists the claims, and then both label the same
+reference claims. Each annotator's own entries are kept at every level: the
+claim list, each claim and each pair. A perturbed or system-generated item
+also has a hidden record. A release is a JSON Lines file with one item per
+line.
 
 This module reads and checks items. It never creates, infers or changes a
 label: reference labels are made by people (RFC-002, section 5).
@@ -15,7 +18,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, ClassVar, Self
 
-from pydantic import Field, StrictBool, field_validator, model_validator
+from pydantic import Field, StrictBool, ValidationInfo, field_validator, model_validator
 from pydantic_core import InitErrorDetails, PydanticCustomError
 
 from utux.errors import DOCUMENT_FIELD, ContractValidationError, Problem
@@ -46,6 +49,9 @@ AnnotatorId = Annotated[str, Field(pattern=r"^a[0-9]{2,}$", strict=True)]
 GoldVersion = Annotated[str, Field(pattern=r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$", strict=True)]
 """A release version, `major.minor` (RFC-002, section 6)."""
 
+SystemCode = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_.-]*$", strict=True)]
+"""A code for a system and its configuration, for example `utux-0.1.0-default`."""
+
 
 class GoldSplit(StrEnum):
     """The split an item belongs to (RFC-002, section 6)."""
@@ -67,6 +73,18 @@ class Origin(StrEnum):
     NATURAL = "natural"
     PERTURBED = "perturbed"
     SYSTEM_GENERATED = "system_generated"
+
+
+class HardCase(StrEnum):
+    """The seven hard-case groups of RFC-002, section 3."""
+
+    ABSTRACT_VS_FULL_TEXT = "abstract_vs_full_text"
+    NUMBER_WRONG_CONTEXT = "number_wrong_context"
+    CONFLICT_WITHIN_SOURCE = "conflict_within_source"
+    TRUE_BUT_NOT_IN_SOURCE = "true_but_not_in_source"
+    ATTRIBUTED_PRIOR_WORK = "attributed_prior_work"
+    HEAVY_PARAPHRASE = "heavy_paraphrase"
+    NEGATION_OR_HEDGE = "negation_or_hedge"
 
 
 class GoldStatus(StrEnum):
@@ -135,15 +153,13 @@ class EvidenceSpan(ContractPart):
         return _increasing(value, "offsets_not_increasing")
 
 
-class GoldPair(ContractPart):
-    """One claim-source pair with its reference labels; the unit for S2 to S5."""
+def _spans(spans: tuple[EvidenceSpan, ...]) -> frozenset[tuple[str, tuple[int, int]]]:
+    return frozenset((span.passage_id, span.offsets) for span in spans)
 
-    pair_id: PairId
-    source_id: NonEmptyText
-    source_group: NonEmptyText
-    text_hash: Sha256Hash
-    checked_text: CheckedText
-    extraction_quality: ExtractionQuality
+
+class PairRaw(ContractPart):
+    """One annotator's labels for a claim-source pair, stored unchanged."""
+
     evidence_spans: tuple[EvidenceSpan, ...]
     agreement_label: SourceLabel
     scope_flags: tuple[ScopeFlag, ...]
@@ -154,9 +170,51 @@ class GoldPair(ContractPart):
         _distinct(tuple(flag.value for flag in value), "duplicate_scope_flag", "scope flag")
         return value
 
+    def key(self) -> tuple[object, ...]:
+        """What is compared between annotators: spans and flags as sets."""
+        return (_spans(self.evidence_spans), self.agreement_label, frozenset(self.scope_flags))
+
+
+class GoldPair(ContractPart):
+    """One claim-source pair with its reference labels; the unit for S2 to S5.
+
+    `raw` holds each annotator's own labels; `adjudicated` says whether the
+    adjudicator set the reference labels of this pair.
+    """
+
+    pair_id: PairId
+    source_id: NonEmptyText
+    source_group: NonEmptyText
+    text_hash: Sha256Hash
+    checked_text: CheckedText
+    extraction_quality: ExtractionQuality
+    evidence_spans: tuple[EvidenceSpan, ...]
+    agreement_label: SourceLabel
+    scope_flags: tuple[ScopeFlag, ...]
+    raw: dict[str, PairRaw]
+    adjudicated: StrictBool
+
+    @field_validator("scope_flags")
+    @classmethod
+    def _flags_are_distinct(cls, value: tuple[ScopeFlag, ...]) -> tuple[ScopeFlag, ...]:
+        _distinct(tuple(flag.value for flag in value), "duplicate_scope_flag", "scope flag")
+        return value
+
+
+class ClaimRaw(ContractPart):
+    """One annotator's labels for a reference claim, stored unchanged."""
+
+    status: GoldStatus
+    expert_would_review: StrictBool
+
 
 class GoldClaim(ContractPart):
-    """One reference atomic claim of the text unit."""
+    """One reference atomic claim of the text unit.
+
+    `raw` holds each annotator's own status and review flag; `adjudicated`
+    says whether the adjudicator set them; `ambiguous` marks a claim that
+    remained disputed after joint discussion.
+    """
 
     claim_id: GoldClaimId
     text: NonEmptyText
@@ -165,6 +223,9 @@ class GoldClaim(ContractPart):
     pairs: tuple[GoldPair, ...]
     status: GoldStatus
     expert_would_review: StrictBool
+    raw: dict[str, ClaimRaw]
+    adjudicated: StrictBool
+    ambiguous: StrictBool
 
     @field_validator("pairs")
     @classmethod
@@ -207,48 +268,81 @@ class GoldClaim(ContractPart):
         return self
 
 
-class RawLabel(ContractPart):
-    """One annotator's labels, stored unchanged (RFC-002, section 5)."""
+class ExtractedClaim(ContractPart):
+    """A claim as one annotator listed it at claim extraction."""
 
-    agreement_label: SourceLabel
-    status: GoldStatus
+    span: tuple[Count, Count]
+    text: NonEmptyText
+
+    @field_validator("span")
+    @classmethod
+    def _span_increases(cls, value: tuple[int, int]) -> tuple[int, int]:
+        return _increasing(value, "span_not_increasing")
+
+
+def _claim_set(claims: Sequence[ExtractedClaim | GoldClaim]) -> frozenset[tuple[object, str]]:
+    return frozenset((claim.span, claim.text) for claim in claims)
+
+
+class ClaimExtraction(ContractPart):
+    """Each annotator's own list of claims, and whether the lists were adjudicated."""
+
+    raw: dict[str, tuple[ExtractedClaim, ...]]
+    adjudicated: StrictBool
+
+
+def _raw_key_problems(
+    raw: dict[str, object], annotators: tuple[str, ...], *loc: str | int
+) -> list[InitErrorDetails]:
+    """The raw entries must be exactly one per annotator."""
+    errors: list[InitErrorDetails] = [
+        {"type": "missing", "loc": (*loc, "raw", annotator), "input": None}
+        for annotator in annotators
+        if annotator not in raw
+    ]
+    errors += [
+        field_problem("unknown_annotator", f"{key} is not one of the annotators", *loc, "raw", key)
+        for key in raw
+        if key not in annotators
+    ]
+    return errors
+
+
+def _not_adjudicated(*loc: str | int) -> InitErrorDetails:
+    return field_problem(
+        "adjudication_required",
+        "the annotators' raw entries differ here, so this level must be adjudicated",
+        *loc,
+        "adjudicated",
+    )
+
+
+def _differs(what: str, *loc: str | int) -> InitErrorDetails:
+    return field_problem(
+        "differs_from_raw",
+        f"the annotators agree on the {what} and nothing was adjudicated, "
+        "so the reference value must be theirs",
+        *loc,
+    )
 
 
 class Annotation(ContractPart):
-    """Who labelled the item, both raw label sets and the adjudication."""
+    """The two annotators, the adjudicator and the claim extraction."""
 
     annotators: tuple[AnnotatorId, ...]
-    adjudicated: StrictBool
     adjudicator: AnnotatorId | None
-    raw_labels: dict[str, RawLabel]
-    ambiguous: StrictBool
+    claim_extraction: ClaimExtraction
 
     @field_validator("annotators")
     @classmethod
-    def _annotators_are_distinct(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+    def _two_distinct_annotators(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         # Two annotators label each item (RFC-002, section 5).
         _length(value, 2, 2)
         return _distinct(value, "duplicate_annotator", "annotator")
 
     @model_validator(mode="after")
-    def _labels_and_adjudication_agree(self) -> Self:
+    def _extraction_agrees(self) -> Self:
         errors: list[InitErrorDetails] = []
-        if self.adjudicated and self.adjudicator is None:
-            errors.append(
-                field_problem(
-                    "adjudicator_required",
-                    "an adjudicated item names its adjudicator",
-                    "adjudicator",
-                )
-            )
-        if not self.adjudicated and self.adjudicator is not None:
-            errors.append(
-                field_problem(
-                    "adjudicator_not_allowed",
-                    "must be null for an item that was not adjudicated",
-                    "adjudicator",
-                )
-            )
         if self.adjudicator is not None and self.adjudicator in self.annotators:
             errors.append(
                 field_problem(
@@ -257,40 +351,21 @@ class Annotation(ContractPart):
                     "adjudicator",
                 )
             )
-        for annotator in self.annotators:
-            if annotator not in self.raw_labels:
-                errors.append(
-                    {
-                        "type": "missing",
-                        "loc": ("raw_labels", annotator),
-                        "input": None,
-                    }
-                )
-        for key in self.raw_labels:
-            if key not in self.annotators:
-                errors.append(
-                    field_problem(
-                        "unknown_annotator",
-                        f"{key} is not one of the annotators",
-                        "raw_labels",
-                        key,
-                    )
-                )
-        labels = [self.raw_labels[a] for a in self.annotators if a in self.raw_labels]
-        if len(labels) == 2 and labels[0] != labels[1] and not self.adjudicated:
-            errors.append(
-                field_problem(
-                    "adjudication_required",
-                    "the annotators' raw labels differ, so the item must be adjudicated",
-                    "adjudicated",
-                )
-            )
+        extraction = self.claim_extraction
+        errors += _raw_key_problems(dict(extraction.raw), self.annotators, "claim_extraction")
+        lists = [extraction.raw[a] for a in self.annotators if a in extraction.raw]
+        if (
+            len(lists) == 2
+            and _claim_set(lists[0]) != _claim_set(lists[1])
+            and not extraction.adjudicated
+        ):
+            errors.append(_not_adjudicated("claim_extraction"))
         raise_field_problems("Annotation", errors)
         return self
 
 
-class Hidden(ContractPart):
-    """The construction record of a perturbed item.
+class PerturbationRecord(ContractPart):
+    """The hidden record of a perturbed item.
 
     It is never shown to annotators or to the system, and is used only for
     analysis (RFC-002, section 4).
@@ -308,6 +383,12 @@ class Hidden(ContractPart):
         return _distinct(value, "duplicate_error", "error")
 
 
+class GenerationRecord(ContractPart):
+    """The hidden record of a system-generated item: what produced it."""
+
+    generated_by: SystemCode
+
+
 class GoldItem(ContractDocument):
     """One gold item (RFC-002, section 4).
 
@@ -317,13 +398,14 @@ class GoldItem(ContractDocument):
         split: `dev` or `test`.
         domain: `ml` or `biomedicine`.
         origin: `natural`, `perturbed` or `system_generated`.
-        hard_case: A code for the hard-case group the item belongs to, or
-            null (RFC-002, section 3).
+        hard_case: The hard-case group of RFC-002, section 3, or null.
         text_unit: The text the claims come from.
-        claims: The reference atomic claims, each with its pairs and status.
-        annotation: Annotators, raw labels, adjudication and `ambiguous`.
-        hidden: The construction record. Required for a perturbed item and
-            null for every other item.
+        claims: The reference atomic claims, each with its pairs, labels and
+            raw entries.
+        annotation: Annotators, adjudicator and claim extraction.
+        hidden: A `PerturbationRecord` for a perturbed item, a
+            `GenerationRecord` for a system-generated one. Absent, not null,
+            for a natural item.
     """
 
     SCHEMA_VERSION: ClassVar[int] = 1
@@ -333,11 +415,11 @@ class GoldItem(ContractDocument):
     split: GoldSplit
     domain: Domain
     origin: Origin
-    hard_case: Identifier | None
+    hard_case: HardCase | None
     text_unit: NonEmptyText
     claims: tuple[GoldClaim, ...]
     annotation: Annotation
-    hidden: Hidden | None
+    hidden: PerturbationRecord | GenerationRecord | None = None
 
     @field_validator("claims")
     @classmethod
@@ -345,31 +427,50 @@ class GoldItem(ContractDocument):
         _length(value, 1)
         return value
 
+    @field_validator("hidden", mode="before")
+    @classmethod
+    def _record_of_the_origin(cls, value: object, info: ValidationInfo) -> object:
+        # Runs only when the key is present, null included.
+        origin = info.data.get("origin")
+        if origin is None:
+            # The origin is invalid and is reported on its own field.
+            return None
+        if origin is Origin.NATURAL:
+            raise PydanticCustomError(
+                "hidden_not_allowed", "a natural item has no hidden record; leave the key out"
+            )
+        if value is None or isinstance(value, PerturbationRecord | GenerationRecord):
+            return value
+        model = PerturbationRecord if origin is Origin.PERTURBED else GenerationRecord
+        return model.model_validate(value)
+
     @model_validator(mode="after")
     def _parts_agree(self) -> Self:
         # One problem per offending value, on the field to change.
         errors: list[InitErrorDetails] = []
-        if self.origin is Origin.PERTURBED and self.hidden is None:
+        if self.origin is not Origin.NATURAL and self.hidden is None:
             errors.append(
                 field_problem(
-                    "hidden_required", "a perturbed item needs its construction record", "hidden"
-                )
-            )
-        if self.origin is not Origin.PERTURBED and self.hidden is not None:
-            errors.append(
-                field_problem(
-                    "hidden_not_allowed",
-                    f"must be null for an item of origin {self.origin.value}",
+                    "hidden_required",
+                    f"an item of origin {self.origin.value} needs its hidden record",
                     "hidden",
                 )
             )
-        if self.hidden is not None and self.hidden.source_item == self.item_id:
+        if isinstance(self.hidden, PerturbationRecord) and self.hidden.source_item == self.item_id:
             errors.append(
                 field_problem(
                     "self_reference", "an item cannot be its own origin", "hidden", "source_item"
                 )
             )
+        errors += self._claim_problems()
+        errors += self._raw_problems()
+        raise_field_problems("GoldItem", errors)
+        return self
+
+    def _claim_problems(self) -> list[InitErrorDetails]:
+        errors: list[InitErrorDetails] = []
         seen: set[str] = set()
+        length = len(self.text_unit)
         for index, claim in enumerate(self.claims):
             if not claim.claim_id.startswith(f"{self.item_id}-c"):
                 errors.append(
@@ -392,19 +493,79 @@ class GoldItem(ContractDocument):
                     )
                 )
             seen.add(claim.claim_id)
-            if claim.span[1] > len(self.text_unit):
-                errors.append(
-                    field_problem(
-                        "span_out_of_range",
-                        f"the end ({claim.span[1]}) is beyond the text unit "
-                        f"({len(self.text_unit)} characters)",
-                        "claims",
-                        index,
-                        "span",
+            if claim.span[1] > length:
+                errors.append(_out_of_range(claim.span[1], length, "claims", index, "span"))
+        for annotator, extracted in self.annotation.claim_extraction.raw.items():
+            for index, listed in enumerate(extracted):
+                if listed.span[1] > length:
+                    errors.append(
+                        _out_of_range(
+                            listed.span[1],
+                            length,
+                            "annotation",
+                            "claim_extraction",
+                            "raw",
+                            annotator,
+                            index,
+                            "span",
+                        )
                     )
+        return errors
+
+    def _raw_problems(self) -> list[InitErrorDetails]:
+        """Check the raw entries, the adjudication and the reference values.
+
+        Raw entries are one per annotator. Where they differ, the level is
+        adjudicated; where they agree and nothing was adjudicated, the
+        reference values are theirs.
+        """
+        errors: list[InitErrorDetails] = []
+        annotators = self.annotation.annotators
+        extraction = self.annotation.claim_extraction
+        lists = [extraction.raw[a] for a in annotators if a in extraction.raw]
+        if (
+            len(lists) == 2
+            and not extraction.adjudicated
+            and _claim_set(lists[0]) == _claim_set(lists[1])
+            and _claim_set(self.claims) != _claim_set(lists[0])
+        ):
+            errors.append(_differs("claim list", "claims"))
+        adjudicated = extraction.adjudicated
+        for i, claim in enumerate(self.claims):
+            adjudicated = adjudicated or claim.adjudicated
+            errors += _raw_key_problems(dict(claim.raw), annotators, "claims", i)
+            entries = [claim.raw[a] for a in annotators if a in claim.raw]
+            if len(entries) == 2:
+                first, second = entries
+                if first != second and not claim.adjudicated:
+                    errors.append(_not_adjudicated("claims", i))
+                if first == second and not claim.adjudicated:
+                    if claim.status is not first.status:
+                        errors.append(_differs("status", "claims", i, "status"))
+                    if claim.expert_would_review is not first.expert_would_review:
+                        errors.append(_differs("review flag", "claims", i, "expert_would_review"))
+            for j, pair in enumerate(claim.pairs):
+                adjudicated = adjudicated or pair.adjudicated
+                errors += _pair_raw_problems(pair, annotators, "claims", i, "pairs", j)
+        if adjudicated and self.annotation.adjudicator is None:
+            errors.append(
+                field_problem(
+                    "adjudicator_required",
+                    "something in the item was adjudicated, so it names its adjudicator",
+                    "annotation",
+                    "adjudicator",
                 )
-        raise_field_problems("GoldItem", errors)
-        return self
+            )
+        if not adjudicated and self.annotation.adjudicator is not None:
+            errors.append(
+                field_problem(
+                    "adjudicator_not_allowed",
+                    "must be null when nothing in the item was adjudicated",
+                    "annotation",
+                    "adjudicator",
+                )
+            )
+        return errors
 
     @classmethod
     def from_json(cls, text: str, source: str = "gold item") -> Self:
@@ -416,8 +577,14 @@ class GoldItem(ContractDocument):
         return cls.validate_document(parse_json(text, source), source)
 
     def to_json_line(self) -> str:
-        """Return the item as one line of JSON that ends with a newline."""
-        return json.dumps(self.model_dump(mode="json"), ensure_ascii=False) + "\n"
+        """Return the item as one line of JSON that ends with a newline.
+
+        A natural item has no `hidden` key.
+        """
+        document = self.model_dump(mode="json")
+        if self.hidden is None:
+            del document["hidden"]
+        return json.dumps(document, ensure_ascii=False) + "\n"
 
     def pairs(self) -> list[tuple[int, int, GoldPair]]:
         """Return every pair with the index of its claim and its own index."""
@@ -426,6 +593,34 @@ class GoldItem(ContractDocument):
             for claim_index, claim in enumerate(self.claims)
             for pair_index, pair in enumerate(claim.pairs)
         ]
+
+
+def _out_of_range(end: int, length: int, *loc: str | int) -> InitErrorDetails:
+    return field_problem(
+        "span_out_of_range",
+        f"the end ({end}) is beyond the text unit ({length} characters)",
+        *loc,
+    )
+
+
+def _pair_raw_problems(
+    pair: GoldPair, annotators: tuple[str, ...], *loc: str | int
+) -> list[InitErrorDetails]:
+    errors = _raw_key_problems(dict(pair.raw), annotators, *loc)
+    entries = [pair.raw[a] for a in annotators if a in pair.raw]
+    if len(entries) != 2 or pair.adjudicated:
+        return errors
+    first, second = entries
+    if first.key() != second.key():
+        errors.append(_not_adjudicated(*loc))
+        return errors
+    if _spans(pair.evidence_spans) != _spans(first.evidence_spans):
+        errors.append(_differs("evidence spans", *loc, "evidence_spans"))
+    if pair.agreement_label is not first.agreement_label:
+        errors.append(_differs("agreement label", *loc, "agreement_label"))
+    if frozenset(pair.scope_flags) != frozenset(first.scope_flags):
+        errors.append(_differs("scope flags", *loc, "scope_flags"))
+    return errors
 
 
 def load_gold_item(path: Path) -> GoldItem:
@@ -527,7 +722,7 @@ def check_release(items: Sequence[GoldItem]) -> tuple[Problem, ...]:
 def _origin_problems(items: Sequence[GoldItem], by_id: dict[str, GoldItem]) -> list[Problem]:
     problems: list[Problem] = []
     for item in items:
-        if item.hidden is None:
+        if not isinstance(item.hidden, PerturbationRecord):
             continue
         source = item.hidden.source_item
         origin = by_id.get(source)
@@ -610,18 +805,23 @@ def _group_problems(items: Sequence[GoldItem]) -> list[Problem]:
 __all__ = [
     "Annotation",
     "AnnotatorId",
+    "ClaimExtraction",
+    "ClaimRaw",
     "Domain",
     "ErrorClass",
     "EvidenceSpan",
+    "ExtractedClaim",
+    "GenerationRecord",
     "GoldClaim",
     "GoldItem",
     "GoldPair",
     "GoldSplit",
     "GoldStatus",
-    "Hidden",
+    "HardCase",
     "ItemId",
     "Origin",
-    "RawLabel",
+    "PairRaw",
+    "PerturbationRecord",
     "check_release",
     "load_gold_item",
     "read_gold_release",
