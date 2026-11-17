@@ -24,6 +24,7 @@ EXPECTED = {
     "approval_request",
     "approval_response",
     "source_record",
+    "gold_item",
 }
 
 
@@ -123,6 +124,7 @@ FIXTURE_DIRECTORY = {
     "approval_request": "approval_request",
     "approval_response": "approval_response",
     "source_record": "source_record",
+    "gold_item": "gold_item",
 }
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 NOTE = (
