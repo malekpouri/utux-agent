@@ -6,6 +6,7 @@ every field, with null where a field does not apply.
 """
 
 import json
+import math
 import re
 from enum import StrEnum
 from pathlib import Path
@@ -70,6 +71,7 @@ _DATA_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.SETTING_CHANGED: ("key", "old_value", "new_value"),
     EventType.LOG_REPAIRED: ("fragment_file", "fragment_hash", "fragment_bytes"),
     EventType.MODEL_CALL: ("provider", "is_external"),
+    EventType.BUDGET_WARNING: ("spent_usd", "total_usd"),
 }
 
 # Keys of `data` whose value must be non-empty text.
@@ -93,6 +95,12 @@ _HASH_KEYS: dict[EventType, tuple[str, ...]] = {
 # Keys of `data` whose value must be a whole number of zero or more.
 _COUNT_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.LOG_REPAIRED: ("fragment_bytes",),
+}
+
+# Keys of `data` whose value must be an amount in US dollars: a number of
+# zero or more.
+_USD_KEYS: dict[EventType, tuple[str, ...]] = {
+    EventType.BUDGET_WARNING: ("spent_usd", "total_usd"),
 }
 
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -168,6 +176,29 @@ def _check_data_keys(value: dict[str, Scalar], info: ValidationInfo) -> dict[str
                         "type": PydanticCustomError(
                             "int_type", "must be a whole number of zero or more"
                         ),
+                        "loc": (key,),
+                        "input": None,
+                    }
+                )
+    for key in _USD_KEYS.get(kind, ()):
+        if key in value:
+            amount = value[key]
+            if (
+                not isinstance(amount, int | float)
+                or isinstance(amount, bool)
+                or not math.isfinite(amount)
+            ):
+                errors.append(
+                    {
+                        "type": PydanticCustomError("float_type", "must be a number"),
+                        "loc": (key,),
+                        "input": None,
+                    }
+                )
+            elif amount < 0:
+                errors.append(
+                    {
+                        "type": PydanticCustomError("greater_than_equal", "must be zero or more"),
                         "loc": (key,),
                         "input": None,
                     }

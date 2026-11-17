@@ -1,5 +1,6 @@
 """Root command of the `utux` CLI."""
 
+import json
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated
@@ -7,6 +8,7 @@ from typing import Annotated
 import typer
 
 from utux import __version__
+from utux.budget.accounting import CostReport, CostTotals, project_cost_report, remaining, usd
 from utux.errors import SchemaExportError, UtuxError
 from utux.events.log import repair_log
 from utux.schemas.common import Tier
@@ -193,6 +195,84 @@ def _count(number: int, word: str) -> str:
 def _decimal(value: float) -> str:
     """Write a cost without an exponent, as precise as the float was given."""
     return format(Decimal(repr(value)), "f")
+
+
+@app.command("cost")
+def cost(
+    directory: Annotated[
+        Path, typer.Argument(help="The project directory. Default: the current directory.")
+    ] = Path(),
+    as_json: Annotated[bool, typer.Option("--json", help="Print the report as JSON.")] = False,
+) -> None:
+    """Print the cost of a project against its budget, per stage and per actor."""
+    try:
+        report = project_cost_report(directory)
+    except UtuxError as error:
+        typer.echo(f"error: {error}", err=True)
+        raise typer.Exit(code=1) from error
+    if as_json:
+        typer.echo(json.dumps(report.to_json(), indent=2))
+        return
+    for line in _cost_lines(report):
+        typer.echo(line)
+
+
+def _cost_lines(report: CostReport) -> list[str]:
+    total = report.summary.total
+    limit = usd(report.budget.total_usd)
+    left = (
+        "exhausted"
+        if total.known_cost_usd >= limit
+        else f"{_money(remaining(total, limit))} USD left"
+    )
+    lines = [
+        f"Known cost: {_money(total.known_cost_usd)} USD of a budget of {_money(limit)} USD "
+        f"({left})",
+        f"Calls: {total.calls} made, {total.refused_calls} refused",
+    ]
+    if total.local_unbilled_calls:
+        lines.append(f"Local, not billed: {_count(total.local_unbilled_calls, 'call')}")
+    if total.unknown_cost_calls:
+        lines.append(
+            f"Unknown cost: {_count(total.unknown_cost_calls, 'call')} to an external provider "
+            "reported no cost"
+        )
+        lines.append(
+            "The budget cannot be fully enforced while calls of unknown cost exist: "
+            "only the known cost is compared with the budget."
+        )
+    lines += ["", "Per stage:"]
+    stages = report.stages()
+    lines += [
+        f"  {'no stage' if stage is None else stage.value}: {_totals(totals, stage_limit)}"
+        for stage, totals, stage_limit in stages
+    ] or ["  no calls"]
+    lines += ["", "Per actor:"]
+    lines += [f"  {actor}: {_totals(totals, None)}" for actor, totals in report.actors()] or [
+        "  no calls"
+    ]
+    return lines
+
+
+def _totals(totals: CostTotals, limit: Decimal | None) -> str:
+    parts = [f"{_money(totals.known_cost_usd)} USD"]
+    if limit is not None:
+        parts[0] += f" of a budget of {_money(limit)} USD"
+        if totals.known_cost_usd >= limit:
+            parts.append("exhausted")
+    parts.append(_count(totals.calls, "call"))
+    if totals.local_unbilled_calls:
+        parts.append(f"{totals.local_unbilled_calls} local, not billed")
+    if totals.unknown_cost_calls:
+        parts.append(f"{totals.unknown_cost_calls} of unknown cost")
+    if totals.refused_calls:
+        parts.append(f"{totals.refused_calls} refused")
+    return ", ".join(parts)
+
+
+def _money(amount: Decimal) -> str:
+    """Write an amount without an exponent or trailing zeros."""
+    return format(amount.normalize(), "f")
 
 
 schema_app = typer.Typer(help="Work with the schemas of the file contracts.")

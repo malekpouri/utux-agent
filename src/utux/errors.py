@@ -154,3 +154,11 @@ class ModelCallRefusedError(UtuxError):
     No request was sent. This is not a `ModelProviderError`: the provider was
     never asked.
     """
+
+
+class BudgetExhaustedError(ModelCallRefusedError):
+    """A model call was refused because its budget is exhausted.
+
+    The known cost has reached the project budget, or the budget of the
+    call's stage. The provider was never asked.
+    """
