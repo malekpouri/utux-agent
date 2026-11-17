@@ -20,19 +20,45 @@ Gold items, releases and the split are described in
 | `gwet_ac1(pairs, labels)` | (p_o - p_e) / (1 - p_e), pi_k = mean of the two shares of label k, p_e = sum pi_k (1 - pi_k) / (Q - 1) over the Q labels |
 | `span_overlap(first, second, text)` | Token-level F1 = 2\|A and B\| / (\|A\| + \|B\|) and IoU = \|A and B\| / \|A or B\| |
 
-For spans, a token is a run of word characters or a single other non-space
-character of the source text, and a span covers every token it touches. When
-neither annotator selected a token, F1 and IoU are None; when only one did,
-both are 0.
+`match_claims(first, second)` counts the claims of two lists that match one
+to one: two claims match when their spans share at least half of the longer
+span's characters. Candidate pairs are matched greedily, the largest share
+first.
 
-`annotation_agreement(items)` applies these to a release: status per claim
-(the four statuses), agreement label per pair (five labels), and each of the
-seven scope flags per pair as a yes-or-no label. The first annotator is the
-first of `annotation.annotators`. Ambiguous claims are included, since
-agreement is measured on everything that was labelled.
+### The token rule for spans
 
-Not yet computed: agreement on claim extraction (the share of claims matched
-between the two lists) and on `expert_would_review`.
+Evidence spans are compared token by token over the stored source text:
+
+- A token is a run of word characters (letters, digits and `_`, as in the
+  regular expression `\w+`), or a single character that is neither a word
+  character nor white space, such as `%`, `.` or `(`.
+- White space is not a token.
+- A span covers every token it overlaps by at least one character, so a span
+  that cuts a word in half still covers the whole word.
+
+When neither annotator selected a token, F1 and IoU are None; when only one
+did, both are 0.
+
+### A release
+
+`annotation_agreement(items, source_texts=None)` applies these to a release:
+
+| Label | Unit | Measures |
+| --- | --- | --- |
+| Claim extraction | item | first and second list sizes, matched claims, share = 2 matched / (first + second) |
+| Status | claim | four statuses: raw agreement, confusion table, kappa, AC1 |
+| `expert_would_review` | claim | yes or no: the same |
+| Agreement label | pair | five labels: the same |
+| Each scope flag | pair | yes or no: the same |
+| Evidence spans | pair | mean token F1 and IoU, and the pairs where both are undefined |
+
+The first annotator is the first of `annotation.annotators`. Ambiguous claims
+are included, since agreement is measured on everything that was labelled.
+
+Evidence spans are compared only when `source_texts` maps every `source_id`
+to its stored text. Each text is checked against the pair's `text_hash`
+first, and a missing text or a mismatch is refused (`GoldSetError`), so that
+agreement is measured only on the text the annotators read.
 
 ## Metrics
 
