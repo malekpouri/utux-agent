@@ -126,17 +126,25 @@ def log_repair(
 ) -> None:
     """Save an incomplete last line of the event log aside and record the repair."""
     try:
-        repair = repair_log(directory / EVENT_LOG_FILE)
+        repairs = repair_log(directory / EVENT_LOG_FILE)
     except UtuxError as error:
         typer.echo(f"error: {error}", err=True)
         raise typer.Exit(code=1) from error
-    if repair is None:
+    if not repairs:
         typer.echo(f"nothing to repair: the last line of {EVENT_LOG_FILE} is complete")
         return
-    typer.echo(
-        f"Saved the incomplete last line ({repair.fragment_bytes} bytes) to {repair.fragment_file}."
-    )
-    typer.echo(f"The log now ends with {repair.event.event_id}, which records the repair.")
+    for repair in repairs:
+        if repair.interrupted:
+            typer.echo(
+                f"Completed an interrupted repair: recorded {repair.fragment_file} "
+                f"({repair.fragment_bytes} bytes) as {repair.event.event_id}."
+            )
+        else:
+            typer.echo(
+                f"Saved the incomplete last line ({repair.fragment_bytes} bytes) "
+                f"to {repair.fragment_file}."
+            )
+            typer.echo(f"The log now ends with {repair.event.event_id}, which records the repair.")
 
 
 schema_app = typer.Typer(help="Work with the schemas of the file contracts.")

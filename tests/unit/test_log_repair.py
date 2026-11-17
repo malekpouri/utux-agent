@@ -117,7 +117,7 @@ def test_fragment_that_is_only_a_newline_short_is_still_a_fragment(tmp_path: Pat
     line.update(event_id="e-000003")
     whole = json.dumps(line).encode()
     (project / "events.jsonl").write_bytes(complete + whole)
-    (repair,) = repair_log(project / "events.jsonl", clock=_clock)
+    assert len(repair_log(project / "events.jsonl", clock=_clock)) == 1
     assert (project / SIDE_FILE).read_bytes() == whole
     assert full_third  # the helper did write a fragment before
 
@@ -126,7 +126,7 @@ def test_log_that_is_only_a_fragment_is_repaired_to_its_repair_event(tmp_path: P
     """A crash while writing the very first event leaves nothing complete."""
     log = tmp_path / "events.jsonl"
     log.write_bytes(b'{"schema_version": 1, "event_')
-    (repair,) = repair_log(log, clock=_clock)
+    assert len(repair_log(log, clock=_clock)) == 1
     (event,) = list(EventLog(log))
     assert event.event_id == "e-000001"
     assert event.type is EventType.LOG_REPAIRED

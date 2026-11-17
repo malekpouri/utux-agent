@@ -208,15 +208,19 @@ class LogRepair:
         fragment_bytes: Length of the fragment in bytes.
         fragment_hash: Content hash of the fragment.
         event: The `log_repaired` event that records the repair.
+        interrupted: True when the fragment had been saved by an earlier
+            repair that stopped before it was recorded, and only the event
+            was written now.
     """
 
     fragment_file: str
     fragment_bytes: int
     fragment_hash: str
     event: Event
+    interrupted: bool
 
 
-def repair_log(path: Path, *, clock: Callable[[], datetime] = _utc_now) -> LogRepair | None:
+def repair_log(path: Path, *, clock: Callable[[], datetime] = _utc_now) -> tuple[LogRepair, ...]:
     """Repair a log whose last line was left incomplete by an interrupted write.
 
     This runs only when a person asks for it, through `utux log repair`. It
@@ -226,13 +230,18 @@ def repair_log(path: Path, *, clock: Callable[[], datetime] = _utc_now) -> LogRe
     event with the fragment's file name, hash and byte length. Complete lines
     are never changed. The lock of the log is held throughout.
 
+    If the last line is complete, it completes an earlier repair that was
+    interrupted after the fragment was saved: every side file that no
+    `log_repaired` event records gets its missing event, in name order.
+
     Args:
         path: The log file.
         clock: Returns the current time in UTC. Tests pass a fixed time.
 
     Returns:
-        What was done, or None if the last line of the log is complete and
-        nothing was changed.
+        One entry per fragment that was recorded. Empty if the last line of
+        the log is complete and every side file is recorded; the log is then
+        unchanged.
 
     Raises:
         EventLogError: If the log cannot be opened, the fragment cannot be
@@ -247,7 +256,7 @@ def repair_log(path: Path, *, clock: Callable[[], datetime] = _utc_now) -> LogRe
         size = os.stat(path).st_size
         keep = _complete_length(path, size)
         if keep == size:
-            return None
+            return _record_saved_fragments(log, fd)
         fragment = _read_range(path, keep, size)
         if keep > 0:
             # The repair event follows the last complete line, so that line
@@ -266,23 +275,58 @@ def repair_log(path: Path, *, clock: Callable[[], datetime] = _utc_now) -> LogRe
             os.fsync(fd)
         except OSError as error:
             raise EventLogError(f"cannot repair {path}: {error.strerror}") from error
-        stored = log._store(
-            fd,
-            NewEvent(
-                actor=SYSTEM_ACTOR,
-                type=EventType.LOG_REPAIRED,
-                status=EventStatus.OK,
-                data={
-                    "fragment_file": side.name,
-                    "fragment_hash": hash_bytes(fragment),
-                    "fragment_bytes": len(fragment),
-                },
-            ),
-            now,
-        )
-        return LogRepair(side.name, len(fragment), hash_bytes(fragment), stored)
+        return (_record(log, fd, side.name, fragment, now, interrupted=False),)
     finally:
         os.close(fd)
+
+
+def _record(
+    log: EventLog, fd: int, name: str, fragment: bytes, now: datetime, *, interrupted: bool
+) -> LogRepair:
+    """Append the `log_repaired` event for a saved fragment. The caller holds the lock."""
+    fragment_hash = hash_bytes(fragment)
+    stored = log._store(
+        fd,
+        NewEvent(
+            actor=SYSTEM_ACTOR,
+            type=EventType.LOG_REPAIRED,
+            status=EventStatus.OK,
+            data={
+                "fragment_file": name,
+                "fragment_hash": fragment_hash,
+                "fragment_bytes": len(fragment),
+            },
+        ),
+        now,
+    )
+    return LogRepair(name, len(fragment), fragment_hash, stored, interrupted)
+
+
+def fragment_files(path: Path) -> list[Path]:
+    """Return the fragment side files beside a log, in name order."""
+    prefix = path.name + FRAGMENT_SUFFIX
+    return sorted(
+        entry
+        for entry in path.parent.iterdir()
+        if entry.name.startswith(prefix) and len(entry.name) > len(prefix) and entry.is_file()
+    )
+
+
+def _record_saved_fragments(log: EventLog, fd: int) -> tuple[LogRepair, ...]:
+    """Record every side file that no `log_repaired` event records yet."""
+    recorded = {
+        event.data.get("fragment_file") for event in log if event.type is EventType.LOG_REPAIRED
+    }
+    repairs = []
+    for side in fragment_files(log.path):
+        if side.name in recorded:
+            continue
+        try:
+            fragment = side.read_bytes()
+        except OSError as error:
+            raise EventLogError(f"cannot read {side}: {error.strerror}") from error
+        repairs.append(_record(log, fd, side.name, fragment, log._now(), interrupted=True))
+    return tuple(repairs)
 
 
 def _complete_length(path: Path, size: int) -> int:

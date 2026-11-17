@@ -165,5 +165,28 @@ Complete lines are never changed. A log whose last line is complete is left
 alone, and the command says that there is nothing to repair. The side file
 is kept for audit; utux does not delete it.
 
-If the process is stopped between steps 3 and 4, the log is complete but has
-no `log_repaired` event; the side file still holds the fragment.
+If the fragment was the whole log, as when a crash interrupts the very first
+event, the repaired log starts with `log_repaired`, and `utux validate`
+reports that the first event is not `project_created`.
+
+### An interrupted repair
+
+If the process is stopped between steps 3 and 4, the log is complete but
+has no `log_repaired` event, and the side file holds the fragment.
+`utux validate` reports the side file as `unrecorded_fragment`. Running
+`utux log repair` again completes the repair: on a log whose last line is
+complete, every side file that no `log_repaired` event records gets its
+missing event, in name order, and the command says that an interrupted
+repair was completed. If every side file is recorded, nothing changes.
+
+### Side files and `utux validate`
+
+`utux validate` checks the side files and the `log_repaired` events against
+each other, in both directions:
+
+- every `events.jsonl.fragment-*` file is named by a `log_repaired` event
+  (`unrecorded_fragment`, on the side file);
+- every `log_repaired` event names a side file beside the log
+  (`invalid_fragment_file`) that exists (`missing_fragment_file`) and whose
+  length and hash match `fragment_bytes` and `fragment_hash`
+  (`fragment_mismatch`). These are reported on the event's line.
