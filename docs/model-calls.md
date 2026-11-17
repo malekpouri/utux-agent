@@ -60,6 +60,12 @@ is true is refused before anything is sent: a `model_call` event with status
 `refused` and `status_reason` `data_policy_local_only` is written, and
 `ModelCallRefusedError` is raised. The provider is never asked.
 
+In M0 this rule is stricter than the specification. Section 10 of the
+specification lets external models see schemas and aggregate statistics that
+the user has approved, even under `local_only`; utux cannot yet tell such
+content apart, so under `local_only` every call to an external provider is
+refused. Finer control is left to M3.
+
 ## `utux model ping`
 
 ```bash
