@@ -59,7 +59,7 @@ def _line(number: int, **changes: Any) -> str:
         "status_reason": None,
         "retry_reason": None,
         "escalated_from": None,
-        "data": {},
+        "data": {"provider": "synthetic-provider", "is_external": True},
         "artifacts": [],
     }
     return json.dumps({**fields, **changes}) + "\n"
