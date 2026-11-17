@@ -32,12 +32,40 @@ built.
 
 ```bash
 uv sync
-uv run utux init my-project --budget-usd 20 --data-policy local_only
+uv run utux init my-project --budget-usd 20 --data-policy external_allowed
 uv run utux validate my-project
 ```
 
 `--budget-usd` and `--data-policy` are required and have no default. See
-[Creating a project](docs/project.md).
+[Creating a project](docs/project.md). Under `--data-policy local_only`,
+every call to an external provider such as OpenRouter is refused.
+
+`utux model ping` needs a model under `models.tiers` in `utux.yaml`.
+`utux init` already writes a `models` section with an empty tier mapping, so
+edit that section in `my-project/utux.yaml`. Replace this line:
+
+```yaml
+  tiers: {}
+```
+
+with:
+
+```yaml
+  tiers:
+    light: openai/gpt-4o-mini
+```
+
+Do not append a second `models:` key at the end of the file; a key that
+appears twice is rejected as a duplicate. Then send a short prompt to the
+model of the `light` tier:
+
+```bash
+uv run utux model ping my-project --tier light
+```
+
+With the `default` profile this is a real, paid call to OpenRouter and needs
+the `OPENROUTER_API_KEY` environment variable. See
+[Logged model calls and `utux model ping`](docs/model-calls.md).
 
 ## Documents
 
