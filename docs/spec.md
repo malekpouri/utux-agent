@@ -174,7 +174,7 @@ domain: ml
 literature: [openalex, arxiv, semantic_scholar]
 tools: []                      # MCP servers, e.g. mcp://biomcp in a bio pack
 executor: docker
-image: utux/ml:latest          # Python scientific stack + PyTorch, scikit-learn
+image: utux/ml@sha256:...      # pinned by digest; Python scientific stack + PyTorch, scikit-learn
 prompts: ./prompts/
 rubric: ./review_rubric.md
 template: ./latex/
