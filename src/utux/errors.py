@@ -199,3 +199,14 @@ class StaleProjectLockError(ProjectLockedError):
 
 class NotAProjectError(UtuxError):
     """A command that writes to a project was given a directory that is not one."""
+
+
+class ExecutorError(UtuxError):
+    """An executor could not run a step."""
+
+
+class ExecutorUnavailableError(ExecutorError):
+    """The sandbox of an executor cannot be used, for example Docker is missing.
+
+    Nothing was run, and nothing falls back to running on the host.
+    """
