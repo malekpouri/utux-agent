@@ -41,6 +41,8 @@ INVALID = [
     ("not_an_object.json", "<document>", "not_a_mapping"),
     ("malformed_json.json", "<document>", "invalid_json"),
     ("duplicate_key.json", "state", "duplicate_key"),
+    ("missing_path.json", "path", "missing"),
+    ("path_absolute.json", "path", "not_relative_path"),
 ]
 
 
@@ -71,6 +73,7 @@ def test_valid_fixture_reads_every_field() -> None:
     assert metadata.created_by == "agent:methodologist"
     assert metadata.created_at == "2026-11-15T10:00:00Z"
     assert metadata.input_artifacts == ("idea-v002", "literature-v004")
+    assert metadata.path == "method.md"
     assert metadata.content_hash == SYNTHETIC_HASH
     assert metadata.state is ArtifactState.VALID
 
@@ -127,6 +130,7 @@ def test_specification_example_validates() -> None:
     assert metadata.created_by == "agent:methodologist"
     assert metadata.created_at == "2026-11-15T10:00:00Z"
     assert metadata.input_artifacts == ("idea-v002", "literature-v004")
+    assert metadata.path == "method.md"
     assert metadata.state is ArtifactState.VALID
 
 
@@ -324,3 +328,13 @@ def test_input_rules_are_silent_when_artifact_id_is_itself_invalid() -> None:
     document["artifact_id"] = "method"
     document["input_artifacts"] = ["idea-v002", "idea-v002"]
     assert _problems(document) == [("artifact_id", "string_pattern_mismatch")]
+
+
+def test_the_example_of_the_documentation_is_a_valid_sidecar() -> None:
+    """The complete sidecar in docs/artifact-metadata.md validates (M1 rule 2)."""
+    text = (REPO_ROOT / "docs" / "artifact-metadata.md").read_text(encoding="utf-8")
+    match = re.search(r"```json\n(.*?)```", text, flags=re.DOTALL)
+    assert match is not None
+    metadata = ArtifactMetadata.from_json(match.group(1), source="docs/artifact-metadata.md")
+    assert metadata.path == "method.md"
+    assert metadata.content_hash == SYNTHETIC_HASH

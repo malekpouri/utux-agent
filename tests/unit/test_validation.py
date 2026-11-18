@@ -1,5 +1,6 @@
 """M0-08: validating every contract file of a project."""
 
+import hashlib
 import json
 import shutil
 from datetime import UTC, datetime
@@ -70,6 +71,21 @@ CORRUPTED: list[tuple[str, str, int | None, str, str]] = [
         "schema_version_newer",
     ),
     ("unexpected_file_in_meta", ".utux/meta/notes.txt", None, "<document>", "unexpected_file"),
+    (
+        "sidecar_content_hash_mismatch",
+        ".utux/meta/method-v003.json",
+        None,
+        "content_hash",
+        "content_hash_mismatch",
+    ),
+    (
+        "sidecar_input_without_sidecar",
+        ".utux/meta/method-v003.json",
+        None,
+        "input_artifacts.1",
+        "unknown_reference",
+    ),
+    ("sidecar_artifact_file_missing", ".utux/meta/idea-v002.json", None, "path", "missing_file"),
     ("manifest_in_wrong_run_directory", "runs/r099/manifest.json", None, "run_id", "name_mismatch"),
     ("manifest_missing_seeds", "runs/r012/manifest.json", None, "seeds", "missing"),
     (
@@ -132,9 +148,10 @@ def test_valid_fixture_project_has_no_problems() -> None:
     report = validate_project(VALID)
     assert report.problems == ()
     assert report.valid is True
-    # utux.yaml, the three .jsonl files, one sidecar, one source record, one
-    # manifest, one approval request and one response.
-    assert report.files_checked == 9
+    # utux.yaml, the three .jsonl files, three sidecars, one source record,
+    # one manifest, one approval request and one response. The artifact files
+    # the sidecars describe are hashed but are not contract files.
+    assert report.files_checked == 11
 
 
 def test_fresh_project_from_init_is_valid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -295,7 +312,7 @@ def test_json_report_is_machine_readable(tmp_path: Path) -> None:
         "schema_version": 1,
         "valid": False,
         "newer_schema_version": False,
-        "files_checked": 9,
+        "files_checked": 11,
         "problems": [
             {
                 "file": "results.jsonl",
@@ -429,7 +446,7 @@ def _with_repair_event(tmp_path: Path, **data: object) -> Path:
 def test_recorded_fragment_is_valid(tmp_path: Path) -> None:
     report = validate_project(_with_repair_event(tmp_path))
     assert report.problems == ()
-    assert report.files_checked == 10
+    assert report.files_checked == 12
 
 
 def test_fragment_of_another_length_is_reported_on_the_event(tmp_path: Path) -> None:
@@ -467,4 +484,125 @@ def test_every_side_file_and_every_event_is_checked(tmp_path: Path) -> None:
     (project / "events.jsonl.fragment-20261116T120000.000Z").write_bytes(b"x")
     assert _found(validate_project(project)) == [
         ("events.jsonl.fragment-20261116T120000.000Z", None, "<document>", "unrecorded_fragment")
+    ]
+
+
+# Sidecars and the files they describe (M1-03)
+
+_SIDECAR = {
+    "artifact_id": "method-v004",
+    "path": "method.md",
+    "stage": "methodology",
+    "schema_version": 1,
+    "created_by": "agent:methodologist",
+    "created_at": "2026-11-16T10:00:00Z",
+    "input_artifacts": ["idea-v002", "literature-v004"],
+    "content_hash": "sha256:" + "1" * 64,
+    "state": "valid",
+}
+
+
+def _copy_valid(tmp_path: Path) -> Path:
+    project = tmp_path / "p"
+    shutil.copytree(VALID, project)
+    return project
+
+
+def _add_sidecar(project: Path, file_name: str, **fields: object) -> None:
+    document = {**_SIDECAR, **fields}
+    path = project / ".utux" / "meta" / file_name
+    path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+
+
+def test_only_the_current_version_of_a_path_is_checked_against_the_file(tmp_path: Path) -> None:
+    project = _copy_valid(tmp_path)
+    # An older version of method.md, whose content is no longer the file's.
+    _add_sidecar(project, "method-v002.json", artifact_id="method-v002", input_artifacts=[])
+    assert validate_project(project).problems == ()
+
+
+def test_the_highest_version_is_the_current_one(tmp_path: Path) -> None:
+    project = _copy_valid(tmp_path)
+    _add_sidecar(project, "method-v004.json")
+    # method-v004 is now current and its hash is not the file's; method-v003
+    # is an older version and is not checked.
+    assert _found(validate_project(project)) == [
+        (".utux/meta/method-v004.json", None, "content_hash", "content_hash_mismatch"),
+    ]
+
+
+def test_the_mismatch_names_both_hashes(tmp_path: Path) -> None:
+    project = build("sidecar_content_hash_mismatch", tmp_path)
+    (problem,) = validate_project(project).problems
+    # sha256sum of "synthetic fixture content, edited by hand\n".
+    actual = "sha256:" + hashlib.sha256(b"synthetic fixture content, edited by hand\n").hexdigest()
+    assert actual in problem.reason
+    recorded = "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41"
+    assert recorded in problem.reason
+
+
+def test_two_sidecars_with_the_same_artifact_id_are_reported(tmp_path: Path) -> None:
+    project = _copy_valid(tmp_path)
+    copy = (project / ".utux" / "meta" / "method-v003.json").read_text(encoding="utf-8")
+    (project / ".utux" / "meta" / "zz-v001.json").write_text(copy, encoding="utf-8")
+    assert _found(validate_project(project)) == [
+        (".utux/meta/zz-v001.json", None, "artifact_id", "duplicate_id"),
+        (".utux/meta/zz-v001.json", None, "artifact_id", "name_mismatch"),
+    ]
+
+
+def test_an_input_whose_sidecar_is_invalid_is_not_unknown(tmp_path: Path) -> None:
+    project = _copy_valid(tmp_path)
+    path = project / ".utux" / "meta" / "literature-v004.json"
+    path.write_text(path.read_text(encoding="utf-8").replace('"valid"', '"unknown"'), "utf-8")
+    # The bad sidecar is reported once, on itself, and not again on method-v003.
+    assert _found(validate_project(project)) == [
+        (".utux/meta/literature-v004.json", None, "state", "enum"),
+    ]
+
+
+def test_two_sidecars_with_the_same_version_of_one_path_are_reported(tmp_path: Path) -> None:
+    project = _copy_valid(tmp_path)
+    _add_sidecar(project, "plan-v003.json", artifact_id="plan-v003")
+    assert _found(validate_project(project)) == [
+        (".utux/meta/plan-v003.json", None, "artifact_id", "duplicate_version"),
+    ]
+
+
+def test_a_directory_artifact_is_checked_with_the_directory_hash(tmp_path: Path) -> None:
+    project = _copy_valid(tmp_path)
+    (project / "code" / "train.py").write_bytes(b"print('synthetic')\n")
+    (project / "code" / "__pycache__").mkdir()
+    (project / "code" / "__pycache__" / "train.cpython-312.pyc").write_bytes(b"\x00")
+    # The documented format: one entry per file, path NUL hex newline, sorted;
+    # .gitkeep and __pycache__ are left out of project content.
+    entry = b"train.py\0" + hashlib.sha256(b"print('synthetic')\n").hexdigest().encode() + b"\n"
+    expected = "sha256:" + hashlib.sha256(entry).hexdigest()
+    _add_sidecar(
+        project, "code-v001.json", artifact_id="code-v001", path="code", content_hash=expected
+    )
+    assert validate_project(project).problems == ()
+    (project / "code" / "train.py").write_bytes(b"print('changed')\n")
+    assert _found(validate_project(project)) == [
+        (".utux/meta/code-v001.json", None, "content_hash", "content_hash_mismatch"),
+    ]
+
+
+def test_a_path_that_leads_outside_the_project_is_not_read(tmp_path: Path) -> None:
+    project = _copy_valid(tmp_path)
+    outside = tmp_path / "outside.md"
+    outside.write_text("synthetic fixture content\n", encoding="utf-8")
+    (project / "method.md").unlink()
+    (project / "method.md").symlink_to(outside)
+    assert _found(validate_project(project)) == [
+        (".utux/meta/method-v003.json", None, "path", "path_outside_project"),
+    ]
+
+
+def test_a_directory_that_cannot_be_hashed_is_reported(tmp_path: Path) -> None:
+    project = _copy_valid(tmp_path)
+    (project / "code" / "link.py").symlink_to(project / "method.md")
+    _add_sidecar(project, "code-v001.json", artifact_id="code-v001", path="code")
+    assert _found(validate_project(project)) == [
+        (".utux/meta/code-v001.json", None, "path", "unhashable"),
     ]
