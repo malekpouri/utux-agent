@@ -5,10 +5,14 @@ by the maintainer once approved, and before any system output has been
 scored (M0-14, `docs/plan/M0.md`).
 
 This document gathers what the specification (`docs/spec.md`), RFC-001 and
-RFC-002 already fix about the evaluation, in one place. It introduces
-nothing new. Every definition cites the section it comes from. Where the
-sources differ, the difference is listed in section 7 instead of being
-resolved. Where the sources leave something open, section 8 says so.
+RFC-002 fix about the evaluation, in one place. It introduces nothing new.
+Every definition cites the section it comes from. The differences the first
+draft found between the sources were decided by the maintainer and the
+sources updated (section 7). What the sources still leave open is listed in
+section 8.
+
+**Protocol v0 locks the criteria of H3 only.** The criteria of H1, H2, H4 and
+H5 are fixed in protocol v1, before the first M4 benchmark run.
 
 Sources, in the order of `AGENTS.md` section 2: RFC-001, RFC-002, then the
 specification. Section numbers below are those of each document.
@@ -23,7 +27,7 @@ section 11).
 | --- | --- | --- | --- | --- |
 | H1 | Verification reduces unsupported claims, invalid citations and wrong numbers in the final output | The same tasks under "multi-agent without verification or routing" and "multi-agent with verification" (spec section 11, "System configurations") | Error rates on the gold set do not drop | Spec section 1, section 11 |
 | H2 | Model routing lowers cost without lowering reliability | Routing against a single strong model on the same tasks: the configurations "single strong model" and "multi-agent with model routing" | Cost does not fall, or error rates rise | Spec section 1, section 11 |
-| H3 | The verification checks detect planted errors with useful precision and recall | The gold set with planted errors (perturbed items, RFC-002 section 2) scored by the procedure of RFC-002 section 8 | F1 is below the pre-set threshold, or the false-positive rate is too high to be usable; operationally, any threshold of section 4 is missed | Spec section 1; RFC-002 section 8 |
+| H3 | The verification checks detect planted errors with useful precision and recall | The gold set with planted errors (perturbed items, RFC-002 section 2) scored by the procedure of RFC-002 section 8 | Any of the five thresholds of section 4.1 is missed | Spec section 1; RFC-002 section 8 |
 | H4 | Run manifests make results reproducible within a stated tolerance | `reproduce.sh` on a clean machine | Results fall outside tolerance | Spec section 1; tolerance per result record, spec section 7 ("Run manifest") |
 | H5 | The full system is more reliable than Denario at comparable cost | Controlled comparison: "multi-agent with all mechanisms" against "Denario", under the Denario comparison protocol | No difference, or worse, on the reliability metrics | Spec section 1, section 11 ("Denario comparison protocol") |
 
@@ -90,7 +94,9 @@ failure rate and counts against verified coverage (RFC-002 section 7).
 
 The false-verified rate is reported twice: on the stratified test split, and
 re-weighted to the status mix observed in system-generated items (RFC-002
-section 7, "Dependence on the status mix"). Both it and the standard
+section 7, "Dependence on the status mix"). The re-weighting combines the
+rate at which the system predicts `verified` for each reference status with
+the status mix of the system-generated items (RFC-002 section 7). Both it and the standard
 false-positive rate of `verified` are reported (RFC-002 section 7).
 
 ### 3.3 Per-step metrics
@@ -113,7 +119,7 @@ earlier steps (RFC-002 section 7).
 | Component | Metrics | Source |
 | --- | --- | --- |
 | Citation existence | precision and recall of detecting invalid references; false-alarm rate on real references | RFC-002 section 7; components in section 3 |
-| Numeric traceability | precision and recall of detecting a wrong or misattributed number, by error type | RFC-002 section 7 |
+| Numeric traceability | precision and recall of detecting a wrong or misattributed number, by error type; false-alarm rate on correct numbers | RFC-002 section 7 |
 | Methodological errors | detection rate and false-alarm rate of the reviewer agents, by error type | RFC-002 section 7; spec section 11, "Agent-level tests" |
 
 The unit and denominator of these are not stated beyond the above (section 8).
@@ -123,7 +129,7 @@ The unit and denominator of these are not stated beyond the above (section 8).
 | Metric | How it is measured | Unit and denominator as stated | Source |
 | --- | --- | --- | --- |
 | Citation validity | share of cited references that resolve to a real record with matching metadata | cited references | Spec section 2 |
-| Claim support | share of literature claims judged supported by the cited source | literature claims | Spec section 2 |
+| Claim support | share of literature claims in the system's final manuscripts judged supported by the cited source, by independent human graders on a sample; an M4 metric of the system's output, not a gold-set metric | literature claims in the sample | Spec section 2 |
 | Numeric traceability | share of numbers in the manuscript that match a value in a results artifact | numbers in the manuscript | Spec section 2 |
 | Reproducibility | share of runs whose results are regenerated by `reproduce.sh` within tolerance | runs | Spec section 2 |
 | Cost and time | USD and wall-clock time per completed project, against a single-strong-model baseline | completed project | Spec section 2 |
@@ -131,9 +137,10 @@ The unit and denominator of these are not stated beyond the above (section 8).
 | Reviewer findings confirmed | share of reviewer findings confirmed by a human expert | reviewer findings | Spec section 11, "Metrics" |
 | Cost per claim | published with the results | claim | RFC-002 section 8, step 7 |
 
-Each reliability metric is computed against the gold-standard set, not the
-system's own judgement; detection metrics are reported as precision, recall,
-F1 and false-positive rate (spec section 2, "How the metrics are measured").
+Each reliability metric except claim support is computed against the
+gold-standard set, not the system's own judgement; claim support is judged
+by human graders. Detection metrics are reported as precision, recall, F1 and
+false-positive rate (spec section 2, "How the metrics are measured").
 
 Bias checks report source concentration (the share of citations from a few
 venues, groups or years), whether contrary evidence was retrieved, and
@@ -167,14 +174,20 @@ thresholds for hypothesis H3"):
 | Metric | Unit and denominator | Initial target |
 | --- | --- | --- |
 | False-verified rate | claims the system marks `verified` | at most 5%, with the upper end of the 95% interval at most 10% |
-| Critical miss rate | claims whose reference status is `contradicted` | at most 2% |
+| Critical miss rate | claims whose reference status is `contradicted` | at most 2%, with the upper end of the 95% interval at most 5% |
 | Verified coverage | claims whose reference status is `verified` | at least 60% |
 | Macro-F1 of status | all non-ambiguous claims, four statuses | at least 0.70 |
 | Review load | all claims | at most 25% |
 
-A threshold is met only if the stated interval condition holds, and
-comparisons between configurations rest on the paired test of the procedure
-(RFC-002 section 8). If the thresholds are missed, the result is reported as
+Every interval in a threshold is the two-sided 95% exact binomial interval.
+A threshold is met only if the stated interval condition holds, and only if
+all three runs of the procedure meet it. Comparisons between configurations
+rest on the paired test of the procedure (RFC-002 section 8).
+
+With no misses, the upper end of the interval is 1 − 0.025^(1/n): 2.4% for
+150 items. On 150 reference-`contradicted` claims the critical-miss
+threshold is met with up to 2 misses (1.3%, upper end 4.7%) and missed with
+3 (2.0%, upper end 5.7%) (RFC-002 section 3). If the thresholds are missed, the result is reported as
 it is, H3 is not supported, and the thresholds are not moved afterwards
 (RFC-002 section 8).
 
@@ -187,8 +200,9 @@ merged with a neighbour before the main round (RFC-002 section 5; section 8,
 
 ### 4.3 Other hypotheses
 
-The sources set no numeric threshold for H1, H2, H4 or H5. Their refutation
-conditions are those of section 1; see section 8.
+Protocol v0 sets no criteria for H1, H2, H4 or H5. They are fixed in
+protocol v1, before the first M4 benchmark run; until then their refutation
+conditions are those of section 1.
 
 ## 5. Procedure
 
@@ -196,17 +210,22 @@ From RFC-002 section 8, "Procedure":
 
 1. Fix the system configuration and log it.
 2. Run the full test split three times, because model output can vary even
-   at temperature 0. Report the mean and the range.
+   at temperature 0. Report the mean and the range. A threshold is met only
+   if all three runs meet it.
 3. Compute every metric of section 3 on its stated unit. Exclude `ambiguous`
    claims from the primary numbers and report them separately, with their
    count and characteristics.
 4. Report two 95% intervals for the false-verified rate and the critical miss
    rate: an exact binomial interval, which stays valid when a stratum is
    small or no error is observed, and a cluster bootstrap that resamples by
-   `source_group`. Other metrics use the cluster bootstrap.
+   `source_group`. The source groups cited by one claim form one cluster,
+   for the bootstrap and for the split. Other metrics use the cluster
+   bootstrap.
 5. Break results down by domain, item source, evidence text (abstract or full
    text), hard-case group and error class.
-6. Compare configurations on the same items with a paired test.
+6. Compare configurations on the same items with a paired test: an exact
+   McNemar test for paired binary errors, and a paired bootstrap for cost
+   and time.
 7. Publish the full confusion tables, the failures, the failure rate and the
    cost per claim, not only the summary numbers.
 
@@ -237,72 +256,50 @@ The thresholds for H3 are fixed in three stages (RFC-002 section 8):
 3. After v1 test results have been seen, the thresholds do not change.
 
 This version of the protocol, with the initial thresholds of section 4, is
-committed and tagged `eval-protocol-v0` before any system output has been
-scored (`docs/plan/M0.md`, M0-14; spec section 12, M0 exit criterion "the
-protocol is committed before any results exist"). The locked thresholds of
-stage 2 are a later version of this document.
+committed and tagged `eval-protocol-v0` before any system output is scored
+(`docs/plan/M0.md`, M0-14; spec section 1 and section 12). It locks H3 only.
+The locked thresholds of stage 2 are a later version of this document, and
+protocol v1 adds the criteria of H1, H2, H4 and H5 before the first M4
+benchmark run.
 
-## 7. Differences between the sources
+## 7. Differences found in the first draft, and how they were decided
 
-Listed, not resolved. Each needs the maintainer's decision.
+The first draft listed these differences between the sources. The
+maintainer decided each on 2026-11-18: where an RFC is more precise, it
+governs, and the specification was updated to match.
 
-1. **When thresholds are fixed.** Spec section 1 ("Hypotheses"): "Thresholds
-   are fixed in the evaluation protocol in M0, before any results exist."
-   RFC-002 section 8: the final H3 thresholds are locked after the v0 pilot,
-   whose results may inform them. The spec's M0 exit criterion (section 12)
-   requires only that the protocol be committed before any results exist.
-2. **What refutes H3.** Spec section 1: "F1 is below the pre-set threshold,
-   or the false-positive rate is too high to be usable." RFC-002 section 8
-   sets five thresholds (false-verified rate, critical miss rate, verified
-   coverage, macro-F1 of status, review load); only macro-F1 is an F1, and
-   the false-positive rate is replaced by the false-verified rate.
-3. **Name of the main risk metric.** RFC-001 section 8 table: "false-positive
-   rate of `verified`"; the paragraph below it and RFC-002 section 7:
-   "false-verified rate", reported beside the standard false-positive rate.
-   Spec sections 2 and 11 ask for the false-positive rate of every check.
-4. **S4 metrics.** RFC-001 section 8: per-flag precision and recall. RFC-002
-   section 7: per-flag precision, recall and F1, with micro and macro
-   averages.
-5. **Human-review flag.** RFC-001 section 8: "share of true errors caught by
-   the flag". RFC-002 section 7: "share of wrong automatic statuses that were
-   flagged", and comparison with `expert_would_review`.
-6. **Sample size for the critical miss rate.** RFC-002 section 3: with no
-   misses, "the 95% upper bound is roughly 3 divided by the number of items,
-   so 150 items are needed before a bound of 2% can be shown". RFC-002
-   section 8 uses a two-sided 95% exact interval, whose upper bound with no
-   misses is 1 − 0.025^(1/n): 0.0243 for n = 150, so 2% needs n ≥ 183.
-   "Roughly 3/n" is the one-sided 95% bound (0.0198 for n = 150). The
-   critical-miss threshold in section 8 ("at most 2%") states no interval
-   condition.
-7. **Claim support.** Spec section 2 measures "the share of literature claims
-   judged supported by the cited source"; RFC-002 has no metric of that
-   name. The nearest are verified coverage and the false-verified rate.
-8. **Detection metrics for every check.** Spec section 11 ("Gold-standard
-   evaluation set") scores each check with precision, recall, F1 and
-   false-positive rate. RFC-002 section 7 gives citation existence and
-   methodological errors a "false-alarm rate" and numeric traceability no
-   false-positive rate.
+1. **When thresholds are fixed.** As RFC-002 section 8 locks them; the
+   specification now says "before any system output is scored".
+2. **What refutes H3.** RFC-002's five thresholds; the specification's H3
+   row now says so.
+3. **Name of the main risk metric.** "False-verified rate" everywhere,
+   including RFC-001's tables; the standard false-positive rate of
+   `verified` is reported beside it.
+4. **S4 metrics.** As in RFC-002 section 7; RFC-001 section 8 refers to it.
+5. **Human-review flag.** As in RFC-002 section 7; RFC-001 section 8 aligned.
+6. **Intervals.** Every threshold's interval is two-sided 95%. The
+   critical-miss threshold gained an upper end of at most 5%, and RFC-002
+   section 3 now states the two-sided bounds for its sizes, checked by a
+   test.
+7. **Claim support.** An M4 metric of the system's final manuscripts, judged
+   by independent human graders on a sample; not a gold-set metric.
+8. **Numeric traceability.** RFC-002 section 7 gained a false-alarm rate on
+   correct numbers.
 
 ## 8. Open in the sources
 
-Not defined anywhere; left open here rather than invented.
+Decided by the maintainer and recorded in RFC-002 sections 7 and 8: the
+paired tests, the three-run rule, the re-weighting, and the clusters. Still
+open:
 
-- Numeric thresholds for H1, H2, H4 and H5, and what counts as "comparable
-  cost" (H5) and "error rates do not drop" (H1) in numbers.
-- The paired test of RFC-002 section 8, step 6: which test, and at what
-  level.
-- How the false-verified rate is re-weighted to the status mix of
-  system-generated items (RFC-002 section 7).
+- The criteria of H1, H2, H4 and H5, including what counts as "comparable
+  cost" (H5) and "error rates do not drop" (H1) in numbers: fixed in
+  protocol v1, before the first M4 benchmark run.
+- The level of the paired tests.
+- How the results of the three runs combine with the intervals of step 4,
+  beyond the rule that every run must meet a threshold.
 - Units and denominators of the citation existence, numeric traceability and
   methodological error metrics beyond section 3.4.
-- How the results of the three runs of procedure step 2 combine with the
-  intervals of step 4.
-- The cluster for the bootstrap when one claim cites sources of several
-  source groups.
-- How S1 matching uses citations: the gold item stores each annotator's
-  extracted claims as span and text only, without the citations they rely on
-  (`docs/eval/annotation-guideline.md` section 4.1), so "both carry the same
-  citations" cannot yet be checked.
 
 ## 9. Choices made by the toolkit
 
@@ -316,10 +313,11 @@ They are listed here for review, not as part of the protocol
 - An `unverified` prediction is never a TP or FP for any status and is an FN
   for its reference status.
 - A pair the system did not assess counts as an FN for its reference label.
-- Claims are matched one to one when their spans share at least half of the
-  longer span's characters; citations are not yet compared.
+- Claims are matched one to one when they cite the same sources and their
+  spans share at least half of the longer span's characters.
 - Evidence spans are compared over tokens: a run of word characters, or one
   other non-space character; a span covers every token it touches.
 - The bootstrap is a percentile interval over clusters of linked items (the
-  groups of the split), with a fixed seed.
+  groups of the split), with a fixed seed. A cluster joins every source
+  group cited by an item, which includes those cited by one claim.
 - The exact interval is Clopper-Pearson, two-sided.
