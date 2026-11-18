@@ -21,6 +21,7 @@ from utux.errors import (
     ModelRequestRejectedError,
     ModelTimeoutError,
     ModelUnavailableError,
+    UnknownCostNotAllowedError,
     UtuxError,
 )
 from utux.events.log import EventLog
@@ -75,9 +76,12 @@ def _caller(
     tmp_path: Path,
     provider: Any,
     policy: DataPolicy = DataPolicy.EXTERNAL_ALLOWED,
+    *,
+    allow_unknown_cost: bool = False,
 ) -> tuple[LoggedModelCaller, EventLog]:
     log = EventLog(tmp_path / "events.jsonl", clock=lambda: FIXED)
-    return LoggedModelCaller(log, provider, policy, Budget(total_usd=100.0), clock=Ticks()), log
+    budget = Budget(total_usd=100.0, allow_unknown_cost=allow_unknown_cost)
+    return LoggedModelCaller(log, provider, policy, budget, clock=Ticks()), log
 
 
 def _call(caller: LoggedModelCaller, request: ModelRequest | None = None) -> ModelResponse:
@@ -350,3 +354,68 @@ def test_response_is_not_returned_when_its_event_fails_after_the_call(tmp_path: 
     with pytest.raises(EventLogError, match="disk is full"):
         _call(caller)
     assert len(provider.requests) == 1
+
+
+# Unknown cost (M1-05, rule 5 of the M1 plan)
+
+
+def test_after_an_unknown_cost_the_next_call_to_that_provider_is_refused(tmp_path: Path) -> None:
+    provider = ScriptedModelProvider([ScriptedReply(cost_usd=None), ScriptedReply()])
+    caller, log = _caller(tmp_path, provider)
+    _call(caller)
+    with pytest.raises(UnknownCostNotAllowedError, match=r"budget\.allow_unknown_cost"):
+        _call(caller)
+    assert len(provider.requests) == 1
+    refused = _events(log)[-1]
+    assert (refused.status, refused.status_reason) == (
+        EventStatus.REFUSED,
+        "unknown_cost_not_allowed",
+    )
+    assert refused.data == {"provider": "scripted", "is_external": True}
+    assert isinstance(UnknownCostNotAllowedError("x"), ModelCallRefusedError)
+
+
+def test_the_first_call_with_an_unknown_cost_is_made(tmp_path: Path) -> None:
+    provider = ScriptedModelProvider([ScriptedReply(cost_usd=None)])
+    caller, log = _caller(tmp_path, provider)
+    _call(caller)
+    assert [event.status for event in _events(log)] == [EventStatus.OK]
+
+
+def test_allow_unknown_cost_lets_later_calls_through(tmp_path: Path) -> None:
+    provider = ScriptedModelProvider([ScriptedReply(cost_usd=None), ScriptedReply(cost_usd=None)])
+    caller, log = _caller(tmp_path, provider, allow_unknown_cost=True)
+    _call(caller)
+    _call(caller)
+    assert [event.status for event in _events(log)] == [EventStatus.OK, EventStatus.OK]
+
+
+def test_a_local_call_without_a_cost_never_triggers_it(tmp_path: Path) -> None:
+    provider = ScriptedModelProvider(
+        [ScriptedReply(cost_usd=None), ScriptedReply(cost_usd=None)], is_external=False
+    )
+    caller, _ = _caller(tmp_path, provider)
+    _call(caller)
+    _call(caller)
+    assert len(provider.requests) == 2
+
+
+def test_a_failure_without_a_cost_never_triggers_it(tmp_path: Path) -> None:
+    provider = ScriptedModelProvider(
+        [ScriptedFailure(ModelAuthenticationError("synthetic")), ScriptedReply()]
+    )
+    caller, _ = _caller(tmp_path, provider)
+    with pytest.raises(ModelAuthenticationError):
+        _call(caller)
+    _call(caller)
+    assert len(provider.requests) == 2
+
+
+def test_an_unknown_cost_of_another_provider_does_not_refuse_this_one(tmp_path: Path) -> None:
+    log = EventLog(tmp_path / "events.jsonl", clock=lambda: FIXED)
+    budget = Budget(total_usd=100.0)
+    other = ScriptedModelProvider([ScriptedReply(cost_usd=None)], name="other")
+    this = ScriptedModelProvider([ScriptedReply()], name="this")
+    _call(LoggedModelCaller(log, other, DataPolicy.EXTERNAL_ALLOWED, budget, clock=Ticks()))
+    _call(LoggedModelCaller(log, this, DataPolicy.EXTERNAL_ALLOWED, budget, clock=Ticks()))
+    assert len(this.requests) == 1

@@ -784,3 +784,31 @@ def test_a_response_of_another_kind_than_its_request_is_reported(tmp_path: Path)
     assert _found(validate_project(project)) == [
         ("approvals/a-000009.response.json", None, "kind", "differs_from_request"),
     ]
+
+
+# The ignore lines of ADR-0009 (M1-05)
+
+
+def test_a_gitignore_without_the_lines_of_adr_0009_is_a_warning(tmp_path: Path) -> None:
+    project = _copy_valid(tmp_path)
+    (project / ".gitignore").write_text(".DS_Store\n__pycache__/\n", encoding="utf-8")
+    report = validate_project(project)
+    assert report.valid is True
+    assert [(w.file, w.field, w.code) for w in report.warnings] == [
+        (".gitignore", "<document>", "gitignore_missing_lines"),
+    ]
+    assert "inputs/**" in report.warnings[0].reason
+    assert "runs/*/outputs/" in report.warnings[0].reason
+
+
+def test_a_missing_gitignore_is_a_warning(tmp_path: Path) -> None:
+    project = _copy_valid(tmp_path)
+    (project / ".gitignore").unlink()
+    report = validate_project(project)
+    assert report.problems == ()
+    assert [w.code for w in report.warnings] == ["gitignore_missing_lines"]
+
+
+def test_a_complete_gitignore_gives_no_warning(tmp_path: Path) -> None:
+    project = _copy_valid(tmp_path)
+    assert validate_project(project).warnings == ()

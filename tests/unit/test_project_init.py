@@ -32,6 +32,7 @@ FIXED_TIME = datetime(2026, 11, 15, 9, 0, 0, 125_000, tzinfo=UTC)
 EXPECTED_FILES = [
     ".gitignore",
     ".utux/meta/.gitkeep",
+    ".utux/settings-snapshot.yaml",
     "approvals/.gitkeep",
     "claims.jsonl",
     "code/.gitkeep",
@@ -220,6 +221,9 @@ def test_gitignore_holds_the_documented_lines(tmp_path: Path) -> None:
 def test_gitignore_really_ignores_what_it_names(tmp_path: Path) -> None:
     project = _init(tmp_path / "my-project")
     (project / ".utux" / "checkpoints.sqlite").write_bytes(b"x")
+    (project / ".utux" / "checkpoints.sqlite-wal").write_bytes(b"x")
+    (project / ".utux" / "checkpoints.sqlite-shm").write_bytes(b"x")
+    (project / ".utux" / "lock").write_bytes(b"x")
     (project / "code" / "__pycache__").mkdir()
     (project / "code" / "__pycache__" / "m.cpython-312.pyc").write_bytes(b"x")
     (project / "code" / "stray.pyc").write_bytes(b"x")
@@ -389,7 +393,8 @@ def test_gitignore_is_the_exclude_list_without_gitkeep_plus_two_lines_and_adr_00
         ".DS_Store",
         "__pycache__/",
         "*.pyc",
-        ".utux/checkpoints.sqlite",
+        ".utux/checkpoints.sqlite*",
+        ".utux/lock",
         ".*.tmp",
         "inputs/**",
         "!inputs/**/",

@@ -2,5 +2,11 @@
 .DS_Store
 __pycache__/
 *.pyc
-.utux/checkpoints.sqlite
+.utux/checkpoints.sqlite*
+.utux/lock
 .*.tmp
+inputs/**
+!inputs/**/
+!inputs/**/*.md
+!inputs/.gitkeep
+runs/*/outputs/

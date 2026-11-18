@@ -1,5 +1,6 @@
 """M0-08b: `utux log repair`."""
 
+import os
 import shutil
 from pathlib import Path
 
@@ -7,6 +8,9 @@ import pytest
 from typer.testing import CliRunner
 
 from utux.cli import app
+from utux.events.log import EventLog
+from utux.schemas.event import EventType
+from utux.workspace.writer import project_lock
 
 PROJECT = Path(__file__).resolve().parents[1] / "fixtures" / "projects" / "valid_full"
 
@@ -72,4 +76,28 @@ def test_interrupted_repair_is_reported_as_completed(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "interrupted repair" in result.output
     assert "events.jsonl.fragment-20261116T100000.000Z" in result.output
+    assert runner.invoke(app, ["validate", str(project)]).exit_code == 0
+
+
+def test_repair_is_refused_while_another_command_holds_the_lock(tmp_path: Path) -> None:
+    project = _damaged(tmp_path)
+    before = (project / "events.jsonl").read_bytes()
+    with project_lock(project, "synthetic holder"):
+        result = runner.invoke(app, ["log", "repair", str(project)])
+    assert result.exit_code == 1
+    assert f"process {os.getpid()}" in result.output
+    assert (project / "events.jsonl").read_bytes() == before
+
+
+def test_repair_records_setting_changes_after_the_repair(tmp_path: Path) -> None:
+    project = _damaged(tmp_path)
+    config = project / "utux.yaml"
+    text = config.read_text(encoding="utf-8")
+    assert text.count("total_usd: 20") == 1
+    config.write_text(text.replace("total_usd: 20", "total_usd: 30"), encoding="utf-8")
+    result = runner.invoke(app, ["log", "repair", str(project)])
+    assert result.exit_code == 0, result.output
+    events = list(EventLog(project / "events.jsonl"))
+    assert [e.type for e in events[-2:]] == [EventType.LOG_REPAIRED, EventType.SETTING_CHANGED]
+    assert events[-1].data == {"key": "budget.total_usd", "old_value": 20.0, "new_value": 30.0}
     assert runner.invoke(app, ["validate", str(project)]).exit_code == 0
