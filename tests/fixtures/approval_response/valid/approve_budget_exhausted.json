@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "approval_id": "a-000009",
+  "kind": "budget_exhausted",
+  "artifact_id": null,
+  "content_hash": null,
+  "decision": "approve",
+  "answered_by": "human:alex",
+  "answered_at": "2026-11-16T14:30:00Z",
+  "feedback": null,
+  "edited_artifact_id": null,
+  "edited_content_hash": null
+}

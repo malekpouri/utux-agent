@@ -724,3 +724,63 @@ def test_a_fresh_clone_without_its_untracked_files_has_warnings_only(
         (".utux/meta/data-v001.json", "missing_untracked_file"),
         (".utux/meta/model-v001.json", "missing_untracked_file"),
     ]
+
+
+# Approval kinds (M1-04)
+
+_UNBOUND_REQUEST = {
+    "schema_version": 1,
+    "approval_id": "a-000009",
+    "kind": "budget_exhausted",
+    "gate": None,
+    "artifact_id": None,
+    "content_hash": None,
+    "path": None,
+    "stage": "implementation",
+    "refused_event_id": "e-000001",
+    "requested_by": "system:utux",
+    "requested_at": "2026-11-16T14:00:00Z",
+}
+
+
+def _with_unbound_request(tmp_path: Path, **changes: object) -> Path:
+    project = _copy_valid(tmp_path)
+    document = {**_UNBOUND_REQUEST, **changes}
+    (project / "approvals" / "a-000009.request.json").write_text(
+        json.dumps(document, indent=2) + "\n", encoding="utf-8"
+    )
+    return project
+
+
+def test_an_unbound_request_whose_refused_call_is_in_the_log_is_valid(tmp_path: Path) -> None:
+    assert validate_project(_with_unbound_request(tmp_path)).problems == ()
+
+
+def test_an_unbound_request_must_name_an_event_of_the_log(tmp_path: Path) -> None:
+    project = _with_unbound_request(tmp_path, refused_event_id="e-000999")
+    assert _found(validate_project(project)) == [
+        ("approvals/a-000009.request.json", None, "refused_event_id", "unknown_reference"),
+    ]
+
+
+def test_a_response_of_another_kind_than_its_request_is_reported(tmp_path: Path) -> None:
+    project = _with_unbound_request(tmp_path)
+    response = {
+        "schema_version": 1,
+        "approval_id": "a-000009",
+        "kind": "retry_limit",
+        "artifact_id": None,
+        "content_hash": None,
+        "decision": "approve",
+        "answered_by": "human:alex",
+        "answered_at": "2026-11-16T14:30:00Z",
+        "feedback": None,
+        "edited_artifact_id": None,
+        "edited_content_hash": None,
+    }
+    (project / "approvals" / "a-000009.response.json").write_text(
+        json.dumps(response), encoding="utf-8"
+    )
+    assert _found(validate_project(project)) == [
+        ("approvals/a-000009.response.json", None, "kind", "differs_from_request"),
+    ]

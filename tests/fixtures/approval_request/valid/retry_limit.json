@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "approval_id": "a-000010",
+  "kind": "retry_limit",
+  "gate": null,
+  "artifact_id": null,
+  "content_hash": null,
+  "path": null,
+  "stage": "experiment",
+  "refused_event_id": "e-000057",
+  "requested_by": "system:utux",
+  "requested_at": "2026-11-16T15:00:00Z"
+}

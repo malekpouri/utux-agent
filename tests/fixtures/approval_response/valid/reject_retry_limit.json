@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "approval_id": "a-000010",
+  "kind": "retry_limit",
+  "artifact_id": null,
+  "content_hash": null,
+  "decision": "reject",
+  "answered_by": "human:alex",
+  "answered_at": "2026-11-16T15:10:00Z",
+  "feedback": "Stop here; the method needs rethinking.",
+  "edited_artifact_id": null,
+  "edited_content_hash": null
+}
