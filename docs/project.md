@@ -55,6 +55,9 @@ machine: two projects created with the same options have the same files.
 
 ### Requirements
 
+- Linux. utux is tested on Linux. macOS should work but is not tested in CI.
+  Windows is not supported: the project lock checks whether its holder is
+  still running with a POSIX process call.
 - git 2.28 or newer. `utux init` creates the repository with
   `git init --initial-branch=main`, which older versions do not have. With an
   older git the command fails at that step with git's message and leaves
@@ -160,6 +163,9 @@ The lock file is one JSON object:
 - **A lock of another host**, on a shared file system, cannot be checked;
   it is treated as held.
 - **A lock that cannot be read** is reported with the same advice.
+
+Settings are compared on their validated values, not on the text of the
+file: a comment, the order of keys or spacing is no change.
 
 The lock is not in git.
 

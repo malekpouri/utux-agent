@@ -51,9 +51,16 @@ Following the roadmap in section 12 of the [specification](docs/spec.md):
 
 Nothing on this list exists yet.
 
+## Requirements
+
+- Python 3.12 or newer, [uv](https://docs.astral.sh/uv/) and git 2.28 or
+  newer.
+- Linux. utux is tested on Linux. macOS should work but is not tested in CI.
+  Windows is not supported: the project lock relies on POSIX process checks.
+
 ## Quick start
 
-You need Python 3.12 or newer, [uv](https://docs.astral.sh/uv/) and git.
+You need the requirements above.
 
 ```bash
 git clone https://github.com/malekpouri/utux-agent.git
