@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "approval_id": "a-000007",
+  "kind": "artifact",
   "artifact_id": "method-v003",
   "decision": "approve",
   "answered_by": "human:alex",

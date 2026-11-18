@@ -385,6 +385,22 @@ Append-only is enforced by the application, not by the file system, so the log i
 
 The core writes `approvals/<id>.request.json` and pauses. The CLI, or any future interface, writes `approvals/<id>.response.json` with `approve`, `reject` or `edit` and, for an edit, the id and content hash of the edited version the person saved. Responses are written atomically: temporary file, then rename.
 
+A request has a `kind` (ADR-0011). Kind `artifact` is a gate's question about one artifact version, bound to its content hash. Kinds `budget_exhausted` and `retry_limit` pause the run when a budget or the retry cap is reached; they name no artifact, record the stage and the event of the refused call, and are answered with `approve` (continue, repeating that call) or `reject` (stop). Fields that do not apply to a kind are null.
+
+```json
+{"schema_version": 1, "approval_id": "a-000009", "kind": "budget_exhausted",
+ "gate": null, "artifact_id": null, "content_hash": null, "path": null,
+ "stage": "implementation", "refused_event_id": "e-000042",
+ "requested_by": "system:utux", "requested_at": "2026-11-16T14:00:00Z"}
+```
+
+```json
+{"schema_version": 1, "approval_id": "a-000009", "kind": "budget_exhausted",
+ "artifact_id": null, "content_hash": null, "decision": "approve",
+ "answered_by": "human:alex", "answered_at": "2026-11-16T14:30:00Z",
+ "feedback": null, "edited_artifact_id": null, "edited_content_hash": null}
+```
+
 ## 8. Reliability design
 
 Scientific reliability is the core of the design and of the evaluation, not an added feature. Eight mechanisms are in v1; two are deferred.

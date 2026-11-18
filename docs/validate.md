@@ -78,8 +78,8 @@ absolute path.
 | `.utux/meta/<artifact_id>.json` | artifact metadata | The file name matches `artifact_id` (`name_mismatch`). No two sidecars share an `artifact_id` (`duplicate_id`, on the later file in name order). Every `input_artifacts` entry has a sidecar (`unknown_reference`). The current version of each path is checked against the file: see below. Any other file here is `unexpected_file` |
 | `sources/*.json` | source record | No two records share a `source_id` (`duplicate_id`, on the later file in name order). Other files in `sources/` hold stored text and are not read |
 | `runs/<run_id>/manifest.json` | run manifest | `run_id` matches the directory (`name_mismatch`). A run directory without a manifest is a run that has not ended and is accepted. Other files of a run are not read |
-| `approvals/<id>.request.json` | approval request | The file name matches `approval_id` (`name_mismatch`) |
-| `approvals/<id>.response.json` | approval response | The file name matches `approval_id`. A request with the same id exists (`request_missing`). The response matches its request: same `approval_id`, `artifact_id` and `content_hash`, and for an edit a different version (`differs_from_request`, `same_as_request`). Any other file here is `unexpected_file` |
+| `approvals/<id>.request.json` | approval request | The file name matches `approval_id` (`name_mismatch`). The fields follow the kind (`required_for_kind`, `not_allowed_for_kind`). A request of kind `budget_exhausted` or `retry_limit` names an event of `events.jsonl` in `refused_event_id` (`unknown_reference`) |
+| `approvals/<id>.response.json` | approval response | The file name matches `approval_id`. A request with the same id exists (`request_missing`). The response matches its request: same `approval_id`, `kind`, `artifact_id` and `content_hash`, and for an edit a different version (`differs_from_request`, `same_as_request`). `edit` answers kind `artifact` only (`edit_not_allowed_for_kind`). Any other file here is `unexpected_file` |
 
 
 A missing required file has code `missing_file`. `.gitkeep` files are

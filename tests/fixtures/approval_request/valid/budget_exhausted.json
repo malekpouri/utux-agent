@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "approval_id": "a-000009",
+  "kind": "budget_exhausted",
+  "gate": null,
+  "artifact_id": null,
+  "content_hash": null,
+  "path": null,
+  "stage": "implementation",
+  "refused_event_id": "e-000042",
+  "requested_by": "system:utux",
+  "requested_at": "2026-11-16T14:00:00Z"
+}

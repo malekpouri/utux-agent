@@ -7,7 +7,8 @@ starts with `project_created` and every parent exists; ids are unique within
 existing lines and source records; every result's run has a manifest; file
 names match the ids they hold; sidecar ids are unique, their inputs have
 sidecars, and the current version of each path matches the file's content
-hash; and an approval response matches its request.
+hash; an approval request not about an artifact names an event of the log;
+and an approval response matches its request.
 It reports every problem it finds, not only the first, and changes nothing.
 """
 
@@ -152,6 +153,9 @@ class _Validator:
         self.files_checked = 0
         # (line, data) of every valid log_repaired event.
         self.repairs: list[tuple[int, dict[str, object]]] = []
+        # Ids of every line of the log that has one, valid or not; None if
+        # the log is missing, so that nothing is reported against it.
+        self.event_ids: set[str] | None = None
 
     def add(self, file: str, line: int | None, field: str, code: str, reason: str) -> None:
         self.problems.append(ValidationProblem(file, line, field, code, reason))
@@ -211,6 +215,7 @@ class _Validator:
         previous: tuple[int, int] | None = None  # number of the last valid event, and its line
         # Ids of earlier lines, also of invalid ones, so a bad line is reported once.
         seen: set[str] = set()
+        self.event_ids = seen
         with path.open("rb") as stream:
             # Read line by line, so a long log is never held in memory.
             for number, raw in enumerate(stream, start=1):
@@ -574,6 +579,7 @@ class _Validator:
                 request = self.document(ApprovalRequest, file)
                 requests[named] = request
                 self.check_name(file, named, request)
+                self.check_refused_event(file, request)
             else:
                 response = self.document(ApprovalResponse, file)
                 responses.append((file, named, response))
@@ -595,6 +601,19 @@ class _Validator:
                     check_response_matches_request(request, response, file)
                 except ContractValidationError as error:
                     self.add_error(file, None, error)
+
+    def check_refused_event(self, file: str, request: ApprovalRequest | None) -> None:
+        """Check that a request not about an artifact names an event of the log."""
+        if request is None or request.refused_event_id is None or self.event_ids is None:
+            return
+        if request.refused_event_id not in self.event_ids:
+            self.add(
+                file,
+                None,
+                "refused_event_id",
+                "unknown_reference",
+                f"{request.refused_event_id} is not an event in {EVENT_LOG_FILE}",
+            )
 
     def check_name(
         self, file: str, named: str, document: ApprovalRequest | ApprovalResponse | None

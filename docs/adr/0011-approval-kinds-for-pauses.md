@@ -45,6 +45,25 @@ Additions on acceptance:
   changed key, with the old and the new value (task M1-05). A hand edit of
   the budget is recorded this way.
 
+### Addition, 2026-11-18: the refused call of `retry_limit`
+
+Decided by the maintainer on 2026-11-18, after task M1-04 asked which event
+a `retry_limit` request names. Implemented in task M1-12.
+
+- Task M1-12 defines the event type `route_back`, with data keys
+  `from_stage`, `to_stage`, `finding` (a stable code), `attempt` and `cap`.
+- A route back within the cap is a `route_back` event with status `ok`. At
+  the cap it is a `route_back` event with status `refused` and
+  `status_reason` `retry_limit`, and the `retry_limit` request's
+  `refused_event_id` names that event.
+- `approve` allows one more route back for that loop, raising its cap by
+  one, which the event that resumes the run records. `reject` stops the run.
+- From task M1-12, `utux validate` checks the type of the referenced event:
+  a `budget_exhausted` request names a refused `model_call` with reason
+  `budget_exhausted`, and a `retry_limit` request names a refused
+  `route_back` with reason `retry_limit`. Until then it checks only that the
+  event exists.
+
 ## Alternatives rejected
 
 - **A separate file contract for pauses.** A second request and response

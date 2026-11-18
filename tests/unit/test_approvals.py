@@ -1,11 +1,13 @@
 """M0-06b: the approval request and approval response schemas."""
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 import pytest
 from contract_checks import (
+    FIXTURES_ROOT,
     Row,
     check_invalid,
     check_round_trip,
@@ -17,6 +19,7 @@ from contract_checks import (
 
 from utux.errors import ContractValidationError
 from utux.schemas.approval import (
+    ApprovalKind,
     ApprovalRequest,
     ApprovalResponse,
     Decision,
@@ -32,10 +35,13 @@ RESPONSE = "approval_response"
 REQUEST_FIELDS = [
     "schema_version",
     "approval_id",
+    "kind",
     "gate",
     "artifact_id",
     "content_hash",
     "path",
+    "stage",
+    "refused_event_id",
     "requested_by",
     "requested_at",
 ]
@@ -43,6 +49,7 @@ REQUEST_FIELDS = [
 RESPONSE_FIELDS = [
     "schema_version",
     "approval_id",
+    "kind",
     "artifact_id",
     "content_hash",
     "decision",
@@ -69,6 +76,13 @@ INVALID_REQUESTS: list[Row] = [
     ("newer_schema_version.json", "schema_version", "schema_version_newer"),
     ("not_an_object.json", "<document>", "not_a_mapping"),
     ("malformed_json.json", "<document>", "invalid_json"),
+    ("missing_kind.json", "kind", "missing"),
+    ("unknown_kind.json", "kind", "enum"),
+    ("artifact_kind_without_gate.json", "gate", "required_for_kind"),
+    ("artifact_kind_with_refused_event_id.json", "refused_event_id", "not_allowed_for_kind"),
+    ("budget_exhausted_with_artifact_id.json", "artifact_id", "not_allowed_for_kind"),
+    ("budget_exhausted_without_stage.json", "stage", "required_for_kind"),
+    ("refused_event_id_malformed.json", "refused_event_id", "string_pattern_mismatch"),
 ]
 
 INVALID_RESPONSES: list[Row] = [
@@ -89,6 +103,10 @@ INVALID_RESPONSES: list[Row] = [
     ("newer_schema_version.json", "schema_version", "schema_version_newer"),
     ("not_an_object.json", "<document>", "not_a_mapping"),
     ("malformed_json.json", "<document>", "invalid_json"),
+    ("missing_kind.json", "kind", "missing"),
+    ("edit_for_budget_exhausted.json", "decision", "edit_not_allowed_for_kind"),
+    ("retry_limit_with_content_hash.json", "content_hash", "not_allowed_for_kind"),
+    ("artifact_kind_without_artifact_id.json", "artifact_id", "required_for_kind"),
 ]
 
 OTHER_HASH = "sha256:" + "0" * 64
@@ -115,7 +133,7 @@ def test_request_has_the_proposed_fields() -> None:
 
 
 def test_request_names_the_exact_version_to_approve() -> None:
-    request = load_approval_request(valid_paths(REQUEST)[1])
+    request = load_approval_request(FIXTURES_ROOT / REQUEST / "valid" / "method_gate.json")
     assert request.approval_id == "a-000007"
     assert request.gate is Gate.METHOD
     assert request.artifact_id == "method-v003"
@@ -264,9 +282,13 @@ def test_response_round_trip(path: Path) -> None:
 
 
 def test_valid_response_fixtures_match_the_valid_request() -> None:
-    request = load_approval_request(valid_paths(REQUEST)[1])
+    request = load_approval_request(FIXTURES_ROOT / REQUEST / "valid" / "method_gate.json")
+    # The responses to the artifact request; those of the other kinds are
+    # paired with their own requests below.
     for path in valid_paths(RESPONSE):
-        check_response_matches_request(request, load_approval_response(path), str(path))
+        response = load_approval_response(path)
+        if response.kind is ApprovalKind.ARTIFACT:
+            check_response_matches_request(request, response, str(path))
 
 
 def test_invalid_fixture_tables() -> None:
@@ -316,3 +338,130 @@ def test_edit_with_unchanged_content_under_a_new_id_is_refused() -> None:
     assert [(p.field, p.code) for p in caught.value.problems] == [
         ("edited_content_hash", "same_as_request")
     ]
+
+
+# Kinds (M1-04, ADR-0011)
+
+ARTIFACT_FIELDS = ("gate", "artifact_id", "content_hash", "path")
+UNBOUND_FIELDS = ("stage", "refused_event_id")
+
+
+def test_the_kinds_are_the_three_of_adr_0011() -> None:
+    assert [kind.value for kind in ApprovalKind] == ["artifact", "budget_exhausted", "retry_limit"]
+
+
+@pytest.mark.parametrize("name", ["budget_exhausted.json", "retry_limit.json"])
+def test_an_unbound_request_records_the_stage_and_the_refused_call(name: str) -> None:
+    request = load_approval_request(FIXTURES_ROOT / REQUEST / "valid" / name)
+    assert request.kind is not ApprovalKind.ARTIFACT
+    assert request.stage is not None
+    assert request.refused_event_id is not None
+    assert all(getattr(request, field) is None for field in ARTIFACT_FIELDS)
+
+
+@pytest.mark.parametrize("field", ARTIFACT_FIELDS)
+def test_every_artifact_field_is_required_for_kind_artifact(field: str) -> None:
+    document = {**read_valid(REQUEST, "method_gate.json"), field: None}
+    assert problems(ApprovalRequest, document) == [(field, "required_for_kind")]
+
+
+@pytest.mark.parametrize("field", UNBOUND_FIELDS)
+def test_stage_and_refused_call_are_null_for_kind_artifact(field: str) -> None:
+    value = "methodology" if field == "stage" else "e-000001"
+    document = {**read_valid(REQUEST, "method_gate.json"), field: value}
+    assert problems(ApprovalRequest, document) == [(field, "not_allowed_for_kind")]
+
+
+@pytest.mark.parametrize("kind", ["budget_exhausted", "retry_limit"])
+def test_artifact_fields_are_null_for_the_unbound_kinds(kind: str) -> None:
+    document = {
+        **read_valid(REQUEST, "method_gate.json"),
+        "kind": kind,
+        "stage": "experiment",
+        "refused_event_id": "e-000042",
+    }
+    assert problems(ApprovalRequest, document) == [
+        (field, "not_allowed_for_kind") for field in ARTIFACT_FIELDS
+    ]
+
+
+@pytest.mark.parametrize("kind", ["budget_exhausted", "retry_limit"])
+@pytest.mark.parametrize("decision", ["approve", "reject"])
+def test_an_unbound_kind_is_answered_with_approve_or_reject(kind: str, decision: str) -> None:
+    document = {
+        **read_valid(RESPONSE, "approve_budget_exhausted.json"),
+        "kind": kind,
+        "decision": decision,
+        "feedback": "Synthetic remark." if decision == "reject" else None,
+    }
+    assert ApprovalResponse.from_json(json.dumps(document)).decision.value == decision
+
+
+def test_edit_is_refused_for_an_unbound_kind_whatever_else_it_names() -> None:
+    document = {
+        **read_valid(RESPONSE, "approve_budget_exhausted.json"),
+        "decision": "edit",
+        "edited_artifact_id": "method-v004",
+        "edited_content_hash": OTHER_HASH,
+    }
+    assert problems(ApprovalResponse, document) == [("decision", "edit_not_allowed_for_kind")]
+
+
+def test_an_unbound_response_matches_its_request() -> None:
+    request = load_approval_request(FIXTURES_ROOT / REQUEST / "valid" / "budget_exhausted.json")
+    response = load_approval_response(
+        FIXTURES_ROOT / RESPONSE / "valid" / "approve_budget_exhausted.json"
+    )
+    check_response_matches_request(request, response, "a-000009.response.json")
+
+
+def test_a_response_of_another_kind_does_not_match() -> None:
+    request = load_approval_request(FIXTURES_ROOT / REQUEST / "valid" / "budget_exhausted.json")
+    document = {**read_valid(RESPONSE, "approve_budget_exhausted.json"), "kind": "retry_limit"}
+    response = ApprovalResponse.from_json(json.dumps(document))
+    with pytest.raises(ContractValidationError) as caught:
+        check_response_matches_request(request, response, "a-000009.response.json")
+    assert [(p.field, p.code) for p in caught.value.problems] == [("kind", "differs_from_request")]
+
+
+def test_an_artifact_approval_is_still_bound_to_its_content_hash() -> None:
+    request = _request()
+    response = _response(content_hash=OTHER_HASH)
+    with pytest.raises(ContractValidationError) as caught:
+        check_response_matches_request(request, response, "a-000007.response.json")
+    assert [(p.field, p.code) for p in caught.value.problems] == [
+        ("content_hash", "differs_from_request")
+    ]
+
+
+# Examples in the documents (M1 rule 2)
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _json_blocks(document: str, start: str, end: str) -> list[str]:
+    text = (REPO_ROOT / document).read_text(encoding="utf-8")
+    section = text.split(start, 1)[1].split(end, 1)[0]
+    return re.findall(r"```json\n(.*?)```", section, flags=re.DOTALL)
+
+
+def test_the_examples_of_the_documentation_are_valid() -> None:
+    blocks = _json_blocks(
+        "docs/contracts.md", "## Approval request and response", "## Exporting the schemas"
+    )
+    assert len(blocks) == 3
+    artifact = ApprovalRequest.from_json(blocks[0], source="docs/contracts.md")
+    budget = ApprovalRequest.from_json(blocks[1], source="docs/contracts.md")
+    response = ApprovalResponse.from_json(blocks[2], source="docs/contracts.md")
+    assert artifact.kind is ApprovalKind.ARTIFACT
+    assert budget.kind is ApprovalKind.BUDGET_EXHAUSTED
+    check_response_matches_request(budget, response, "docs/contracts.md")
+
+
+def test_the_examples_of_the_specification_are_valid() -> None:
+    blocks = _json_blocks("docs/spec.md", "### Approvals", "## 8.")
+    assert len(blocks) == 2
+    request = ApprovalRequest.from_json(blocks[0], source="docs/spec.md")
+    response = ApprovalResponse.from_json(blocks[1], source="docs/spec.md")
+    assert request.kind is ApprovalKind.BUDGET_EXHAUSTED
+    check_response_matches_request(request, response, "docs/spec.md")
