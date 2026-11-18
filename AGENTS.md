@@ -191,6 +191,10 @@ These rules exist because the project's value is trust in its outputs.
   development dependencies.
 - Permissive licences only in the core (Apache-2.0, MIT, BSD, ISC, PSF-2.0).
   Anything copyleft goes in a separate optional plugin package, after approval.
+- Named exceptions, accepted by the maintainer on 2026-11-18 as unmodified
+  third-party dependencies of LangGraph: `certifi` (MPL-2.0) and `orjson`
+  (MPL-2.0 AND (Apache-2.0 OR MIT)). Any other package with a licence
+  outside the list above still needs approval.
 - Pin through `uv.lock`. Do not edit the lock file by hand.
 - Prefer the standard library when the difference is small.
 

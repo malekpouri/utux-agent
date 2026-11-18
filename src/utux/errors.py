@@ -166,3 +166,12 @@ class BudgetExhaustedError(ModelCallRefusedError):
 
 class GoldSetError(UtuxError):
     """A gold release cannot be processed, for example split."""
+
+
+class CheckpointDataError(UtuxError):
+    """A checkpoint holds, or would hold, something other than plain data.
+
+    The graph state of a run is ids, relative paths, hashes and small enums.
+    A checkpoint that names a Python object to construct is refused rather
+    than loaded, and so is a state that would need one.
+    """

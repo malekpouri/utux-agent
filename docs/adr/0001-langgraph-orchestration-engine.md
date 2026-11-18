@@ -36,6 +36,31 @@ to an earlier stage, and a run that streams events to the log.
 - Because stages exchange files (ADR-0002), the fallback would keep the same
   file contracts.
 
+### Dependency assessment, 2026-11-18
+
+LangGraph was assessed as a dependency in task M1-02, pull request #23
+(`langgraph` 1.2.22 and `langgraph-checkpoint-sqlite` 3.1.3, 36 runtime
+packages). The maintainer approved it on 2026-11-18 with these conditions:
+
+- `certifi` and `orjson`, which carry MPL-2.0, are named exceptions to the
+  licence list of `AGENTS.md` section 10.
+- `utux.core` switches LangSmith tracing off in code before any graph is
+  built, and a test shows that no connection is attempted and no part of a
+  key is output when the environment switches tracing on.
+- Graph state holds only ids, relative paths, hashes and small enums, never
+  artifact text or model output. The checkpoint serializer is configured so
+  that it cannot construct objects named in the data.
+- The files win: on resume, the hashes of artifacts known to the checkpoint
+  are compared with the files, and a mismatch restarts the run from the
+  earliest stage whose inputs changed (task M1-10).
+- Only utux's own checkpoint is resumed: a checkpoint database that no
+  `run_started` event matches is refused (task M1-10).
+- The ignore line for the checkpoint database covers SQLite's side files,
+  `.utux/checkpoints.sqlite*` (task M1-05).
+
+This approves the dependency only. The engine decision itself stays with the
+spike: task M1-15 records it in ADR-0012.
+
 ## Sources
 
 - `docs/spec.md`, section 5, "Fixed core": the workflow graph is part of the
