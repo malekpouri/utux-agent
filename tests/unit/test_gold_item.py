@@ -68,6 +68,16 @@ INVALID = [
     ),
     ("synthetic_empty_claim_note.json", "claims.0.raw.a91.note", "string_too_short"),
     ("synthetic_pair_raw_without_note.json", "claims.0.pairs.0.raw.a91.note", "missing"),
+    (
+        "synthetic_extracted_claim_without_citations.json",
+        "annotation.claim_extraction.raw.a91.0.citations",
+        "missing",
+    ),
+    (
+        "synthetic_duplicate_citation.json",
+        "annotation.claim_extraction.raw.a91.0.citations.1",
+        "duplicate_citation",
+    ),
     ("synthetic_span_beyond_text_unit.json", "claims.0.span", "span_out_of_range"),
     ("synthetic_span_end_before_start.json", "claims.0.span", "span_not_increasing"),
     ("synthetic_duplicate_claim_id.json", "claims.1.claim_id", "duplicate_id"),
@@ -450,3 +460,41 @@ def test_a_claim_without_pairs_may_be_adjudicated_on_its_review_flag() -> None:
     claim["adjudication_reason"] = "Synthetic adjudication reason."
     _annotation(document)["adjudicator"] = "a90"
     assert GoldItem.validate_document(document, "item.json").claims[1].pairs == ()
+
+
+def test_extracted_claims_carry_their_citations() -> None:
+    item = load_gold_item(FIXTURES / "valid" / "synthetic_multi_source_item.json")
+    first, second = item.annotation.claim_extraction.raw["a91"]
+    assert first.citations == ("synthetic:sg-synthetic-c-paper", "synthetic:sg-synthetic-d-paper")
+    assert second.citations == ("synthetic:sg-synthetic-c-paper",)
+
+
+def test_a_claim_without_a_source_is_extracted_without_citations() -> None:
+    item = load_gold_item(FIXTURES / "valid" / "synthetic_claim_without_a_source.json")
+    assert item.annotation.claim_extraction.raw["a91"][1].citations == ()
+
+
+def test_agreed_extraction_must_match_the_reference_citations() -> None:
+    # Both annotators list the claim with another source than its pair cites,
+    # and nothing was adjudicated: the reference claims differ from the list.
+    document = _document("synthetic_natural_item.json")
+    for listed in _annotation(document)["claim_extraction"]["raw"].values():
+        listed[0]["citations"] = ["synthetic:another-paper"]
+    assert _problems(document) == [("claims", "differs_from_raw")]
+
+
+def test_extraction_lists_that_differ_only_in_citations_need_adjudication() -> None:
+    document = _document("synthetic_natural_item.json")
+    _annotation(document)["claim_extraction"]["raw"]["a92"][0]["citations"] = [
+        "synthetic:another-paper"
+    ]
+    assert _problems(document) == [
+        ("annotation.claim_extraction.adjudicated", "adjudication_required")
+    ]
+
+
+def test_citations_are_compared_as_sets() -> None:
+    document = _document("synthetic_multi_source_item.json")
+    _annotation(document)["claim_extraction"]["raw"]["a92"][0]["citations"].reverse()
+    item = GoldItem.validate_document(document, "item.json")
+    assert item.annotation.claim_extraction.adjudicated is False

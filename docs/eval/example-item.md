@@ -32,6 +32,8 @@ Each annotator lists the claims alone.
 | a90 | (1) Method Alpha reduces classification error compared with Method Beta on SynthImg. (2) Method Alpha is twice as fast as Method Beta at inference. |
 | a91 | (1) Method Alpha reduces classification error compared with Method Beta on SynthImg and is twice as fast at inference. |
 
+Every listed claim cites source [1], `synthetic:alpha-2026`.
+
 a91 kept two assertions in one claim, against section 4.2 of the guideline:
 one part can be true while the other is false. The adjudicator a92 fixes the
 reference list as a90's two claims. `claim_extraction.adjudicated` is true,
@@ -263,14 +265,20 @@ indentation.
               0,
               79
             ],
-            "text": "Method Alpha reduces classification error compared with Method Beta on SynthImg."
+            "text": "Method Alpha reduces classification error compared with Method Beta on SynthImg.",
+            "citations": [
+              "synthetic:alpha-2026"
+            ]
           },
           {
             "span": [
               85,
               121
             ],
-            "text": "Method Alpha is twice as fast as Method Beta at inference."
+            "text": "Method Alpha is twice as fast as Method Beta at inference.",
+            "citations": [
+              "synthetic:alpha-2026"
+            ]
           }
         ],
         "a91": [
@@ -279,7 +287,10 @@ indentation.
               0,
               121
             ],
-            "text": "Method Alpha reduces classification error compared with Method Beta on SynthImg and is twice as fast at inference."
+            "text": "Method Alpha reduces classification error compared with Method Beta on SynthImg and is twice as fast at inference.",
+            "citations": [
+              "synthetic:alpha-2026"
+            ]
           }
         ]
       },

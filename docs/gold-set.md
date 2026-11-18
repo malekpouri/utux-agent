@@ -29,9 +29,9 @@ same reference claims. Each annotator's own entries are kept at every level.
 
 ### Claims and pairs
 
-A claim has `claim_id` (the item id and `-c<n>`), `text`, `span` (start and
-end in the text unit, the end greater than the start and not beyond the
-text unit), `kind` (the five claim kinds of RFC-001), `pairs`, `status`,
+A claim has `claim_id` (the item id and `-c<n>`; `claim_id_mismatch`),
+`text`, `span` (start and end in the text unit, the end greater than the
+start and not beyond the text unit; `span_out_of_range`), `kind` (the five claim kinds of RFC-001), `pairs`, `status`,
 `expert_would_review`, and:
 
 - `raw`: for each annotator, and only for them, their `status`,
@@ -51,7 +51,7 @@ A claim has at least one pair, except a claim that cites no source: it has
 no pairs, its status is `insufficient_evidence`, and both raw statuses are
 `insufficient_evidence` too (`raw_status_without_pairs`).
 
-A pair has `pair_id` (the claim id and `-s<n>`), `source_id`,
+A pair has `pair_id` (the claim id and `-s<n>`; `pair_id_mismatch`), `source_id`,
 `source_group`, `text_hash`, `checked_text`, `extraction_quality`,
 `evidence_spans` (each a `passage_id` and increasing `offsets`, possibly
 none), `agreement_label` (the four agreement labels or `conflicting`),
@@ -65,12 +65,17 @@ none), `agreement_label` (the four agreement labels or `conflicting`),
 
 `annotation` has:
 
-- `annotators`: exactly two distinct pseudonymous ids such as `a03`. A name
+- `annotators`: exactly two distinct pseudonymous ids such as `a03`
+  (`too_short`, `too_long`, `duplicate_annotator`). A name
   is rejected, so that no personal data enters a release.
-- `adjudicator`: the adjudicator's id, who is not one of the annotators. It
-  is required when anything in the item was adjudicated, and null otherwise.
-- `claim_extraction`: `raw`, each annotator's own list of claims (`span` and
-  `text`, the span within the text unit), `adjudicated` and
+- `adjudicator`: the adjudicator's id, who is not one of the annotators
+  (`adjudicator_is_annotator`). It is required when anything in the item was
+  adjudicated (`adjudicator_required`), and null otherwise
+  (`adjudicator_not_allowed`).
+- `claim_extraction`: `raw`, each annotator's own list of claims (`span`,
+  within the text unit; `text`; and `citations`, the distinct source ids the
+  claim relies on, empty for a claim that cites no source; repeated:
+  `duplicate_citation`), `adjudicated` and
   `adjudication_reason`.
 
 ### Raw entries and adjudication
@@ -87,7 +92,9 @@ pair):
   extraction, the reference claims are then the agreed list.
 
 Claim lists, evidence spans and scope flags are compared as sets, so their
-order does not matter. Notes are not compared. Every level with `adjudicated`
+order does not matter. Two listed claims are the same when span, text and
+citations (as a set) are the same; a reference claim's citations are the
+sources of its pairs. Notes are not compared. Every level with `adjudicated`
 true has an `adjudication_reason` (`adjudication_reason_required`), and every
 other level has none (`adjudication_reason_not_allowed`).
 
@@ -104,7 +111,9 @@ entries, and `adjudicated` may be true where the raw entries agree.
 - A system-generated item has `{"generated_by": <code>}`, the code of the
   system and configuration that produced it, for example
   `utux-0.1.0-default`.
-- A natural item has no `hidden` key at all; `"hidden": null` is rejected.
+- A natural item has no `hidden` key at all; `"hidden": null` is rejected
+  (`hidden_not_allowed`). A perturbed or system-generated item without its
+  record gives `hidden_required`.
 
 The hidden record is never shown to annotators or to the system.
 
@@ -136,6 +145,25 @@ with the id of the item to change:
 A source group in both splits is reported once, on the first pair, in
 release order, whose item is in another split than the first item of the
 group.
+
+### Departures from the guideline
+
+`check_release` returns a `ReleaseCheck` with `problems` and `departures`.
+A departure does not make the release invalid: it is reported for the
+adjudicator, who may depart from a guideline rule with a written reason.
+
+| Departure | Code |
+| --- | --- |
+| A `neutral` pair with scope flags (guideline section 5.3) | `flags_on_neutral_pair` |
+| A claim status other than the one the guideline's rules give (section 5.4) | `status_differs_from_rules` |
+
+`guideline_status(labels, flags)` applies the rules of guideline section 5.4
+to a claim's pairs, in order: no sources, or a `conflicting` pair, or
+support together with contradiction give `insufficient_evidence`; every
+non-`neutral` pair `entails`, at least one, with no major or critical flag,
+gives `verified`; then any support gives `partially_supported`, any
+contradiction `contradicted`, and otherwise `insufficient_evidence`. It
+checks labels made by people and never sets one.
 
 ## The split
 

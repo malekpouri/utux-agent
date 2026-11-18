@@ -13,7 +13,8 @@ label: reference labels are made by people (RFC-002, section 5).
 """
 
 import json
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, ClassVar, Self
@@ -24,10 +25,12 @@ from pydantic_core import InitErrorDetails, PydanticCustomError
 from utux.errors import DOCUMENT_FIELD, ContractValidationError, Problem
 from utux.schemas.base import ContractDocument, ContractPart, field_problem, raise_field_problems
 from utux.schemas.claim_ledger import (
+    FLAG_SEVERITY,
     CheckedText,
     ClaimKind,
     ExtractionQuality,
     ScopeFlag,
+    Severity,
     SourceLabel,
 )
 from utux.schemas.common import Count, Identifier, NonEmptyText, Sha256Hash
@@ -328,19 +331,41 @@ class GoldClaim(ContractPart):
 
 
 class ExtractedClaim(ContractPart):
-    """A claim as one annotator listed it at claim extraction."""
+    """A claim as one annotator listed it at claim extraction.
+
+    `citations` are the source ids the claim relies on (guideline section
+    4.1); empty for a claim that cites no source.
+    """
 
     span: tuple[Count, Count]
     text: NonEmptyText
+    citations: tuple[NonEmptyText, ...]
 
     @field_validator("span")
     @classmethod
     def _span_increases(cls, value: tuple[int, int]) -> tuple[int, int]:
         return _increasing(value, "span_not_increasing")
 
+    @field_validator("citations")
+    @classmethod
+    def _citations_are_distinct(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        return _distinct(value, "duplicate_citation", "citation")
 
-def _claim_set(claims: Sequence[ExtractedClaim | GoldClaim]) -> frozenset[tuple[object, str]]:
-    return frozenset((claim.span, claim.text) for claim in claims)
+
+def _citations(claim: ExtractedClaim | GoldClaim) -> frozenset[str]:
+    if isinstance(claim, ExtractedClaim):
+        return frozenset(claim.citations)
+    return frozenset(pair.source_id for pair in claim.pairs)
+
+
+def _claim_set(
+    claims: Sequence[ExtractedClaim | GoldClaim],
+) -> frozenset[tuple[object, str, frozenset[str]]]:
+    """What is compared between claim lists: span, text and citations as a set.
+
+    A reference claim's citations are the sources of its pairs.
+    """
+    return frozenset((claim.span, claim.text, _citations(claim)) for claim in claims)
 
 
 class ClaimExtraction(ContractPart):
@@ -738,7 +763,93 @@ def _on_line(number: int, field: str) -> str:
     return f"line {number}" if field == DOCUMENT_FIELD else f"line {number}, {field}"
 
 
-def check_release(items: Sequence[GoldItem]) -> tuple[Problem, ...]:
+@dataclass(frozen=True)
+class ReleaseCheck:
+    """The result of `check_release`.
+
+    Attributes:
+        problems: Breaches of the rules across items; a release with any is
+            not valid.
+        departures: Reference labels that depart from the annotation
+            guideline's rules. They are reported for the adjudicator and do
+            not make the release invalid, because the adjudicator may depart
+            from a rule with a written reason.
+    """
+
+    problems: tuple[Problem, ...]
+    departures: tuple[Problem, ...]
+
+
+_SEVERE = frozenset({Severity.MAJOR, Severity.CRITICAL})
+
+
+def guideline_status(labels: Sequence[str], flags: Sequence[Collection[str]]) -> GoldStatus:
+    """Return the status that the guideline's rules give (section 5.4).
+
+    `labels` holds the agreement label of each pair of a claim and `flags`
+    the scope flags of the same pairs. The rules are applied in order:
+
+    1. No sources: `insufficient_evidence`.
+    2. Any pair `conflicting`: `insufficient_evidence`.
+    3. A pair `entails` or `partial` and another `contradicts`:
+       `insufficient_evidence`.
+    4. Every pair that is not `neutral` is `entails`, at least one is, and no
+       pair has a major or critical flag: `verified`.
+    5. A pair `entails` or `partial`: `partially_supported`.
+    6. A pair `contradicts`: `contradicted`.
+    7. Otherwise (every pair `neutral`): `insufficient_evidence`.
+
+    This checks reference labels made by people; it never sets one.
+    """
+    supports = {"entails", "partial"}
+    if not labels or "conflicting" in labels:
+        return GoldStatus.INSUFFICIENT_EVIDENCE
+    if supports & set(labels) and "contradicts" in labels:
+        return GoldStatus.INSUFFICIENT_EVIDENCE
+    severe = any(FLAG_SEVERITY[ScopeFlag(flag)] in _SEVERE for pair in flags for flag in pair)
+    if (
+        "entails" in labels
+        and not severe
+        and all(label in ("entails", "neutral") for label in labels)
+    ):
+        return GoldStatus.VERIFIED
+    if supports & set(labels):
+        return GoldStatus.PARTIALLY_SUPPORTED
+    if "contradicts" in labels:
+        return GoldStatus.CONTRADICTED
+    return GoldStatus.INSUFFICIENT_EVIDENCE
+
+
+def _departures(items: Sequence[GoldItem]) -> list[Problem]:
+    departures: list[Problem] = []
+    for item in items:
+        for i, claim in enumerate(item.claims):
+            for j, pair in enumerate(claim.pairs):
+                if pair.agreement_label is SourceLabel.NEUTRAL and pair.scope_flags:
+                    departures.append(
+                        Problem(
+                            f"{item.item_id}.claims.{i}.pairs.{j}.scope_flags",
+                            "a neutral pair gets no flags (guideline section 5.3)",
+                            "flags_on_neutral_pair",
+                        )
+                    )
+            expected = guideline_status(
+                [pair.agreement_label.value for pair in claim.pairs],
+                [[flag.value for flag in pair.scope_flags] for pair in claim.pairs],
+            )
+            if claim.status is not expected:
+                departures.append(
+                    Problem(
+                        f"{item.item_id}.claims.{i}.status",
+                        f"{claim.status.value} differs from {expected.value}, the status "
+                        "the guideline's rules give (section 5.4)",
+                        "status_differs_from_rules",
+                    )
+                )
+    return departures
+
+
+def check_release(items: Sequence[GoldItem]) -> ReleaseCheck:
     """Check the rules that hold across the items of one release.
 
     - Item ids are unique.
@@ -753,8 +864,12 @@ def check_release(items: Sequence[GoldItem]) -> tuple[Problem, ...]:
     Each problem's field starts with the id of the item to change, for
     example `G0412.split`.
 
+    It also reports, without making the release invalid, each departure from
+    the annotation guideline: flags on a `neutral` pair (section 5.3), and a
+    claim status other than the one `guideline_status` gives (section 5.4).
+
     Returns:
-        Every problem found, or an empty tuple.
+        The problems and the departures; each is empty when there are none.
     """
     problems: list[Problem] = []
     by_id: dict[str, GoldItem] = {}
@@ -783,7 +898,7 @@ def check_release(items: Sequence[GoldItem]) -> tuple[Problem, ...]:
     problems += _origin_problems(items, by_id)
     problems += _source_problems(items)
     problems += _group_problems(items)
-    return tuple(problems)
+    return ReleaseCheck(tuple(problems), tuple(_departures(items)))
 
 
 def _origin_problems(items: Sequence[GoldItem], by_id: dict[str, GoldItem]) -> list[Problem]:
@@ -889,7 +1004,9 @@ __all__ = [
     "Origin",
     "PairRaw",
     "PerturbationRecord",
+    "ReleaseCheck",
     "check_release",
+    "guideline_status",
     "load_gold_item",
     "read_gold_release",
 ]

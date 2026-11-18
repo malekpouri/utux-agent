@@ -8,7 +8,7 @@ of an item, and the report holds no item, claim or pair id.
 """
 
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 
@@ -131,16 +131,22 @@ def span_overlap(
     )
 
 
-def match_claims(first: Sequence[tuple[int, int]], second: Sequence[tuple[int, int]]) -> int:
+ListedClaim = tuple[tuple[int, int], Collection[str]]
+"""A claim as one annotator listed it: its span and the source ids it cites."""
+
+
+def match_claims(first: Sequence[ListedClaim], second: Sequence[ListedClaim]) -> int:
     """Return how many claims of two lists match, one to one.
 
     Two claims match when their spans share at least half of the longer
-    span's characters (RFC-002, section 7, S1: "overlap by at least half").
-    Pairs are matched greedily, the largest share first.
+    span's characters and they cite the same sources, in any order (RFC-002,
+    section 7, S1). Pairs are matched greedily, the largest share first.
     """
     candidates = []
-    for i, (a_start, a_end) in enumerate(first):
-        for j, (b_start, b_end) in enumerate(second):
+    for i, ((a_start, a_end), a_cited) in enumerate(first):
+        for j, ((b_start, b_end), b_cited) in enumerate(second):
+            if set(a_cited) != set(b_cited):
+                continue
             shared = max(0, min(a_end, b_end) - max(a_start, b_start))
             share = Fraction(shared, max(a_end - a_start, b_end - b_start))
             if share >= Fraction(1, 2):
@@ -308,8 +314,8 @@ def annotation_agreement(
     for item in items:
         first, second = item.annotation.annotators
         lists = item.annotation.claim_extraction.raw
-        a_spans = [claim.span for claim in lists[first]]
-        b_spans = [claim.span for claim in lists[second]]
+        a_spans = [(claim.span, claim.citations) for claim in lists[first]]
+        b_spans = [(claim.span, claim.citations) for claim in lists[second]]
         listed_first += len(a_spans)
         listed_second += len(b_spans)
         matched += match_claims(a_spans, b_spans)

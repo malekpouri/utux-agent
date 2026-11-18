@@ -29,3 +29,11 @@ def test_contributing_guide_names_the_checks_and_the_process() -> None:
         assert command in text
     assert "AGENTS.md" in text
     assert "Apache-2.0" in text
+
+
+def test_interfaces_package_describes_what_exists() -> None:
+    import utux.interfaces
+
+    doc = utux.interfaces.__doc__ or ""
+    assert "ModelProvider" in doc
+    assert "The six Protocols" not in doc

@@ -58,7 +58,10 @@ utux.yaml: data_policy: required field is missing
 utux.yaml: oversight.gates.final_manuscript: the final-manuscript gate is always on and cannot be switched off
 ```
 
-- Unknown keys are errors, at every level.
-- A key that appears twice in one mapping is an error.
+- Unknown keys are errors, at every level (`unknown_key`).
+- A key that appears twice in one mapping is an error (`duplicate_key`).
+- A stage budget above `budget.total_usd` is reported on that stage
+  (`stage_budget_exceeds_total`).
+- `oversight.gates.final_manuscript: false` is an error (`final_gate_off`).
 - A file with a newer `schema_version` than this version of utux supports is
   refused, and nothing else in it is judged.
