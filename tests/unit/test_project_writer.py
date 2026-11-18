@@ -236,3 +236,16 @@ def test_a_missing_configuration_is_a_contract_error_naming_the_file(project: Pa
     _config(project).unlink()
     with pytest.raises(ContractValidationError, match=r"utux\.yaml"):
         record_setting_changes(project)
+
+
+def test_comments_key_order_and_spacing_are_no_change(project: Path) -> None:
+    # Changes are found on the validated values, not on the text.
+    config = _config(project)
+    lines = config.read_text(encoding="utf-8").splitlines()
+    reordered = [line for line in lines if not line.startswith("schema_version")]
+    text = "# A comment added by hand.\n" + "\n".join(reordered) + "\n\nschema_version:   1\n"
+    text = text.replace("total_usd: 20", "total_usd:    20   # the budget")
+    config.write_text(text, encoding="utf-8")
+    assert config.read_bytes() != (project / SNAPSHOT_FILE).read_bytes()
+    assert record_setting_changes(project).events == ()
+    assert _setting_events(project) == []
