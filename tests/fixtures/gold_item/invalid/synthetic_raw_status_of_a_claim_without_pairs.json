@@ -135,14 +135,18 @@
               0,
               78
             ],
-            "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9002."
+            "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9002.",
+            "citations": [
+              "synthetic:sg-synthetic-c-paper"
+            ]
           },
           {
             "span": [
               84,
               110
             ],
-            "text": "Synthetic method C is new."
+            "text": "Synthetic method C is new.",
+            "citations": []
           }
         ],
         "a92": [
@@ -151,14 +155,18 @@
               0,
               78
             ],
-            "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9002."
+            "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9002.",
+            "citations": [
+              "synthetic:sg-synthetic-c-paper"
+            ]
           },
           {
             "span": [
               84,
               110
             ],
-            "text": "Synthetic method C is new."
+            "text": "Synthetic method C is new.",
+            "citations": []
           }
         ]
       },

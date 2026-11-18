@@ -189,7 +189,10 @@
               0,
               78
             ],
-            "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9001."
+            "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9001.",
+            "citations": [
+              "synthetic:sg-synthetic-b-paper"
+            ]
           }
         ],
         "a92": [
@@ -198,14 +201,20 @@
               0,
               78
             ],
-            "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9001."
+            "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9001.",
+            "citations": [
+              "synthetic:sg-synthetic-b-paper"
+            ]
           },
           {
             "span": [
               0,
               18
             ],
-            "text": "Synthetic method A."
+            "text": "Synthetic method A.",
+            "citations": [
+              "synthetic:sg-synthetic-b-paper"
+            ]
           }
         ]
       },

@@ -12,7 +12,13 @@ from typing import Any
 import pytest
 
 from utux.errors import ContractValidationError, GoldSetError
-from utux.evalkit.gold import GoldItem, GoldSplit, check_release, read_gold_release
+from utux.evalkit.gold import (
+    GoldItem,
+    GoldSplit,
+    check_release,
+    guideline_status,
+    read_gold_release,
+)
 from utux.evalkit.splits import assign_splits, split_groups
 
 FIXTURE = (
@@ -57,7 +63,7 @@ def _apply(document: dict[str, Any], change: dict[str, Any]) -> None:
 
 
 def _problems(items: list[GoldItem]) -> list[tuple[str, str]]:
-    return [(problem.field, problem.code) for problem in check_release(items)]
+    return [(problem.field, problem.code) for problem in check_release(items).problems]
 
 
 # Reading
@@ -177,7 +183,7 @@ def test_assigned_splits_keep_every_group_together(seed: int) -> None:
     # reaches it (docs/gold-set.md).
     assert sum(split is GoldSplit.DEV for split in splits.values()) == 3
     applied = [item.model_copy(update={"split": splits[item.item_id]}) for item in items]
-    assert check_release(applied) == ()
+    assert check_release(applied).problems == ()
 
 
 def test_same_seed_gives_the_same_split() -> None:
@@ -219,3 +225,56 @@ def test_split_refuses_a_perturbed_item_whose_origin_is_missing() -> None:
     without_origin = [item for item in items if item.item_id != "G9000"]
     with pytest.raises(GoldSetError, match=r"G9001.*G9000"):
         split_groups(without_origin)
+
+
+# Departures from the guideline: reported, not failing
+
+
+def _departures(items: list[GoldItem]) -> list[tuple[str, str]]:
+    return [(d.field, d.code) for d in check_release(items).departures]
+
+
+def test_fixture_release_follows_the_guideline_rules() -> None:
+    # By guideline section 5.4, worked out from the README table: G9000,
+    # G9002, G9005, G9007, G9009 entails, no flag: verified. G9001 partial
+    # with a major flag, G9008 partial: partially_supported. G9003, G9006
+    # contradicts only: contradicted. G9004 neutral only: insufficient_evidence.
+    # Every reference status equals these, and no neutral pair has a flag.
+    assert _departures(_items()) == []
+
+
+def test_a_status_other_than_the_guideline_rules_give_is_a_departure() -> None:
+    # G9008: one partial pair, so the rules give partially_supported.
+    items = _changed(_items(), "G9008", {"claims.0.status": "verified"})
+    assert _departures(items) == [("G9008.claims.0.status", "status_differs_from_rules")]
+    assert _problems(items) == []
+
+
+def test_flags_on_a_neutral_pair_are_a_departure() -> None:
+    # G9004's only pair is neutral; a flag on it departs from section 5.3.
+    # The rules still give insufficient_evidence (rule 7), as the reference.
+    items = _changed(_items(), "G9004", {"claims.0.pairs.0.scope_flags": ["causal_overreach"]})
+    assert _departures(items) == [("G9004.claims.0.pairs.0.scope_flags", "flags_on_neutral_pair")]
+
+
+@pytest.mark.parametrize(
+    ("labels", "flags", "expected"),
+    [
+        # Rule 1 is the claim without pairs, tested below.
+        (["conflicting", "entails"], [[], []], "insufficient_evidence"),  # rule 2
+        (["entails", "contradicts"], [[], []], "insufficient_evidence"),  # rule 3
+        (["entails", "neutral"], [[], []], "verified"),  # rule 4, neutral ignored
+        (["entails"], [["certainty_escalation"]], "verified"),  # rule 4, minor flag
+        (["entails"], [["overgeneralisation"]], "partially_supported"),  # rule 5, major flag
+        (["entails"], [["direction_mismatch"]], "partially_supported"),  # rule 5, critical flag
+        (["partial", "neutral"], [[], []], "partially_supported"),  # rule 5
+        (["contradicts", "neutral"], [[], []], "contradicted"),  # rule 6
+        (["neutral", "neutral"], [[], []], "insufficient_evidence"),  # rule 7
+    ],
+)
+def test_guideline_status_rules(labels: list[str], flags: list[list[str]], expected: str) -> None:
+    assert guideline_status(labels, flags) == expected
+
+
+def test_guideline_status_of_a_claim_without_sources() -> None:
+    assert guideline_status([], []) == "insufficient_evidence"  # rule 1

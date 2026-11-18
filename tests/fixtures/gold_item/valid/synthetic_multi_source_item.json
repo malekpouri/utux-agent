@@ -199,14 +199,21 @@
               0,
               78
             ],
-            "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9003."
+            "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9003.",
+            "citations": [
+              "synthetic:sg-synthetic-c-paper",
+              "synthetic:sg-synthetic-d-paper"
+            ]
           },
           {
             "span": [
               84,
               113
             ],
-            "text": "Synthetic method B is slower."
+            "text": "Synthetic method B is slower.",
+            "citations": [
+              "synthetic:sg-synthetic-c-paper"
+            ]
           }
         ],
         "a92": [
@@ -215,14 +222,21 @@
               0,
               78
             ],
-            "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9003."
+            "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9003.",
+            "citations": [
+              "synthetic:sg-synthetic-c-paper",
+              "synthetic:sg-synthetic-d-paper"
+            ]
           },
           {
             "span": [
               84,
               113
             ],
-            "text": "Synthetic method B is slower."
+            "text": "Synthetic method B is slower.",
+            "citations": [
+              "synthetic:sg-synthetic-c-paper"
+            ]
           }
         ]
       },

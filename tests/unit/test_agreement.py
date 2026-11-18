@@ -178,14 +178,23 @@ def _sources() -> dict[str, str]:
 
 
 def test_claim_lists_match_by_half_of_the_longer_span() -> None:
+    s1 = ["synthetic:source-1"]
     # (0, 10) and (5, 15) share 5 of 10 characters: a match.
-    assert match_claims([(0, 10)], [(5, 15)]) == 1
+    assert match_claims([((0, 10), s1)], [((5, 15), s1)]) == 1
     # (0, 10) and (6, 16) share 4 of 10: no match.
-    assert match_claims([(0, 10)], [(6, 16)]) == 0
+    assert match_claims([((0, 10), s1)], [((6, 16), s1)]) == 0
     # (0, 4) and (0, 10) share 4 of the longer 10: no match.
-    assert match_claims([(0, 4)], [(0, 10)]) == 0
+    assert match_claims([((0, 4), s1)], [((0, 10), s1)]) == 0
     # One to one: two spans on the first side cannot both match one span.
-    assert match_claims([(0, 10), (0, 10)], [(0, 10)]) == 1
+    assert match_claims([((0, 10), s1), ((0, 10), s1)], [((0, 10), s1)]) == 1
+
+
+def test_matched_claims_need_the_same_citations() -> None:
+    # Same span, different sources: no match (RFC-002 section 7, S1).
+    assert match_claims([((0, 10), ["synthetic:a"])], [((0, 10), ["synthetic:b"])]) == 0
+    # The order of the citations does not matter.
+    both = ["synthetic:a", "synthetic:b"]
+    assert match_claims([((0, 10), both)], [((0, 10), list(reversed(both)))]) == 1
 
 
 def test_claim_extraction_agreement_on_the_synthetic_release() -> None:
