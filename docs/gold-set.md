@@ -72,8 +72,10 @@ none), `agreement_label` (the four agreement labels or `conflicting`),
   (`adjudicator_is_annotator`). It is required when anything in the item was
   adjudicated (`adjudicator_required`), and null otherwise
   (`adjudicator_not_allowed`).
-- `claim_extraction`: `raw`, each annotator's own list of claims (`span` and
-  `text`, the span within the text unit), `adjudicated` and
+- `claim_extraction`: `raw`, each annotator's own list of claims (`span`,
+  within the text unit; `text`; and `citations`, the distinct source ids the
+  claim relies on, empty for a claim that cites no source; repeated:
+  `duplicate_citation`), `adjudicated` and
   `adjudication_reason`.
 
 ### Raw entries and adjudication
@@ -90,7 +92,9 @@ pair):
   extraction, the reference claims are then the agreed list.
 
 Claim lists, evidence spans and scope flags are compared as sets, so their
-order does not matter. Notes are not compared. Every level with `adjudicated`
+order does not matter. Two listed claims are the same when span, text and
+citations (as a set) are the same; a reference claim's citations are the
+sources of its pairs. Notes are not compared. Every level with `adjudicated`
 true has an `adjudication_reason` (`adjudication_reason_required`), and every
 other level has none (`adjudication_reason_not_allowed`).
 
@@ -141,6 +145,25 @@ with the id of the item to change:
 A source group in both splits is reported once, on the first pair, in
 release order, whose item is in another split than the first item of the
 group.
+
+### Departures from the guideline
+
+`check_release` returns a `ReleaseCheck` with `problems` and `departures`.
+A departure does not make the release invalid: it is reported for the
+adjudicator, who may depart from a guideline rule with a written reason.
+
+| Departure | Code |
+| --- | --- |
+| A `neutral` pair with scope flags (guideline section 5.3) | `flags_on_neutral_pair` |
+| A claim status other than the one the guideline's rules give (section 5.4) | `status_differs_from_rules` |
+
+`guideline_status(labels, flags)` applies the rules of guideline section 5.4
+to a claim's pairs, in order: no sources, or a `conflicting` pair, or
+support together with contradiction give `insufficient_evidence`; every
+non-`neutral` pair `entails`, at least one, with no major or critical flag,
+gives `verified`; then any support gives `partially_supported`, any
+contradiction `contradicted`, and otherwise `insufficient_evidence`. It
+checks labels made by people and never sets one.
 
 ## The split
 

@@ -21,8 +21,8 @@ Gold items, releases and the split are described in
 | `span_overlap(first, second, text)` | Token-level F1 = 2\|A and B\| / (\|A\| + \|B\|) and IoU = \|A and B\| / \|A or B\| |
 
 `match_claims(first, second)` counts the claims of two lists that match one
-to one: two claims match when their spans share at least half of the longer
-span's characters. Candidate pairs are matched greedily, the largest share
+to one: two claims match when they cite the same sources (in any order) and
+their spans share at least half of the longer span's characters. Candidate pairs are matched greedily, the largest share
 first.
 
 ### The token rule for spans
