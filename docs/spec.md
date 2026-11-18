@@ -198,6 +198,8 @@ A profile is a named combination of implementations. Only profiles are tested in
 | `default` | OpenRouter | Local Docker | Recommended starting point |
 | `local` | Ollama | Local Docker | No API cost; lower quality on planning and coding |
 
+The `local` profile's server is `local_server.base_url` in `utux.yaml`, by default Ollama's usual address `http://localhost:11434/v1`. Whether a provider is external is derived from the host of its address, so a "local" server on another machine counts as external.
+
 ### Future-proofing
 
 - **Web dashboard.** The core only writes events and approval requests to files. A dashboard is a separate package that reads them.
@@ -265,8 +267,49 @@ my-project/
   events.jsonl              # [init]  append-only event log; starts with the project_created event
   approvals/                # [init]  pending and answered approval requests
   .utux/meta/               # [init]  one metadata sidecar per artifact version
+  .utux/settings-snapshot.yaml  # [init]  utux.yaml as last recorded; setting changes are recorded against it
   .utux/checkpoints.sqlite  # [later]
+  .utux/lock                # [later] the project lock, held by a command that writes to the project
   reproduce.sh              # [later]
+```
+
+`utux.yaml` with every field set:
+
+```yaml
+schema_version: 1
+profile: local
+domain_pack: generic
+data_policy: local_only
+local_server:
+  base_url: http://localhost:11434/v1
+budget:
+  total_usd: 50
+  allow_unknown_cost: false
+  per_stage_usd:
+    experiment: 20
+oversight:
+  mode: guided
+  gates:
+    experiment_plan: true
+verification:
+  enabled: true
+ai_disclosure:
+  draft: true
+resources:
+  cpus: 4
+  memory_mb: 8192
+  wall_clock_seconds: 3600
+models:
+  tiers:
+    light: example/light-model
+  roles:
+    planner: light
+```
+
+The project lock `.utux/lock`:
+
+```json
+{"pid": 4242, "host": "host-a", "command": "utux run", "started_at": "2026-11-18T09:00:00Z"}
 ```
 
 Paths marked `[init]` exist after `utux init`. Paths marked `[later]` are created by the stage or component that owns them. A directory that is empty after `utux init` holds a `.gitkeep` file, so that the first commit contains the whole tree.
@@ -491,6 +534,10 @@ A different model family does not by itself make the reviewer independent. The r
 - Each project has a total budget and a per-stage budget in USD. The total budget has no default: the user states it when the project is created with utux init. Per-stage budgets are optional, and none may exceed the total.
 - The CLI prints a cost estimate before each stage and the running total after it.
 - Every model call logs tokens and cost to `events.jsonl`.
+- An external provider that reports no cost cannot be held to a budget. After its first successful call without a cost, later calls to it are refused unless `budget.allow_unknown_cost` is true; setting it is logged as a `setting_changed` event. OpenRouter reports cost, so the default profile is not affected.
+- A project runs one model call at a time. Every command that writes to a project holds a lock file under `.utux/`, so a second `utux run` on the same project refuses to start; a lock left by a process that is no longer running is reported, not taken over.
+- A run reads the cost totals from the log once when it starts and keeps them in memory, which the lock makes safe.
+- Before it acts, every command that writes to a project compares `utux.yaml` with the last recorded snapshot and logs one `setting_changed` event per changed key, with the old and new value. A hand edit of the budget or of any other setting is recorded this way.
 - Literature results and source passages are cached across projects on the same machine.
 - The CLI reports estimated and actual cost for every stage and every agent role.
 
