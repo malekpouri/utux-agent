@@ -140,8 +140,16 @@ def test_items_of_one_release_share_its_version() -> None:
 
 def test_one_source_belongs_to_one_group() -> None:
     # G9009 cites the source of G9008 but puts it in its own group.
+    cited = ["synthetic:sg-synthetic-g-paper"]
     items = _changed(
-        _items(), "G9009", {"claims.0.pairs.0.source_id": "synthetic:sg-synthetic-g-paper"}
+        _items(),
+        "G9009",
+        {
+            "claims.0.pairs.0.source_id": cited[0],
+            # The extracted claims cite the same source, so the item stays valid.
+            "annotation.claim_extraction.raw.a91.0.citations": cited,
+            "annotation.claim_extraction.raw.a92.0.citations": cited,
+        },
     )
     assert _problems(items) == [("G9009.claims.0.pairs.0.source_group", "source_group_mismatch")]
 
@@ -245,7 +253,18 @@ def test_fixture_release_follows_the_guideline_rules() -> None:
 
 def test_a_status_other_than_the_guideline_rules_give_is_a_departure() -> None:
     # G9008: one partial pair, so the rules give partially_supported.
-    items = _changed(_items(), "G9008", {"claims.0.status": "verified"})
+    # The annotators agreed on partially_supported, so the departure is an
+    # adjudication, with its reason.
+    items = _changed(
+        _items(),
+        "G9008",
+        {
+            "claims.0.status": "verified",
+            "claims.0.adjudicated": True,
+            "claims.0.adjudication_reason": "Synthetic adjudication reason.",
+            "annotation.adjudicator": "a90",
+        },
+    )
     assert _departures(items) == [("G9008.claims.0.status", "status_differs_from_rules")]
     assert _problems(items) == []
 
@@ -253,7 +272,16 @@ def test_a_status_other_than_the_guideline_rules_give_is_a_departure() -> None:
 def test_flags_on_a_neutral_pair_are_a_departure() -> None:
     # G9004's only pair is neutral; a flag on it departs from section 5.3.
     # The rules still give insufficient_evidence (rule 7), as the reference.
-    items = _changed(_items(), "G9004", {"claims.0.pairs.0.scope_flags": ["causal_overreach"]})
+    items = _changed(
+        _items(),
+        "G9004",
+        {
+            "claims.0.pairs.0.scope_flags": ["causal_overreach"],
+            "claims.0.pairs.0.adjudicated": True,
+            "claims.0.pairs.0.adjudication_reason": "Synthetic adjudication reason.",
+            "annotation.adjudicator": "a90",
+        },
+    )
     assert _departures(items) == [("G9004.claims.0.pairs.0.scope_flags", "flags_on_neutral_pair")]
 
 
