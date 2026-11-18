@@ -29,7 +29,8 @@ there are no agents and no pipeline stages. What works:
 - `utux schema export <dir>` writes a JSON Schema file for every file
   contract.
 - As library code: the schemas of all file contracts, the append-only event
-  log, the `ModelProvider` interface with one OpenAI-compatible client
+  log, the internal `Executor` contract with its conformance suite, the
+  `ModelProvider` interface with one OpenAI-compatible client
   (OpenRouter, a direct OpenAI key, or a local server such as Ollama), and
   the evaluation toolkit for the gold-standard set (item schema, group-aware
   split, annotator agreement, metrics and intervals).
@@ -127,6 +128,7 @@ See [Cost and budget](docs/cost.md).
 - [Schema conventions](docs/schema-conventions.md)
 - [Artifact metadata and content hashes](docs/artifact-metadata.md)
 - [The `ModelProvider` interface](docs/model-provider.md)
+- [The `Executor` interface](docs/executor.md)
 - [Events and the event log](docs/event-log.md)
 - [Logged model calls and `utux model ping`](docs/model-calls.md)
 - [Cost and budget: `utux cost`](docs/cost.md)
