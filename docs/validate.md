@@ -113,6 +113,13 @@ A file is hashed with `hash_file` and a directory with
 sidecar that is invalid, or that repeats an `artifact_id`, takes no part in
 this check.
 
+### The ignore lines
+
+A `.gitignore` that lacks any of the lines of ADR-0009, or a missing
+`.gitignore`, gives the warning `gitignore_missing_lines` on `.gitignore`,
+naming the lines to add. Large inputs and run outputs might otherwise be
+committed. Projects created by `utux init` have the lines.
+
 ### Files kept out of git
 
 Under ADR-0009, files under `inputs/` other than `*.md`, and everything

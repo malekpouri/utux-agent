@@ -43,6 +43,9 @@ INVALID = [
     ("not_a_mapping.yaml", "<document>", "not_a_mapping"),
     ("duplicate_key.yaml", "data_policy", "duplicate_key"),
     ("malformed_yaml.yaml", "<document>", "invalid_yaml"),
+    ("local_server_url_not_http.yaml", "local_server.base_url", "invalid_url"),
+    ("local_server_url_with_credentials.yaml", "local_server.base_url", "credentials_in_url"),
+    ("allow_unknown_cost_not_boolean.yaml", "budget.allow_unknown_cost", "bool_type"),
 ]
 
 
@@ -73,6 +76,8 @@ def test_minimal_file_validates_and_fills_documented_defaults() -> None:
     assert config.resources.max_processes is None
     assert config.models.tiers == {}
     assert config.models.roles == {}
+    assert config.local_server.base_url == "http://localhost:11434/v1"
+    assert config.budget.allow_unknown_cost is False
 
 
 def test_minimal_fixture_holds_only_the_required_fields() -> None:
@@ -114,6 +119,8 @@ def test_full_file_reads_every_field() -> None:
     assert config.profile == "local"
     assert config.domain_pack == "bio-pilot"
     assert config.data_policy is DataPolicy.EXTERNAL_ALLOWED
+    assert config.local_server.base_url == "http://127.0.0.1:8080/v1"
+    assert config.budget.allow_unknown_cost is True
     assert config.budget.per_stage_usd[Stage.EXPERIMENT] == 20.0
     assert set(config.budget.per_stage_usd) == set(Stage)
     assert config.oversight.mode is OversightMode.AUTO
@@ -318,3 +325,10 @@ def test_stage_budget_rule_is_silent_when_total_is_itself_invalid() -> None:
     assert [(p.field, p.code) for p in caught.value.problems] == [
         ("budget.total_usd", "greater_than")
     ]
+
+
+def test_the_credentials_of_a_local_server_url_are_not_repeated_in_the_error() -> None:
+    text = (FIXTURES / "invalid" / "local_server_url_with_credentials.yaml").read_text("utf-8")
+    with pytest.raises(ContractValidationError) as caught:
+        ProjectConfig.from_yaml(text)
+    assert "secret" not in str(caught.value)

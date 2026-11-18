@@ -22,8 +22,10 @@ These three values are required. Everything else has a default.
 | `schema_version` | integer | none; required | Version of this schema. Currently `1` |
 | `data_policy` | `external_allowed` or `local_only` | none; required | What may be sent to external services. There is no default on purpose |
 | `budget.total_usd` | number above 0 | none; required | Total budget of the project in US dollars |
+| `budget.allow_unknown_cost` | boolean | `false` | Whether calls to an external provider may continue after one of its calls reported no cost. See [Cost and budget](cost.md) |
 | `budget.per_stage_usd` | mapping of stage to number above 0 | empty | Budget per stage. Stages: `ideation`, `literature`, `methodology`, `implementation`, `experiment`, `writing`. No stage budget may exceed `budget.total_usd`; their sum may |
 | `profile` | name | `default` | The named combination of implementations |
+| `local_server.base_url` | `http` or `https` URL with a host, without a user name or password | `http://localhost:11434/v1` | The OpenAI-compatible server of the `local` profile. Whether it is external is derived from the host, so a server on another machine counts as external. Codes `invalid_url` and `credentials_in_url`; the value is not repeated in an error |
 | `domain_pack` | name | `generic` | The domain pack |
 | `oversight.mode` | `guided` or `auto` | `guided` | Which approval gates are on |
 | `oversight.gates.idea` | boolean | follows the mode | Switch for the idea gate |
@@ -44,8 +46,62 @@ These three values are required. Everything else has a default.
 Names (`profile`, `domain_pack`, role names) are lower-case letters, digits,
 `-` and `_`, starting with a letter.
 
+A change of any setting is recorded as a `setting_changed` event by the
+next command that writes to the project ([Creating a project](project.md)).
+
 In `guided` mode every gate is on. In `auto` mode only the final-manuscript
 gate is on. A per-gate switch overrides the mode for that gate.
+
+## A complete file
+
+Every field set, including the two added in M1, `local_server.base_url` and
+`budget.allow_unknown_cost`:
+
+```yaml
+schema_version: 1
+profile: local
+domain_pack: bio-pilot
+data_policy: external_allowed
+local_server:
+  base_url: http://127.0.0.1:8080/v1
+budget:
+  total_usd: 50
+  allow_unknown_cost: true
+  per_stage_usd:
+    ideation: 2
+    literature: 5
+    methodology: 5
+    implementation: 10
+    experiment: 20
+    writing: 8
+oversight:
+  mode: auto
+  gates:
+    idea: true
+    method: false
+    experiment_plan: true
+    final_manuscript: true
+verification:
+  enabled: false
+ai_disclosure:
+  draft: false
+resources:
+  cpus: 4
+  memory_mb: 8192
+  gpus: 0
+  wall_clock_seconds: 3600
+  disk_mb: 20480
+  max_processes: 256
+models:
+  tiers:
+    light: example/light-model
+    standard: example/standard-model
+    strong: example/strong-model
+  roles:
+    planner: strong
+    writer: standard
+    summariser: light
+```
 
 ## Errors
 

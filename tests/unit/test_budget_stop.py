@@ -40,7 +40,10 @@ def _spend(
     provider = ScriptedModelProvider(
         [ScriptedReply(cost_usd=cost) for cost in costs], is_external=is_external
     )
-    caller = LoggedModelCaller(log, provider, DataPolicy.EXTERNAL_ALLOWED, Budget(total_usd=1000.0))
+    # Unknown costs are allowed while spending, so that every cost is logged as
+    # given; otherwise the second unknown cost would be refused (M1-05).
+    budget = Budget(total_usd=1000.0, allow_unknown_cost=True)
+    caller = LoggedModelCaller(log, provider, DataPolicy.EXTERNAL_ALLOWED, budget)
     for _ in costs:
         caller.call(REQUEST, actor="agent:planner", prompt_version="synthetic@1", stage=stage)
 

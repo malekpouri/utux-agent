@@ -28,6 +28,7 @@ from utux.workspace.layout import (
     PROJECT_DIRECTORIES,
     RESULTS_FILE,
 )
+from utux.workspace.writer import SNAPSHOT_FILE
 
 SYSTEM_ACTOR = "system:utux"
 FIRST_COMMIT_MESSAGE = "Create utux project"
@@ -111,6 +112,9 @@ def _create(directory: Path, config: ProjectConfig, clock: Callable[[], datetime
         # Git does not track an empty directory.
         atomic_write_bytes(directory / name / GITKEEP_FILE, b"")
     atomic_write_text(directory / CONFIG_FILE, config.to_yaml())
+    # The first snapshot of the settings, against which later commands
+    # record changes (utux.workspace.writer).
+    atomic_write_text(directory / SNAPSHOT_FILE, config.to_yaml())
     atomic_write_text(directory / GITIGNORE_FILE, _gitignore_text())
     atomic_write_bytes(directory / CLAIM_LEDGER_FILE, b"")
     atomic_write_bytes(directory / RESULTS_FILE, b"")

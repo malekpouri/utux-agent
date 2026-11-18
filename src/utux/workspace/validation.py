@@ -42,9 +42,11 @@ from utux.schemas.source_record import SourceRecord
 from utux.schemas.yaml_io import parse_yaml
 from utux.workspace.hashing import hash_bytes, hash_file
 from utux.workspace.layout import (
+    ADR_0009_IGNORE_LINES,
     CLAIM_LEDGER_FILE,
     CONFIG_FILE,
     EVENT_LOG_FILE,
+    GITIGNORE_FILE,
     GITKEEP_FILE,
     RESULTS_FILE,
     hash_project_directory,
@@ -627,6 +629,27 @@ class _Validator:
                 f"the file is named for {named} but holds {document.approval_id}",
             )
 
+    def gitignore(self) -> None:
+        """Warn when `.gitignore` lacks the lines of ADR-0009."""
+        path = self.project / GITIGNORE_FILE
+        try:
+            present = set(path.read_text(encoding="utf-8").splitlines())
+        except FileNotFoundError:
+            present = set()
+        except (OSError, UnicodeDecodeError):
+            self.add(GITIGNORE_FILE, None, DOCUMENT_FIELD, "unreadable", "the file cannot be read")
+            return
+        missing = [line for line in ADR_0009_IGNORE_LINES if line not in present]
+        if missing:
+            self.warn(
+                GITIGNORE_FILE,
+                None,
+                DOCUMENT_FIELD,
+                "gitignore_missing_lines",
+                "lacks the lines of ADR-0009, so large inputs and run outputs may be "
+                f"committed to git; add: {', '.join(missing)}",
+            )
+
     def fragments(self) -> None:
         """Check fragment side files and `log_repaired` events against each other."""
         sides = fragment_files(self.project / EVENT_LOG_FILE)
@@ -733,6 +756,7 @@ def validate_project(directory: Path) -> ValidationReport:
     validator.sidecars()
     validator.runs()
     validator.approvals()
+    validator.gitignore()
     return _report(validator)
 
 

@@ -23,6 +23,9 @@ there are no agents and no pipeline stages. What works:
   `local_only`.
 - `utux log repair` saves aside an incomplete last line of the event log,
   left by an interrupted write, and records the repair.
+- Commands that write to a project hold a project lock, so two never run at
+  once, and record every hand edit of `utux.yaml` as a `setting_changed`
+  event before they act.
 - `utux schema export <dir>` writes a JSON Schema file for every file
   contract.
 - As library code: the schemas of all file contracts, the append-only event
@@ -48,9 +51,16 @@ Following the roadmap in section 12 of the [specification](docs/spec.md):
 
 Nothing on this list exists yet.
 
+## Requirements
+
+- Python 3.12 or newer, [uv](https://docs.astral.sh/uv/) and git 2.28 or
+  newer.
+- Linux. utux is tested on Linux. macOS should work but is not tested in CI.
+  Windows is not supported: the project lock relies on POSIX process checks.
+
 ## Quick start
 
-You need Python 3.12 or newer, [uv](https://docs.astral.sh/uv/) and git.
+You need the requirements above.
 
 ```bash
 git clone https://github.com/malekpouri/utux-agent.git

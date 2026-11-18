@@ -8,9 +8,10 @@ version. Its `data` names the provider and whether it is external, so that the
 log shows which provider received which content hash.
 
 A call is refused before any request is sent when the data policy does not
-allow it, or when the known cost has reached the project budget or the budget
-of the call's stage. A refusal for the budget also writes a `budget_warning`
-event.
+allow it; when an earlier successful call to the same external provider
+reported no cost and `budget.allow_unknown_cost` is false; or when the known
+cost has reached the project budget or the budget of the call's stage. A
+refusal for the budget also writes a `budget_warning` event.
 """
 
 import json
@@ -32,6 +33,7 @@ from utux.errors import (
     ModelRequestRejectedError,
     ModelTimeoutError,
     ModelUnavailableError,
+    UnknownCostNotAllowedError,
 )
 from utux.events.log import EventLog
 from utux.interfaces.model_provider import (
@@ -47,9 +49,11 @@ from utux.schemas.event import EventStatus, EventType, NewEvent
 from utux.schemas.project_config import Budget, DataPolicy, load_project_config
 from utux.workspace.hashing import hash_bytes
 from utux.workspace.layout import CONFIG_FILE, EVENT_LOG_FILE
+from utux.workspace.writer import writing_command
 
 REFUSED_LOCAL_ONLY = "data_policy_local_only"
 REFUSED_BUDGET = "budget_exhausted"
+REFUSED_UNKNOWN_COST = "unknown_cost_not_allowed"
 UNEXPECTED_ERROR = "unexpected_error"
 INTERRUPTED = "interrupted"
 
@@ -146,6 +150,10 @@ class LoggedModelCaller:
         Raises:
             ModelCallRefusedError: The data policy does not allow the call.
                 It is logged with status `refused`; no request is sent.
+            UnknownCostNotAllowedError: An earlier successful call to this
+                external provider reported no cost, and
+                `budget.allow_unknown_cost` is false. Logged with status
+                `refused`; no request is sent.
             BudgetExhaustedError: The project budget, or the budget of the
                 call's stage, is exhausted. The call is logged with status
                 `refused` and a `budget_warning` event follows it; no request
@@ -178,6 +186,19 @@ class LoggedModelCaller:
             raise ModelCallRefusedError(
                 f"the data policy local_only does not allow calls to the external provider "
                 f"{self._provider.name}"
+            )
+        if (
+            self._provider.is_external
+            and not self._budget.allow_unknown_cost
+            and self._reported_no_cost(self._provider.name)
+        ):
+            self._log.append(
+                event(EventStatus.REFUSED, status_reason=REFUSED_UNKNOWN_COST, model=request.model)
+            )
+            raise UnknownCostNotAllowedError(
+                f"an earlier call to the external provider {self._provider.name} reported "
+                "no cost, so its spending cannot be held against the budget; set "
+                "budget.allow_unknown_cost to true in utux.yaml to accept that"
             )
         exhausted = exhausted_budget(summarize_costs(self._log), self._budget, stage)
         if exhausted is not None:
@@ -231,6 +252,21 @@ class LoggedModelCaller:
         )
         return response
 
+    def _reported_no_cost(self, provider: str) -> bool:
+        """Whether a successful call to this external provider reported no cost.
+
+        Only a successful call counts: a refused call sent nothing, and a
+        failed call is accounted for by its own rules.
+        """
+        return any(
+            event.type is EventType.MODEL_CALL
+            and event.status is EventStatus.OK
+            and event.cost_usd is None
+            and event.data.get("provider") == provider
+            and event.data.get("is_external") is True
+            for event in self._log
+        )
+
     def _milliseconds_since(self, started: float) -> int:
         return max(0, round((self._clock() - started) * 1000))
 
@@ -247,9 +283,11 @@ def ping_model(project: Path, tier: Tier) -> Ping:
     """Send a fixed short prompt to the model of a tier, logged in the project.
 
     The model comes from `models.tiers` in `utux.yaml`, and the provider from
-    the project's profile.
+    the project's profile. The command holds the project lock and records
+    setting changes before it calls (`utux.workspace.writer`).
 
     Raises:
+        ProjectLockedError: Another command holds the project lock.
         ContractValidationError: `utux.yaml` is missing or invalid.
         ModelProviderConfigError: No model is configured for the tier, or the
             profile has no provider. Nothing is logged.
@@ -257,13 +295,20 @@ def ping_model(project: Path, tier: Tier) -> Ping:
             the budget is exhausted (`BudgetExhaustedError`).
         ModelProviderError: The call failed.
     """
+    with writing_command(project, "model ping"):
+        return _ping(project, tier)
+
+
+def _ping(project: Path, tier: Tier) -> Ping:
     config = load_project_config(project / CONFIG_FILE)
     model = config.models.tiers.get(tier)
     if model is None:
         raise ModelProviderConfigError(
             f"no model is configured for the tier {tier.value} in {CONFIG_FILE} (models.tiers)"
         )
-    provider = profiles.provider_for_profile(config.profile)
+    provider = profiles.provider_for_profile(
+        config.profile, local_base_url=config.local_server.base_url
+    )
     caller = LoggedModelCaller(
         EventLog(project / EVENT_LOG_FILE), provider, config.data_policy, config.budget
     )

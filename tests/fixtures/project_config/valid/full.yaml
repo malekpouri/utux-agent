@@ -2,8 +2,11 @@ schema_version: 1
 profile: local
 domain_pack: bio-pilot
 data_policy: external_allowed
+local_server:
+  base_url: http://127.0.0.1:8080/v1
 budget:
   total_usd: 50
+  allow_unknown_cost: true
   per_stage_usd:
     ideation: 2
     literature: 5

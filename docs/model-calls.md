@@ -72,6 +72,13 @@ call's stage, a call is refused the same way with `status_reason`
 `BudgetExhaustedError` (a `ModelCallRefusedError`) is raised. The data policy
 is checked first. See [Cost and budget](cost.md).
 
+After a successful call to an external provider returned no cost, every
+later call to that provider is refused with `status_reason`
+`unknown_cost_not_allowed` and `UnknownCostNotAllowedError` (a
+`ModelCallRefusedError`), unless `budget.allow_unknown_cost` is true in
+`utux.yaml`. Calls to a local provider and failed calls never trigger this.
+It is checked after the data policy and before the budget.
+
 ## `utux model ping`
 
 ```bash
@@ -90,8 +97,12 @@ openai/gpt-4o-mini answered through openrouter: 14 tokens in, 1 token out, cost 
 - The model comes from `models.tiers` in `utux.yaml`. If the tier has no
   model, the command fails and nothing is logged; there is no default model.
 - The provider comes from the profile: `default` is OpenRouter, with the key
-  from `OPENROUTER_API_KEY`; `local` is a local OpenAI-compatible server at
+  from `OPENROUTER_API_KEY`; `local` is the OpenAI-compatible server at
+  `local_server.base_url` in `utux.yaml`, by default
   `http://localhost:11434/v1` (Ollama's usual address).
+- It holds the project lock and records setting changes before the call
+  ([Creating a project](project.md)). While another command holds the lock,
+  it is refused and nothing is sent.
 - A cost the provider did not report is printed as
   `cost unknown: the provider reported none`.
 - A failed or refused call is logged and the command exits with 1. The event

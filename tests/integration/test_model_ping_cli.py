@@ -4,6 +4,7 @@ The provider is the scripted fake, put in place of the profile's provider;
 no test reaches the network.
 """
 
+import os
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ from utux.providers import profiles
 from utux.providers.scripted import ScriptedFailure, ScriptedModelProvider, ScriptedReply
 from utux.schemas.event import EventStatus, EventType, NewEvent
 from utux.workspace.validation import validate_project
+from utux.workspace.writer import project_lock
 
 runner = CliRunner(env={"NO_COLOR": "1", "TERM": "dumb"})
 
@@ -41,10 +43,12 @@ class Use:
     def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self.monkeypatch = monkeypatch
         self.profiles: list[str] = []
+        self.local_base_urls: list[str] = []
 
     def __call__(self, provider: ModelProvider) -> None:
-        def factory(profile: str) -> ModelProvider:
+        def factory(profile: str, *, local_base_url: str) -> ModelProvider:
             self.profiles.append(profile)
+            self.local_base_urls.append(local_base_url)
             return provider
 
         self.monkeypatch.setattr(profiles, "provider_for_profile", factory)
@@ -84,7 +88,18 @@ def test_ping_prints_tokens_and_cost_and_logs_the_call(tmp_path: Path, use: Use)
     (request,) = provider.requests
     assert request.model == "synthetic/light-model"
     events = list(EventLog(project / "events.jsonl"))
-    assert [event.type for event in events] == [EventType.PROJECT_CREATED, EventType.MODEL_CALL]
+    # The tier was set by editing utux.yaml after init; the edit is recorded
+    # before the call (M1-05).
+    assert [event.type for event in events] == [
+        EventType.PROJECT_CREATED,
+        EventType.SETTING_CHANGED,
+        EventType.MODEL_CALL,
+    ]
+    assert events[1].data == {
+        "key": "models.tiers.light",
+        "old_value": None,
+        "new_value": "synthetic/light-model",
+    }
     call = events[-1]
     assert call.status is EventStatus.OK
     assert (call.tokens_in, call.tokens_out, call.cost_usd) == (14, 1, 0.0000021)
@@ -188,3 +203,31 @@ def test_directory_without_a_project_fails(tmp_path: Path) -> None:
 
 def test_model_command_is_listed_in_the_help() -> None:
     assert "model" in runner.invoke(app, ["--help"]).output
+
+
+# The project lock and the configured local server (M1-05)
+
+
+def test_ping_is_refused_while_another_command_holds_the_lock(tmp_path: Path, use: Use) -> None:
+    provider = ScriptedModelProvider([ScriptedReply()])
+    use(provider)
+    project = _project(tmp_path)
+    with project_lock(project, "synthetic holder"):
+        result = runner.invoke(app, ["model", "ping", str(project)])
+    assert result.exit_code == 1
+    assert f"process {os.getpid()}" in result.output
+    assert provider.requests == ()
+    assert [e.type for e in EventLog(project / "events.jsonl")] == [EventType.PROJECT_CREATED]
+
+
+def test_ping_passes_the_configured_local_server_to_the_profile(tmp_path: Path, use: Use) -> None:
+    use(ScriptedModelProvider([ScriptedReply()], is_external=False))
+    project = _project(tmp_path)
+    config = project / "utux.yaml"
+    text = config.read_text(encoding="utf-8")
+    old = "  base_url: http://localhost:11434/v1\n"
+    assert text.count(old) == 1
+    config.write_text(text.replace(old, "  base_url: http://127.0.0.1:8080/v1\n"), "utf-8")
+    result = runner.invoke(app, ["model", "ping", str(project)])
+    assert result.exit_code == 0, result.output
+    assert use.local_base_urls == ["http://127.0.0.1:8080/v1"]

@@ -8,6 +8,7 @@ resource limits, data policy and AI disclosure (section 10).
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, ClassVar, Self
+from urllib.parse import urlsplit
 
 import yaml
 from pydantic import Field, StrictBool, ValidationError, ValidationInfo, field_validator
@@ -49,10 +50,15 @@ class Budget(ContractPart):
     The total has no default; the user states it when the project is created
     (specification, section 9). Stage budgets are optional. None may exceed
     the total, but their sum may.
+
+    `allow_unknown_cost` lets calls to an external provider continue after
+    one of its calls reported no cost. By default they are refused, because
+    a cost that is not known cannot be held against the budget.
     """
 
     total_usd: PositiveUsd
     per_stage_usd: dict[Stage, PositiveUsd] = Field(default_factory=dict)
+    allow_unknown_cost: StrictBool = False
 
     @field_validator("per_stage_usd")
     @classmethod
@@ -81,6 +87,38 @@ class Budget(ContractPart):
         ]
         if errors:
             raise ValidationError.from_exception_data(cls.__name__, errors)
+        return value
+
+
+DEFAULT_LOCAL_BASE_URL = "http://localhost:11434/v1"
+"""Ollama's usual address."""
+
+
+class LocalServer(ContractPart):
+    """The OpenAI-compatible server of the `local` profile.
+
+    `base_url` must be an http or https URL with a host. Credentials in it
+    are refused: `utux.yaml` is committed to git.
+    """
+
+    base_url: Annotated[str, Field(strict=True)] = DEFAULT_LOCAL_BASE_URL
+
+    @field_validator("base_url")
+    @classmethod
+    def _http_url_without_credentials(cls, value: str) -> str:
+        parts = urlsplit(value)
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            raise PydanticCustomError(
+                "invalid_url",
+                "must be an http or https URL with a host, such as {example}",
+                {"example": DEFAULT_LOCAL_BASE_URL},
+            )
+        if parts.username is not None or parts.password is not None:
+            # The value is not repeated, so that the credentials stay out of the message.
+            raise PydanticCustomError(
+                "credentials_in_url",
+                "must not hold a user name or password; utux.yaml is committed to git",
+            )
         return value
 
 
@@ -169,6 +207,7 @@ class ProjectConfig(ContractDocument):
     profile: Identifier = "default"
     domain_pack: Identifier = "generic"
     data_policy: DataPolicy
+    local_server: LocalServer = Field(default_factory=LocalServer)
     budget: Budget
     oversight: Oversight = Field(default_factory=Oversight)
     verification: Verification = Field(default_factory=Verification)

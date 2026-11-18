@@ -79,7 +79,9 @@ def test_readme_quick_start_works_as_written(
     assert [step[0] for step in steps] == ["init", "validate", "model", "cost", "cost"]
 
     provider = ScriptedModelProvider([ScriptedReply(content="pong", cost_usd=0.0000021)])
-    monkeypatch.setattr(profiles, "provider_for_profile", lambda profile: provider)
+    monkeypatch.setattr(
+        profiles, "provider_for_profile", lambda profile, *, local_base_url: provider
+    )
     monkeypatch.chdir(tmp_path)
 
     outputs = []
