@@ -2,9 +2,15 @@
 
 from pathlib import Path
 
-from executor_suite import SUCCESS_CONTENT, SUCCESS_FILE, SUCCESS_STDOUT, ExecutorConformance
-from scripted_executor import ScriptedExecutor, ScriptedRun, ScriptedUnavailable
+from executor_suite import (
+    SUCCESS_CONTENT,
+    SUCCESS_FILE,
+    SUCCESS_STDOUT,
+    ExecutorConformance,
+    noisy_stream,
+)
 
+from utux.executors.scripted import ScriptedExecutor, ScriptedRun, ScriptedUnavailable
 from utux.interfaces.executor import ExecutionStep, LimitKind, ResourceLimits
 
 
@@ -32,7 +38,7 @@ class TestScriptedExecutor(ExecutorConformance):
     def make_noisy(
         self, project: Path, cap_bytes: int, total_bytes: int
     ) -> tuple[ScriptedExecutor, ExecutionStep]:
-        run = ScriptedRun(stdout=b"x" * total_bytes)
+        run = ScriptedRun(stdout=noisy_stream(total_bytes))
         return ScriptedExecutor(project, [run], output_cap_bytes=cap_bytes), _step()
 
     def make_slow(self, project: Path) -> tuple[ScriptedExecutor, ExecutionStep]:

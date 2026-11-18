@@ -18,6 +18,7 @@ from utux.interfaces.executor import (
     OutputFile,
     ResourceLimits,
     RunResult,
+    omission_marker,
 )
 
 DIGEST = "sha256:" + "a" * 64
@@ -135,34 +136,92 @@ def test_output_within_the_cap_is_kept_whole() -> None:
     capture.feed(b"abc")
     capture.feed(b"def")
     assert capture.result() == CapturedOutput(
-        content=b"abcdef", total_bytes=6, cap_bytes=10, truncated=False
+        content=b"abcdef", total_bytes=6, cap_bytes=10, omitted_bytes=0, truncated=False
     )
 
 
-def test_output_beyond_the_cap_is_cut_and_the_cut_is_reported() -> None:
-    capture = OutputCapture(cap_bytes=4)
-    for chunk in (b"ab", b"cdef", b"gh"):
+def test_the_marker_states_how_many_bytes_were_left_out() -> None:
+    assert omission_marker(936) == b"\n[utux: 936 bytes left out]\n"
+
+
+def test_output_beyond_the_cap_keeps_both_ends_and_marks_the_gap() -> None:
+    capture = OutputCapture(cap_bytes=8)
+    # 20 bytes in uneven chunks: the first 4 and the last 4 are kept.
+    for chunk in (b"ab", b"cdefghijkl", b"mnopq", b"rst"):
         capture.feed(chunk)
     result = capture.result()
-    assert result.content == b"abcd"
-    assert result.total_bytes == 8
-    assert result.cap_bytes == 4
+    assert result.content == b"abcd" + omission_marker(12) + b"qrst"
+    assert result.total_bytes == 20
+    assert result.omitted_bytes == 12
+    assert result.cap_bytes == 8
     assert result.truncated is True
+
+
+def test_an_odd_cap_keeps_the_extra_byte_at_the_end() -> None:
+    capture = OutputCapture(cap_bytes=5)
+    capture.feed(b"0123456789")
+    result = capture.result()
+    assert result.content == b"01" + omission_marker(5) + b"789"
 
 
 def test_output_of_exactly_the_cap_is_not_truncated() -> None:
     capture = OutputCapture(cap_bytes=4)
-    capture.feed(b"abcd")
-    assert capture.result().truncated is False
+    capture.feed(b"ab")
+    capture.feed(b"cd")
+    result = capture.result()
+    assert result.content == b"abcd"
+    assert result.truncated is False
+
+
+def test_one_byte_beyond_the_cap_is_left_out_and_said() -> None:
+    capture = OutputCapture(cap_bytes=4)
+    capture.feed(b"abcde")
+    assert capture.result().content == b"ab" + omission_marker(1) + b"de"
 
 
 @pytest.mark.parametrize(
     "fields",
     [
-        {"content": b"abcde", "total_bytes": 5, "cap_bytes": 4, "truncated": True},
-        {"content": b"abc", "total_bytes": 5, "cap_bytes": 4, "truncated": False},
-        {"content": b"abcd", "total_bytes": 4, "cap_bytes": 4, "truncated": True},
-        {"content": b"abc", "total_bytes": 2, "cap_bytes": 4, "truncated": False},
+        # Not truncated, but content and total differ.
+        {
+            "content": b"abc",
+            "total_bytes": 5,
+            "cap_bytes": 4,
+            "omitted_bytes": 0,
+            "truncated": False,
+        },
+        # Longer than the cap without being truncated.
+        {
+            "content": b"abcde",
+            "total_bytes": 5,
+            "cap_bytes": 4,
+            "omitted_bytes": 0,
+            "truncated": False,
+        },
+        # Truncated, but nothing omitted.
+        {
+            "content": b"abcd",
+            "total_bytes": 4,
+            "cap_bytes": 4,
+            "omitted_bytes": 0,
+            "truncated": True,
+        },
+        # Omitted bytes that do not add up.
+        {
+            "content": b"ab" + omission_marker(3) + b"de",
+            "total_bytes": 9,
+            "cap_bytes": 4,
+            "omitted_bytes": 3,
+            "truncated": True,
+        },
+        # Truncated content without the marker.
+        {
+            "content": b"abcd",
+            "total_bytes": 9,
+            "cap_bytes": 4,
+            "omitted_bytes": 5,
+            "truncated": True,
+        },
     ],
 )
 def test_captured_output_that_contradicts_itself_is_refused(fields: dict[str, Any]) -> None:
@@ -174,7 +233,9 @@ def test_captured_output_that_contradicts_itself_is_refused(fields: dict[str, An
 
 
 def _result(**changes: Any) -> RunResult:
-    empty = CapturedOutput(content=b"", total_bytes=0, cap_bytes=1024, truncated=False)
+    empty = CapturedOutput(
+        content=b"", total_bytes=0, cap_bytes=1024, omitted_bytes=0, truncated=False
+    )
     fields: dict[str, Any] = {
         "run_id": "r012",
         "exit_status": 0,

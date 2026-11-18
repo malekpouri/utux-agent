@@ -23,6 +23,11 @@ SUCCESS_FILE = "result.txt"
 SUCCESS_CONTENT = b"synthetic result\n"
 
 
+def noisy_stream(total_bytes: int) -> bytes:
+    """What a noisy step writes: `S`, then `x`, then `E`; both ends are visible."""
+    return b"S" + b"x" * (total_bytes - 2) + b"E"
+
+
 def _time(text: str) -> datetime:
     return datetime.fromisoformat(text.replace("Z", "+00:00"))
 
@@ -61,7 +66,7 @@ class ExecutorConformance(ABC):
         self, project: Path, cap_bytes: int, total_bytes: int
     ) -> tuple[Executor, ExecutionStep]:
         """An executor that keeps at most `cap_bytes` of each output stream, and
-        a step that writes `total_bytes` bytes of `x` to standard output."""
+        a step that writes `noisy_stream(total_bytes)` to standard output."""
 
     @abstractmethod
     def make_slow(self, project: Path) -> tuple[Executor, ExecutionStep]:
@@ -112,9 +117,12 @@ class ExecutorConformance(ABC):
         executor, step = self.make_noisy(tmp_path, cap_bytes=64, total_bytes=1000)
         result = executor.run(step)
         assert_well_formed(result, step, tmp_path)
-        assert result.stdout.content == b"x" * 64
+        stream = noisy_stream(1000)
+        # Half of the cap from the start, half from the end, and a marker.
+        assert result.stdout.content == stream[:32] + omission_marker(936) + stream[-32:]
         assert result.stdout.cap_bytes == 64
         assert result.stdout.total_bytes == 1000
+        assert result.stdout.omitted_bytes == 936
         assert result.stdout.truncated is True
 
     def test_the_wall_clock_timeout_stops_the_run_and_is_reported(self, tmp_path: Path) -> None:
