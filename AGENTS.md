@@ -79,6 +79,7 @@ src/utux/
   events/         append-only event log
   interfaces/     the six Protocols and their shared types
   providers/      ModelProvider implementations
+  executors/      Executor implementations: scripted (tests), Docker (M1+)
   budget/         cost accounting and limits
   evalkit/        gold-set schema, splits, agreement and metric computation
   core/           workflow graph (M1+)
