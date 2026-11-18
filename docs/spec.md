@@ -475,8 +475,7 @@ A different model family does not by itself make the reviewer independent. The r
 - The CLI prints a cost estimate before each stage and the running total after it.
 - Every model call logs tokens and cost to `events.jsonl`.
 - Literature results and source passages are cached across projects on the same machine.
-
-* The CLI reports estimated and actual cost for every stage and every agent role.
+- The CLI reports estimated and actual cost for every stage and every agent role.
 
 ## 10. Security, misuse prevention and AI disclosure
 
