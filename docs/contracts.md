@@ -76,23 +76,77 @@ The core writes `approvals/<id>.request.json` and pauses. A person answers,
 and the CLI or a later interface writes `approvals/<id>.response.json`
 (specification, section 7).
 
-An approval binds to one exact version. The request names the artifact
-version and the hash of its content, and the response repeats both. If the
-file is edited after the request, its hash changes, and an approval given
-for the old content does not carry over.
+A request has a `kind` (ADR-0011):
 
-Request:
+| Kind | Asks about | Answers |
+| --- | --- | --- |
+| `artifact` | One artifact version at a gate | `approve`, `reject` or `edit` |
+| `budget_exhausted` | Continuing after the budget was reached | `approve` (continue) or `reject` (stop) |
+| `retry_limit` | Continuing after the retry cap was reached | `approve` (continue) or `reject` (stop) |
+
+An approval of kind `artifact` binds to one exact version. The request names
+the artifact version and the hash of its content, and the response repeats
+both. If the file is edited after the request, its hash changes, and an
+approval given for the old content does not carry over.
+
+A request of the other two kinds is about no artifact. It records the stage
+that was paused and the event of the refused call; after `approve`, the run
+repeats that call. Continuing after `budget_exhausted` also needs the budget
+to have been raised after the request, which a `setting_changed` event
+records; the run checks that when it resumes (task M1-11).
+
+Request. Every field is required; the ones marked by kind are null for the
+other kinds (codes `required_for_kind` and `not_allowed_for_kind`):
 
 | Field | Form | Meaning |
 | --- | --- | --- |
 | `schema_version` | integer | Currently `1` |
 | `approval_id` | `a-` and at least six digits | Id of the approval |
-| `gate` | `idea`, `method`, `experiment_plan` or `final_manuscript` | The gate that asks |
-| `artifact_id` | artifact id | The artifact version to approve |
-| `content_hash` | content hash | Hash of the content to approve |
-| `path` | path inside the project | The file that holds the content |
+| `kind` | `artifact`, `budget_exhausted` or `retry_limit` | What the request is about |
+| `gate` | `idea`, `method`, `experiment_plan` or `final_manuscript`; kind `artifact` only | The gate that asks |
+| `artifact_id` | artifact id; kind `artifact` only | The artifact version to approve |
+| `content_hash` | content hash; kind `artifact` only | Hash of the content to approve |
+| `path` | path inside the project; kind `artifact` only | The file that holds the content |
+| `stage` | stage; kinds `budget_exhausted` and `retry_limit` only | The stage that was paused |
+| `refused_event_id` | event id; kinds `budget_exhausted` and `retry_limit` only | The event of the refused call. `utux validate` checks that it is in `events.jsonl` (`unknown_reference`) |
 | `requested_by` | actor | Who asks |
 | `requested_at` | UTC timestamp | When the request was written |
+
+A request at the method gate:
+
+```json
+{
+  "schema_version": 1,
+  "approval_id": "a-000007",
+  "kind": "artifact",
+  "gate": "method",
+  "artifact_id": "method-v003",
+  "content_hash": "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41",
+  "path": "method.md",
+  "stage": null,
+  "refused_event_id": null,
+  "requested_by": "agent:methodologist",
+  "requested_at": "2026-11-15T10:05:00Z"
+}
+```
+
+A request after the budget was reached:
+
+```json
+{
+  "schema_version": 1,
+  "approval_id": "a-000009",
+  "kind": "budget_exhausted",
+  "gate": null,
+  "artifact_id": null,
+  "content_hash": null,
+  "path": null,
+  "stage": "implementation",
+  "refused_event_id": "e-000042",
+  "requested_by": "system:utux",
+  "requested_at": "2026-11-16T14:00:00Z"
+}
+```
 
 Response:
 
@@ -100,9 +154,10 @@ Response:
 | --- | --- | --- |
 | `schema_version` | integer | Currently `1` |
 | `approval_id` | as in the request | The request this answers |
-| `artifact_id` | as in the request | The artifact version the person saw |
-| `content_hash` | as in the request | The hash of the content the person saw |
-| `decision` | `approve`, `reject` or `edit` | What the person decided |
+| `kind` | as in the request | What the request is about |
+| `artifact_id` | as in the request; null unless kind `artifact` | The artifact version the person saw |
+| `content_hash` | as in the request; null unless kind `artifact` | The hash of the content the person saw |
+| `decision` | `approve`, `reject` or `edit`; `edit` for kind `artifact` only (`edit_not_allowed_for_kind`) | What the person decided |
 | `answered_by` | `human:<id>` | The person. Only a person answers an approval |
 | `answered_at` | UTC timestamp | When the answer was given |
 | `feedback` | text or null | Remarks. Required for `reject` (code `feedback_required`) |
@@ -114,8 +169,28 @@ the content; it names the version the person saved. The two `edited_...`
 fields are not null for `edit` (code `required_for_edit`) and null for every
 other decision (code `not_allowed_unless_edit`).
 
+A response to the request above:
+
+```json
+{
+  "schema_version": 1,
+  "approval_id": "a-000009",
+  "kind": "budget_exhausted",
+  "artifact_id": null,
+  "content_hash": null,
+  "decision": "approve",
+  "answered_by": "human:alex",
+  "answered_at": "2026-11-16T14:30:00Z",
+  "feedback": null,
+  "edited_artifact_id": null,
+  "edited_content_hash": null
+}
+```
+
 `check_response_matches_request(request, response, source)` compares the
-three shared fields. Each one that differs is reported on its own field with
+four shared fields: `approval_id`, `kind`, `artifact_id` and `content_hash`.
+The last two are null for the kinds that are not about an artifact, so only
+an approval of kind `artifact` is bound to a content hash. Each one that differs is reported on its own field with
 code `differs_from_request`. For an edit it also checks that the edited
 version differs from the requested one, in id and in content hash (code
 `same_as_request`).
