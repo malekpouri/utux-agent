@@ -1,8 +1,8 @@
 # Evaluation protocol
 
-Version 0, draft for the maintainer's review. It is tagged `eval-protocol-v0`
-by the maintainer once approved, and before any system output has been
-scored (M0-14, `docs/plan/M0.md`).
+Version 0, approved by the maintainer and tagged `eval-protocol-v0` on
+commit 92daf82 on 2026-11-18, before any system output was scored (M0-14,
+`docs/plan/M0.md`).
 
 This document gathers what the specification (`docs/spec.md`), RFC-001 and
 RFC-002 fix about the evaluation, in one place. It introduces nothing new.
@@ -11,8 +11,10 @@ draft found between the sources were decided by the maintainer and the
 sources updated (section 7). What the sources still leave open is listed in
 section 8.
 
-**Protocol v0 locks the criteria of H3 only.** The criteria of H1, H2, H4 and
-H5 are fixed in protocol v1, before the first M4 benchmark run.
+**Protocol v0 sets the initial criteria of H3 only.** The H3 thresholds are
+locked after the v0 pilot with a second tag, `eval-protocol-v0.1`. Protocol
+v1 fixes the criteria of H1, H2, H4 and H5, the level of the paired tests and
+any correction for multiple comparisons, before the first M4 benchmark run.
 
 Sources, in the order of `AGENTS.md` section 2: RFC-001, RFC-002, then the
 specification. Section numbers below are those of each document.
@@ -257,10 +259,17 @@ The thresholds for H3 are fixed in three stages (RFC-002 section 8):
 
 This version of the protocol, with the initial thresholds of section 4, is
 committed and tagged `eval-protocol-v0` before any system output is scored
-(`docs/plan/M0.md`, M0-14; spec section 1 and section 12). It locks H3 only.
-The locked thresholds of stage 2 are a later version of this document, and
-protocol v1 adds the criteria of H1, H2, H4 and H5 before the first M4
-benchmark run.
+(`docs/plan/M0.md`, M0-14; spec section 1 and section 12). It sets the
+initial criteria of H3 only.
+
+| Version | Tag | When | What it fixes |
+| --- | --- | --- | --- |
+| v0 | `eval-protocol-v0` | before any system output is scored (done: commit 92daf82, 2026-11-18) | hypotheses, metrics, initial H3 thresholds, procedure |
+| v0.1 | `eval-protocol-v0.1` | after the v0 pilot, before the first run on the v1 test split | the locked H3 thresholds (stage 2) |
+| v1 | `eval-protocol-v1` | before the first M4 benchmark run | the criteria of H1, H2, H4 and H5, the level of the paired tests, and any correction for multiple comparisons |
+
+After v1 test results have been seen, the H3 thresholds do not change
+(stage 3).
 
 ## 7. Differences found in the first draft, and how they were decided
 
@@ -293,9 +302,9 @@ paired tests, the three-run rule, the re-weighting, and the clusters. Still
 open:
 
 - The criteria of H1, H2, H4 and H5, including what counts as "comparable
-  cost" (H5) and "error rates do not drop" (H1) in numbers: fixed in
+  cost" (H5) and "error rates do not drop" (H1) in numbers; the level of the
+  paired tests; and any correction for multiple comparisons: all fixed in
   protocol v1, before the first M4 benchmark run.
-- The level of the paired tests.
 - How the results of the three runs combine with the intervals of step 4,
   beyond the rule that every run must meet a threshold.
 - Units and denominators of the citation existence, numeric traceability and
