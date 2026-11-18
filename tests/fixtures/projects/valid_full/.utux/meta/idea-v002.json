@@ -1,0 +1,11 @@
+{
+  "artifact_id": "idea-v002",
+  "path": "idea.md",
+  "stage": "ideation",
+  "schema_version": 1,
+  "created_by": "agent:ideator",
+  "created_at": "2026-11-15T09:00:00Z",
+  "input_artifacts": [],
+  "content_hash": "sha256:5ccc853fdd708d43b4045130795b837b4ad6e08006beb1872da705215c855fab",
+  "state": "valid"
+}

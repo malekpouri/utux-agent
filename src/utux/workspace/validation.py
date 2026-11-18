@@ -5,7 +5,9 @@ against its schema, and checks the rules that span lines or files: the log
 starts with `project_created` and every parent exists; ids are unique within
 `claims.jsonl`, `results.jsonl` and the source records; evidence ids refer to
 existing lines and source records; every result's run has a manifest; file
-names match the ids they hold; and an approval response matches its request.
+names match the ids they hold; sidecar ids are unique, their inputs have
+sidecars, and the current version of each path matches the file's content
+hash; and an approval response matches its request.
 It reports every problem it finds, not only the first, and changes nothing.
 """
 
@@ -15,7 +17,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from utux.errors import DOCUMENT_FIELD, ContractValidationError
+from utux.errors import DOCUMENT_FIELD, ContractValidationError, HashingError
 from utux.events.log import FRAGMENT_SUFFIX, fragment_files
 from utux.schemas.approval import (
     ApprovalRequest,
@@ -37,13 +39,15 @@ from utux.schemas.result_record import ResultRecord
 from utux.schemas.run_manifest import RunManifest
 from utux.schemas.source_record import SourceRecord
 from utux.schemas.yaml_io import parse_yaml
-from utux.workspace.hashing import hash_bytes
+from utux.workspace.hashing import hash_bytes, hash_file
 from utux.workspace.layout import (
     CLAIM_LEDGER_FILE,
     CONFIG_FILE,
     EVENT_LOG_FILE,
     GITKEEP_FILE,
     RESULTS_FILE,
+    hash_project_directory,
+    ignored_by_git,
 )
 
 REPORT_SCHEMA_VERSION = 1
@@ -90,10 +94,13 @@ class ValidationReport:
     Attributes:
         problems: Every problem found, in the order the files were checked.
         files_checked: How many contract files were read.
+        warnings: What does not make the project invalid but should be
+            known, such as a file kept out of git that is missing.
     """
 
     problems: tuple[ValidationProblem, ...]
     files_checked: int
+    warnings: tuple[ValidationProblem, ...] = ()
 
     @property
     def valid(self) -> bool:
@@ -112,18 +119,20 @@ class ValidationReport:
             "valid": self.valid,
             "newer_schema_version": self.newer_schema_version,
             "files_checked": self.files_checked,
-            "problems": [
-                {
-                    "file": problem.file,
-                    "line": problem.line,
-                    "field": problem.field,
-                    "code": problem.code,
-                    "reason": problem.reason,
-                }
-                for problem in self.problems
-            ],
+            "problems": [_problem_json(problem) for problem in self.problems],
+            "warnings": [_problem_json(warning) for warning in self.warnings],
         }
         return json.dumps(report, indent=2, ensure_ascii=False) + "\n"
+
+
+def _problem_json(problem: ValidationProblem) -> dict[str, object]:
+    return {
+        "file": problem.file,
+        "line": problem.line,
+        "field": problem.field,
+        "code": problem.code,
+        "reason": problem.reason,
+    }
 
 
 @dataclass
@@ -139,12 +148,16 @@ class _Validator:
     def __init__(self, project: Path) -> None:
         self.project = project
         self.problems: list[ValidationProblem] = []
+        self.warnings: list[ValidationProblem] = []
         self.files_checked = 0
         # (line, data) of every valid log_repaired event.
         self.repairs: list[tuple[int, dict[str, object]]] = []
 
     def add(self, file: str, line: int | None, field: str, code: str, reason: str) -> None:
         self.problems.append(ValidationProblem(file, line, field, code, reason))
+
+    def warn(self, file: str, line: int | None, field: str, code: str, reason: str) -> None:
+        self.warnings.append(ValidationProblem(file, line, field, code, reason))
 
     def add_error(self, file: str, line: int | None, error: ContractValidationError) -> None:
         for problem in error.problems:
@@ -349,6 +362,14 @@ class _Validator:
                 )
 
     def sidecars(self) -> None:
+        """Check the sidecars, their ids and inputs, and each current version's file.
+
+        The ids of sidecars that are themselves invalid still count, so that a
+        bad sidecar is reported once and not again by every sidecar built
+        from it.
+        """
+        first_use: dict[str, str] = {}
+        valid: list[tuple[str, ArtifactMetadata]] = []
         for path in self.entries(META_DIRECTORY):
             file = self.relative(path)
             if path.is_dir() or path.suffix != ".json":
@@ -360,15 +381,123 @@ class _Validator:
                     "only metadata sidecars, named <artifact_id>.json, belong here",
                 )
                 continue
-            sidecar = self.document(ArtifactMetadata, file)
-            if sidecar is not None and path.stem != sidecar.artifact_id:
-                self.add(
+            text = self.read_text(file)
+            if text is None:
+                continue
+            artifact_id: str | None = None
+            sidecar: ArtifactMetadata | None = None
+            try:
+                data = parse_json(text, file)
+                if isinstance(data, dict) and isinstance(data.get("artifact_id"), str):
+                    artifact_id = data["artifact_id"]
+                sidecar = ArtifactMetadata.validate_document(data, file)
+            except ContractValidationError as error:
+                self.add_error(file, None, error)
+            duplicate = artifact_id is not None and artifact_id in first_use
+            if artifact_id is not None:
+                if duplicate:
+                    self.add(
+                        file,
+                        None,
+                        "artifact_id",
+                        "duplicate_id",
+                        f"{artifact_id} is already described by {first_use[artifact_id]}",
+                    )
+                else:
+                    first_use[artifact_id] = file
+            if sidecar is not None:
+                # A duplicate is reported once, above, and takes no further part.
+                if not duplicate:
+                    valid.append((file, sidecar))
+                if path.stem != sidecar.artifact_id:
+                    self.add(
+                        file,
+                        None,
+                        "artifact_id",
+                        "name_mismatch",
+                        f"the file is named {path.name} but describes {sidecar.artifact_id}",
+                    )
+        for file, sidecar in valid:
+            for position, entry in enumerate(sidecar.input_artifacts):
+                if entry not in first_use:
+                    self.add(
+                        file,
+                        None,
+                        f"input_artifacts.{position}",
+                        "unknown_reference",
+                        f"{entry} has no sidecar in {META_DIRECTORY}/",
+                    )
+        self.current_versions(valid)
+
+    def current_versions(self, sidecars: list[tuple[str, ArtifactMetadata]]) -> None:
+        """Check the current version of each path against the file it describes."""
+        by_path: dict[str, list[tuple[int, str, ArtifactMetadata]]] = {}
+        for file, sidecar in sidecars:
+            version = int(sidecar.artifact_id.rsplit("-v", 1)[1])
+            by_path.setdefault(sidecar.path, []).append((version, file, sidecar))
+        for versions in by_path.values():
+            highest = max(version for version, _, _ in versions)
+            current = [(file, sidecar) for version, file, sidecar in versions if version == highest]
+            first_file, first = current[0]
+            if len(current) > 1:
+                # Without one current version there is nothing to check the file against.
+                for file, sidecar in current[1:]:
+                    self.add(
+                        file,
+                        None,
+                        "artifact_id",
+                        "duplicate_version",
+                        f"{first.artifact_id} in {first_file} is also version {highest} "
+                        f"of {sidecar.path}; the current version is not defined",
+                    )
+                continue
+            self.check_content(first_file, first)
+
+    def check_content(self, file: str, sidecar: ArtifactMetadata) -> None:
+        """Compare a sidecar's content hash with the file or directory at its path."""
+        # The path comes from a file of the project; it is checked to stay inside
+        # the project, symbolic links resolved, before anything is read by it.
+        root = self.project.resolve()
+        target = self.project / sidecar.path
+        resolved = target.resolve()
+        if not resolved.is_relative_to(root):
+            self.add(
+                file,
+                None,
+                "path",
+                "path_outside_project",
+                f"{sidecar.path} leads outside the project directory; it is not read",
+            )
+            return
+        if not resolved.exists():
+            # Whether it was a file or a directory is not known any more.
+            if ignored_by_git(sidecar.path) or ignored_by_git(sidecar.path, directory=True):
+                self.warn(
                     file,
                     None,
-                    "artifact_id",
-                    "name_mismatch",
-                    f"the file is named {path.name} but describes {sidecar.artifact_id}",
+                    "path",
+                    "missing_untracked_file",
+                    f"{sidecar.path} does not exist; it is kept out of git (ADR-0009), so a "
+                    "clone does not have it. Its content hash is kept, so a restored file "
+                    "can be checked",
                 )
+            else:
+                self.add(file, None, "path", "missing_file", f"{sidecar.path} does not exist")
+            return
+        try:
+            actual = hash_project_directory(resolved) if resolved.is_dir() else hash_file(resolved)
+        except HashingError as error:
+            self.add(file, None, "path", "unhashable", f"{sidecar.path} cannot be hashed: {error}")
+            return
+        if actual != sidecar.content_hash:
+            self.add(
+                file,
+                None,
+                "content_hash",
+                "content_hash_mismatch",
+                f"{sidecar.path} has the hash {actual}, not {sidecar.content_hash}; "
+                "the file changed after this version was recorded",
+            )
 
     def sources(self) -> set[str]:
         """Check the source records and return their source ids.
@@ -589,4 +718,6 @@ def validate_project(directory: Path) -> ValidationReport:
 
 
 def _report(validator: _Validator) -> ValidationReport:
-    return ValidationReport(tuple(validator.problems), validator.files_checked)
+    return ValidationReport(
+        tuple(validator.problems), validator.files_checked, tuple(validator.warnings)
+    )

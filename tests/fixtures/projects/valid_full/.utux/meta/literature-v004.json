@@ -1,0 +1,13 @@
+{
+  "artifact_id": "literature-v004",
+  "path": "literature.md",
+  "stage": "literature",
+  "schema_version": 1,
+  "created_by": "agent:librarian",
+  "created_at": "2026-11-15T09:30:00Z",
+  "input_artifacts": [
+    "idea-v002"
+  ],
+  "content_hash": "sha256:08c8a708f3256f5f5669583edef8ff8202bd28099a98006951de16700120cc9f",
+  "state": "valid"
+}

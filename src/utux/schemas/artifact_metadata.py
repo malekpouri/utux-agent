@@ -15,7 +15,14 @@ from pydantic import ValidationError, model_validator
 from pydantic_core import InitErrorDetails, PydanticCustomError
 
 from utux.schemas.base import ContractDocument
-from utux.schemas.common import Actor, ArtifactId, Sha256Hash, Stage, UtcTimestamp
+from utux.schemas.common import (
+    Actor,
+    ArtifactId,
+    RelativePath,
+    Sha256Hash,
+    Stage,
+    UtcTimestamp,
+)
 from utux.schemas.json_io import parse_json, read_json
 
 
@@ -34,6 +41,10 @@ class ArtifactMetadata(ContractDocument):
 
     Attributes:
         artifact_id: The artifact version this sidecar describes.
+        path: Where the artifact is, relative to the project directory, with
+            `/` as separator: a file, or a directory hashed as project
+            content. The current version of a path is the sidecar with the
+            highest version number for it.
         stage: The stage that owns the artifact.
         created_by: The agent or person that produced it.
         created_at: When it was produced, in UTC.
@@ -46,6 +57,7 @@ class ArtifactMetadata(ContractDocument):
     SCHEMA_VERSION: ClassVar[int] = 1
 
     artifact_id: ArtifactId
+    path: RelativePath
     stage: Stage
     created_by: Actor
     created_at: UtcTimestamp

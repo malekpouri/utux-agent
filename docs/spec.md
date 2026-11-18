@@ -245,7 +245,7 @@ Files are the only interface between stages, and between the core and any user i
 ```text
 my-project/
   utux.yaml                 # [init]  profile, domain pack, budget, oversight mode, data policy
-  .gitignore                # [init]  checkpoints, temporary files, caches
+  .gitignore                # [init]  checkpoints, temporary files, caches, data and run outputs (ADR-0009)
   inputs/                   # [init]  user question, hypothesis, data description, data files
   idea.md                   # [later]
   literature.md             # [later]
@@ -276,7 +276,8 @@ Paths marked `[init]` exist after `utux init`. Paths marked `[later]` are create
 Every stage output has a metadata sidecar, so the system always knows what an output was built from. A sidecar is stored as `.utux/meta/<artifact_id>.json`.
 
 ```json
-{"artifact_id": "method-v003", "stage": "methodology", "schema_version": 1,
+{"artifact_id": "method-v003", "path": "method.md", "stage": "methodology",
+ "schema_version": 1,
  "created_by": "agent:methodologist", "created_at": "2026-11-15T10:00:00Z",
  "input_artifacts": ["idea-v002", "literature-v004"],
  "content_hash": "sha256:...", "state": "valid"}

@@ -382,14 +382,20 @@ def test_hash_exclude_entries_are_the_documented_four() -> None:
     assert HASH_EXCLUDE_ENTRIES == (".gitkeep", ".DS_Store", "__pycache__/", "*.pyc")
 
 
-def test_gitignore_is_the_exclude_list_without_gitkeep_plus_two_lines() -> None:
-    # .gitkeep must stay tracked by git, or the empty directories would be lost.
+def test_gitignore_is_the_exclude_list_without_gitkeep_plus_two_lines_and_adr_0009() -> None:
+    # .gitkeep must stay tracked by git, or the empty directories would be lost;
+    # so inputs/.gitkeep is taken back from the lines of ADR-0009.
     assert GITIGNORE_LINES == (
         ".DS_Store",
         "__pycache__/",
         "*.pyc",
         ".utux/checkpoints.sqlite",
         ".*.tmp",
+        "inputs/**",
+        "!inputs/**/",
+        "!inputs/**/*.md",
+        "!inputs/.gitkeep",
+        "runs/*/outputs/",
     )
 
 
