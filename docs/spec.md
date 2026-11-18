@@ -245,7 +245,7 @@ Files are the only interface between stages, and between the core and any user i
 ```text
 my-project/
   utux.yaml                 # [init]  profile, domain pack, budget, oversight mode, data policy
-  .gitignore                # [init]  checkpoints, temporary files, caches
+  .gitignore                # [init]  checkpoints, temporary files, caches, data and run outputs (ADR-0009)
   inputs/                   # [init]  user question, hypothesis, data description, data files
   idea.md                   # [later]
   literature.md             # [later]
