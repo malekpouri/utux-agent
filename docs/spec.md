@@ -276,7 +276,8 @@ Paths marked `[init]` exist after `utux init`. Paths marked `[later]` are create
 Every stage output has a metadata sidecar, so the system always knows what an output was built from. A sidecar is stored as `.utux/meta/<artifact_id>.json`.
 
 ```json
-{"artifact_id": "method-v003", "stage": "methodology", "schema_version": 1,
+{"artifact_id": "method-v003", "path": "method.md", "stage": "methodology",
+ "schema_version": 1,
  "created_by": "agent:methodologist", "created_at": "2026-11-15T10:00:00Z",
  "input_artifacts": ["idea-v002", "literature-v004"],
  "content_hash": "sha256:...", "state": "valid"}
