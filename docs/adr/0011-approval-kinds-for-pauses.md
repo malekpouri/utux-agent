@@ -1,6 +1,6 @@
 # ADR-0011: Approval kinds for pauses that are not about an artifact
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-18
 
 ## Context
@@ -22,13 +22,28 @@ Notes).
 
 ## Decision
 
-Proposed in `docs/plan/M1.md`, M1-01:
+Proposed in `docs/plan/M1.md`, M1-01, and accepted by the maintainer on
+2026-11-18 with the additions below:
 
 An approval request has a `kind`: `artifact`, `budget_exhausted` or
 `retry_limit`. The artifact fields are required only for `artifact`. For the
 other kinds the response is `approve` (continue) or `reject` (stop).
 Continuing after `budget_exhausted` is accepted only if the budget was
 raised first, which is a `setting_changed` event.
+
+Additions on acceptance:
+
+- A request that is not of kind `artifact` records the stage and the
+  `event_id` of the refused call. After `approve`, the run repeats that
+  call.
+- Continuing after `budget_exhausted` is accepted only if a
+  `setting_changed` event for `budget.total_usd` or for the stage's budget
+  was written after the request.
+- There is no separate budget command. Every command that writes to a
+  project compares `utux.yaml` with the last recorded snapshot, kept under
+  `.utux/`, before it acts, and writes one `setting_changed` event per
+  changed key, with the old and the new value (task M1-05). A hand edit of
+  the budget is recorded this way.
 
 ## Alternatives rejected
 
@@ -49,11 +64,13 @@ raised first, which is a `setting_changed` event.
 - `check_response_matches_request` binds only `artifact` approvals to a
   content hash. An `edit` response is valid only for `artifact`.
 - Continuing after `budget_exhausted` depends on a `setting_changed` event
-  that raises the budget. No command that changes a setting and writes that
-  event exists yet, and the M1 plan names none; the task that implements
-  this decides it, or asks.
-- The gate of a request that is not about an artifact is to be defined by
-  task M1-04: today `gate` names one of the four approval gates.
+  written after the request. The user raises the budget by editing
+  `utux.yaml`; the next writing command, such as `utux approve`, records the
+  change before it acts.
+- The request schema gains the stage and the refused call's `event_id`
+  (task M1-04); repeating the call after `approve` is task M1-11.
+- What `gate` holds on a request that is not of kind `artifact` is settled
+  in task M1-04: today `gate` names one of the four approval gates.
 
 ## Sources
 

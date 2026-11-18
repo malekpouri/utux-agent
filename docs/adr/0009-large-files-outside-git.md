@@ -1,6 +1,6 @@
 # ADR-0009: Large files outside git, hashes in manifests
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-18
 
 ## Context
@@ -23,7 +23,8 @@ runs/ are kept out of git while their hashes stay in the manifests"
 
 ## Decision
 
-Proposed in `docs/plan/M1.md`, M1-01:
+Proposed in `docs/plan/M1.md`, M1-01, and accepted by the maintainer on
+2026-11-18:
 
 Git holds text artifacts, manifests, sidecars and logs. Files under
 `inputs/` other than `*.md`, and everything under `runs/<id>/outputs/`, are
@@ -53,7 +54,8 @@ record. `utux init` writes these ignore lines.
 - Text inputs (`*.md` under `inputs/`), such as the research question and
   the data description, stay versioned.
 - `utux init` gains ignore lines (task M1-05), and existing projects need
-  them added.
+  them added by hand. `utux validate` warns, without failing, when a
+  project's `.gitignore` lacks them (task M1-05).
 - Result records and manifests stay in git, so every number remains
   traceable to a run even when its output files are not.
 

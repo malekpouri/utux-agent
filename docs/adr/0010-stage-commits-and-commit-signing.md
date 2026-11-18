@@ -1,6 +1,6 @@
 # ADR-0010: Stage commits and commit signing
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-18
 
 ## Context
@@ -22,12 +22,22 @@ an unattended run behave when the user has commit signing configured"
 
 ## Decision
 
-Proposed in `docs/plan/M1.md`, M1-01:
+Proposed in `docs/plan/M1.md`, M1-01, and accepted by the maintainer on
+2026-11-18 with the additions below:
 
 Commits follow the user's git configuration. Before a run starts, utux makes
 a test commit in a temporary repository with the same configuration and no
 terminal. If it fails, `auto` mode refuses to start, and `guided` mode warns
 and continues without commits, recording that in an event.
+
+Additions on acceptance:
+
+- A new event type `run_started` records the outcome, with data keys `mode`,
+  `commits` (bool) and `commit_check_reason` (a code, or null). It is
+  implemented in task M1-10.
+- The test commit runs with standard input closed, `GIT_TERMINAL_PROMPT=0`
+  and a 10-second timeout. A timeout counts as a failure, with reason
+  `commit_check_timeout`.
 
 ## Alternatives rejected
 
@@ -48,13 +58,12 @@ and continues without commits, recording that in an event.
 - An unattended run never stops at a commit because of signing: it either
   starts with commits known to work, or does not start.
 - In `guided` mode a run without commits still has its event log, sidecars
-  and manifests; the event says that commits were off and why. The event
-  type and its data keys are defined by the task that writes them (rule 1 of
-  `docs/plan/M1.md`).
-- "No terminal" means the test commit cannot prompt: git is run with
-  standard input closed and `GIT_TERMINAL_PROMPT=0`. A signing program that
-  opens its own window could still wait; the test commit then needs a
-  timeout, which the implementing task sets.
+  and manifests; its `run_started` event has `commits` false and the reason.
+  Task M1-10 defines the event in the event schema and in
+  `docs/event-log.md` (rule 1 of `docs/plan/M1.md`).
+- The test commit cannot prompt. A signing program that opens its own window
+  can still wait, but only until the 10-second timeout, after which the
+  check has failed.
 - The test costs one commit in a temporary repository per run.
 
 ## Sources
