@@ -47,6 +47,7 @@ from utux.workspace.layout import (
     GITKEEP_FILE,
     RESULTS_FILE,
     hash_project_directory,
+    ignored_by_git,
 )
 
 REPORT_SCHEMA_VERSION = 1
@@ -93,10 +94,13 @@ class ValidationReport:
     Attributes:
         problems: Every problem found, in the order the files were checked.
         files_checked: How many contract files were read.
+        warnings: What does not make the project invalid but should be
+            known, such as a file kept out of git that is missing.
     """
 
     problems: tuple[ValidationProblem, ...]
     files_checked: int
+    warnings: tuple[ValidationProblem, ...] = ()
 
     @property
     def valid(self) -> bool:
@@ -115,18 +119,20 @@ class ValidationReport:
             "valid": self.valid,
             "newer_schema_version": self.newer_schema_version,
             "files_checked": self.files_checked,
-            "problems": [
-                {
-                    "file": problem.file,
-                    "line": problem.line,
-                    "field": problem.field,
-                    "code": problem.code,
-                    "reason": problem.reason,
-                }
-                for problem in self.problems
-            ],
+            "problems": [_problem_json(problem) for problem in self.problems],
+            "warnings": [_problem_json(warning) for warning in self.warnings],
         }
         return json.dumps(report, indent=2, ensure_ascii=False) + "\n"
+
+
+def _problem_json(problem: ValidationProblem) -> dict[str, object]:
+    return {
+        "file": problem.file,
+        "line": problem.line,
+        "field": problem.field,
+        "code": problem.code,
+        "reason": problem.reason,
+    }
 
 
 @dataclass
@@ -142,12 +148,16 @@ class _Validator:
     def __init__(self, project: Path) -> None:
         self.project = project
         self.problems: list[ValidationProblem] = []
+        self.warnings: list[ValidationProblem] = []
         self.files_checked = 0
         # (line, data) of every valid log_repaired event.
         self.repairs: list[tuple[int, dict[str, object]]] = []
 
     def add(self, file: str, line: int | None, field: str, code: str, reason: str) -> None:
         self.problems.append(ValidationProblem(file, line, field, code, reason))
+
+    def warn(self, file: str, line: int | None, field: str, code: str, reason: str) -> None:
+        self.warnings.append(ValidationProblem(file, line, field, code, reason))
 
     def add_error(self, file: str, line: int | None, error: ContractValidationError) -> None:
         for problem in error.problems:
@@ -460,7 +470,19 @@ class _Validator:
             )
             return
         if not resolved.exists():
-            self.add(file, None, "path", "missing_file", f"{sidecar.path} does not exist")
+            # Whether it was a file or a directory is not known any more.
+            if ignored_by_git(sidecar.path) or ignored_by_git(sidecar.path, directory=True):
+                self.warn(
+                    file,
+                    None,
+                    "path",
+                    "missing_untracked_file",
+                    f"{sidecar.path} does not exist; it is kept out of git (ADR-0009), so a "
+                    "clone does not have it. Its content hash is kept, so a restored file "
+                    "can be checked",
+                )
+            else:
+                self.add(file, None, "path", "missing_file", f"{sidecar.path} does not exist")
             return
         try:
             actual = hash_project_directory(resolved) if resolved.is_dir() else hash_file(resolved)
@@ -696,4 +718,6 @@ def validate_project(directory: Path) -> ValidationReport:
 
 
 def _report(validator: _Validator) -> ValidationReport:
-    return ValidationReport(tuple(validator.problems), validator.files_checked)
+    return ValidationReport(
+        tuple(validator.problems), validator.files_checked, tuple(validator.warnings)
+    )

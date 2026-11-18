@@ -101,12 +101,18 @@ def validate(
     else:
         for problem in report.problems:
             typer.echo(problem.message)
+        for warning in report.warnings:
+            typer.echo(f"warning: {warning.message}")
         if report.newer_schema_version:
             typer.echo(
                 "This project was written by a newer version of utux; upgrade utux to work with it."
             )
         if report.valid:
-            typer.echo(f"The project is valid ({report.files_checked} contract files checked).")
+            count = len(report.warnings)
+            warnings = f", {count} {'warning' if count == 1 else 'warnings'}" if count else ""
+            typer.echo(
+                f"The project is valid ({report.files_checked} contract files checked{warnings})."
+            )
         else:
             count = len(report.problems)
             typer.echo(f"{count} {'problem' if count == 1 else 'problems'} found.")
