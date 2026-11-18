@@ -175,3 +175,27 @@ class CheckpointDataError(UtuxError):
     A checkpoint that names a Python object to construct is refused rather
     than loaded, and so is a state that would need one.
     """
+
+
+class UnknownCostNotAllowedError(ModelCallRefusedError):
+    """A model call was refused because the provider reports no cost.
+
+    An earlier successful call to the same external provider returned no
+    cost, and `budget.allow_unknown_cost` is false. The provider was not asked.
+    """
+
+
+class ProjectLockedError(UtuxError):
+    """Another command holds the lock of the project, so this one does not start."""
+
+
+class StaleProjectLockError(ProjectLockedError):
+    """The project lock was left by a process that is no longer running.
+
+    It is reported, not taken over: a person checks that nothing is still
+    writing and removes the lock file.
+    """
+
+
+class NotAProjectError(UtuxError):
+    """A command that writes to a project was given a directory that is not one."""

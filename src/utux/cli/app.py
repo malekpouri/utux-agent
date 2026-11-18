@@ -10,7 +10,6 @@ import typer
 from utux import __version__
 from utux.budget.accounting import CostReport, CostTotals, project_cost_report, remaining, usd
 from utux.errors import SchemaExportError, UtuxError
-from utux.events.log import repair_log
 from utux.schemas.common import Tier
 from utux.schemas.export import export_json_schemas
 from utux.schemas.project_config import DataPolicy
@@ -18,6 +17,7 @@ from utux.workspace.layout import EVENT_LOG_FILE
 from utux.workspace.model_calls import ping_model
 from utux.workspace.project import init_project
 from utux.workspace.validation import validate_project
+from utux.workspace.writer import repair_project_log
 
 app = typer.Typer(
     name="utux",
@@ -137,10 +137,12 @@ def log_repair(
 ) -> None:
     """Save an incomplete last line of the event log aside and record the repair."""
     try:
-        repairs = repair_log(directory / EVENT_LOG_FILE)
+        repairs, changes = repair_project_log(directory)
     except UtuxError as error:
         typer.echo(f"error: {error}", err=True)
         raise typer.Exit(code=1) from error
+    for event in changes.events:
+        typer.echo(f"Recorded the change of {event.data['key']} in utux.yaml as {event.event_id}.")
     if not repairs:
         typer.echo(f"nothing to repair: the last line of {EVENT_LOG_FILE} is complete")
         return
