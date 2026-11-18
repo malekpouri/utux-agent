@@ -15,7 +15,13 @@ from pathlib import Path
 import pytest
 
 from utux.errors import ExecutorUnavailableError, UtuxError
-from utux.interfaces.executor import ExecutionStep, Executor, LimitKind, RunResult
+from utux.interfaces.executor import (
+    ExecutionStep,
+    Executor,
+    LimitKind,
+    RunResult,
+    omission_marker,
+)
 
 # What a succeeding step writes, as every implementation must reproduce it.
 SUCCESS_STDOUT = b"synthetic output\n"

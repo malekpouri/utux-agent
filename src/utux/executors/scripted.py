@@ -1,4 +1,4 @@
-"""A scripted `Executor` for tests.
+"""A scripted `Executor` for tests (utux.executors.scripted).
 
 It runs nothing. Each call to `run` plays the next step of its script: it
 writes the scripted files into the step's output directory and returns the

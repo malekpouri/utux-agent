@@ -138,62 +138,95 @@ class LimitKind(StrEnum):
     DISK = "disk"
 
 
+def omission_marker(omitted_bytes: int) -> bytes:
+    """The line put between the two kept ends of a stream that was cut."""
+    return f"\n[utux: {omitted_bytes} bytes left out]\n".encode("ascii")
+
+
 class CapturedOutput(_Value):
     """One output stream of a run, kept up to a cap.
 
+    A stream of up to `cap_bytes` bytes is kept whole. A longer one keeps
+    its first `cap_bytes // 2` bytes and its last `cap_bytes - cap_bytes // 2`
+    bytes, with `omission_marker` between them, so both the start of a run
+    and the end of its output, where a traceback usually is, are kept.
+
     Attributes:
-        content: The first `cap_bytes` bytes of the stream, or all of it.
+        content: The stream, or its two ends and the marker.
         total_bytes: How many bytes the stream had in all.
         cap_bytes: The cap that applied.
-        truncated: Whether bytes were cut. True exactly when `total_bytes`
-            exceeds the length of `content`, so that a cut is never silent.
+        omitted_bytes: How many bytes were left out.
+        truncated: Whether bytes were left out. A cut is never silent.
     """
 
     content: bytes
     total_bytes: Annotated[int, Field(ge=0, strict=True)]
     cap_bytes: Annotated[int, Field(gt=0, strict=True)]
+    omitted_bytes: Annotated[int, Field(ge=0, strict=True)]
     truncated: bool
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:
-        kept = len(self.content)
-        if kept > self.cap_bytes:
-            raise ValueError("content is longer than the cap")
-        if self.total_bytes < kept:
-            raise ValueError("total_bytes is less than the content kept")
-        if self.truncated != (self.total_bytes > kept):
-            raise ValueError("truncated must say whether bytes were cut")
+        if self.truncated != (self.omitted_bytes > 0):
+            raise ValueError("truncated must say whether bytes were left out")
+        if not self.truncated:
+            if len(self.content) != self.total_bytes or self.total_bytes > self.cap_bytes:
+                raise ValueError("a stream that was not cut is kept whole, within the cap")
+            return self
+        if self.omitted_bytes != self.total_bytes - self.cap_bytes:
+            raise ValueError("omitted_bytes must be total_bytes less cap_bytes")
+        head = self.cap_bytes // 2
+        marker = omission_marker(self.omitted_bytes)
+        if (
+            len(self.content) != self.cap_bytes + len(marker)
+            or self.content[head : head + len(marker)] != marker
+        ):
+            raise ValueError("a cut stream holds its two ends with the marker between them")
         return self
 
 
 class OutputCapture:
     """Collects one output stream, keeping at most `cap_bytes` of it.
 
-    Executors feed it chunks as they arrive. It counts every byte, so the
-    result reports how much was cut.
+    Executors feed it chunks as they arrive. It keeps the first half of the
+    cap and a rolling last half, and counts every byte, so the result says
+    how much was left out.
     """
 
     def __init__(self, cap_bytes: int = DEFAULT_OUTPUT_CAP_BYTES) -> None:
         if cap_bytes <= 0:
             raise ValueError("the cap must be positive")
         self._cap = cap_bytes
-        self._kept = bytearray()
+        self._head_size = cap_bytes // 2
+        self._tail_size = cap_bytes - self._head_size
+        self._head = bytearray()
+        self._tail = bytearray()
         self._total = 0
 
     def feed(self, chunk: bytes) -> None:
         """Add a chunk of the stream."""
         self._total += len(chunk)
-        room = self._cap - len(self._kept)
+        room = self._head_size - len(self._head)
         if room > 0:
-            self._kept += chunk[:room]
+            self._head += chunk[:room]
+            chunk = chunk[room:]
+        self._tail += chunk
+        if len(self._tail) > self._tail_size:
+            del self._tail[: len(self._tail) - self._tail_size]
 
     def result(self) -> CapturedOutput:
-        """Return what was kept and how much there was."""
+        """Return what was kept and how much was left out."""
+        omitted = max(0, self._total - self._cap)
+        content = bytes(self._head)
+        if omitted:
+            content += omission_marker(omitted)
+        content += bytes(self._tail)
         return CapturedOutput(
-            content=bytes(self._kept),
+            content=content,
             total_bytes=self._total,
             cap_bytes=self._cap,
-            truncated=self._total > len(self._kept),
+            omitted_bytes=omitted,
+            truncated=omitted > 0,
         )
 
 
