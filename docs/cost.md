@@ -56,14 +56,20 @@ The budget stop has three known limits:
    known only after it returns, so the check before a call cannot stop the
    call that takes the known cost over the budget. That call is completed and
    logged; the next one is refused.
-2. **Parallel calls can each pass the check.** Calls that start before any
-   of them is logged all see the same known cost, so each can pass, and
-   together they can exceed the budget by more than one call. There is no
-   lock between the check and the call.
-3. **An external provider that reports no cost is not limited at all.** Its
-   calls add nothing to the known cost, so they never exhaust a budget.
-   `utux cost` shows them as unknown cost and says that the budget cannot be
-   fully enforced.
+2. **Parallel calls.** Calls that start before any of them is logged all see
+   the same known cost, so each can pass. Two commands cannot run on one
+   project at the same time, since every writing command holds the project
+   lock ([Creating a project](project.md)), and M1 makes one model call at a
+   time per project. Code that calls several models at once within one
+   command would still have this limit.
+3. **An external provider that reports no cost.** Its calls add nothing to
+   the known cost, so they would never exhaust a budget. Therefore, after
+   one successful call to an external provider returned no cost, later calls
+   to it are refused with `unknown_cost_not_allowed`, unless
+   `budget.allow_unknown_cost` is true ([Logged model calls](model-calls.md)).
+   Setting it to true is recorded as a `setting_changed` event; from then on
+   that provider is not limited, and `utux cost` shows its calls as unknown
+   cost. OpenRouter reports cost, so the `default` profile is not affected.
 
 ## `utux cost`
 

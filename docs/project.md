@@ -39,12 +39,13 @@ my-project/
   paper/
   approvals/
   .utux/meta/
+  .utux/settings-snapshot.yaml   a copy of utux.yaml, the first settings snapshot
 ```
 
 These are the paths marked `[init]` in the specification, section 7. The
-outputs of stages (`idea.md`, `method.md` and so on), `reproduce.sh` and
-`.utux/checkpoints.sqlite` are created later by the stage or component that
-owns them.
+outputs of stages (`idea.md`, `method.md` and so on), `reproduce.sh`,
+`.utux/checkpoints.sqlite` and the project lock `.utux/lock` are created
+later by the stage or component that owns them.
 
 The first event is `project_created`, with the actor `system:utux` and the
 version of utux that created the project in `data.utux_version`.
@@ -102,7 +103,8 @@ git's reason and leaves nothing behind. utux does not switch signing off.
 .DS_Store
 __pycache__/
 *.pyc
-.utux/checkpoints.sqlite
+.utux/checkpoints.sqlite*
+.utux/lock
 .*.tmp
 inputs/**
 !inputs/**/
@@ -111,7 +113,10 @@ inputs/**
 runs/*/outputs/
 ```
 
-`.*.tmp` covers the temporary files of the atomic writer. The last five
+`.utux/checkpoints.sqlite*` covers the checkpoint database and the `-wal`,
+`-shm` and `-journal` files SQLite keeps beside it while it is open and
+after a crash. `.utux/lock` is the project lock (below). `.*.tmp` covers the
+temporary files of the atomic writer. The last five
 lines are those of ADR-0009: every file under `inputs/` except `*.md` files,
 and everything under `runs/<run_id>/outputs/`, stays out of git. Their
 content hashes in sidecars and run manifests are the record. The directories
@@ -123,6 +128,66 @@ The lines are the constant `GITIGNORE_LINES` in `utux.workspace.layout`.
 to tell a missing file kept out of git from a missing tracked file
 ([Validating a project](validate.md)). A project created before these lines
 existed needs them added by hand.
+
+## Commands that write to a project
+
+Every command that writes to a project holds the project lock while it
+runs, and records changes of `utux.yaml` before it acts. Today these are
+`utux model ping` and `utux log repair`; `utux run` and `utux approve` will
+be too. Read-only commands (`utux validate`, `utux cost`, `utux schema
+export`) do neither. The code is in `utux.workspace.writer`.
+
+### The project lock
+
+The lock is the file `.utux/lock`. It is created only if it does not exist,
+holds the process id, host, command and start time of its holder, and is
+removed when the command ends, also when it fails. While it exists, a second
+writing command is refused and the message names the holder:
+
+```text
+error: the project is locked by process 4242 on host-a (model ping, since 2026-11-18T09:00:00Z); wait for it to finish and run the command again
+```
+
+The lock file is one JSON object:
+
+```json
+{"pid": 4242, "host": "host-a", "command": "model ping", "started_at": "2026-11-18T09:00:00Z"}
+```
+
+- **A lock left by a process that is no longer running** (after a crash or
+  a kill) is reported, not taken over. Check the project with
+  `utux validate`, then remove `.utux/lock` and run the command again.
+- **A lock of another host**, on a shared file system, cannot be checked;
+  it is treated as held.
+- **A lock that cannot be read** is reported with the same advice.
+
+The lock is not in git.
+
+### Setting changes
+
+`.utux/settings-snapshot.yaml` is a copy of `utux.yaml` as last recorded.
+`utux init` writes the first one. Before a writing command acts, it reads
+both files and, for every setting whose value differs, writes one
+`setting_changed` event with the dotted key and the old and new value, for
+example `budget.total_usd` from `20.0` to `30.0`. It then copies `utux.yaml`
+over the snapshot. This is how a hand edit of the budget, of verification or
+of any other setting enters the log; there is no separate command to change
+a setting (ADR-0011).
+
+- Defaults are filled in before comparing, so writing a default out or
+  leaving it away is no change. `schema_version` is not a setting.
+- A key that appears has `old_value` null, and one that disappears has
+  `new_value` null.
+- If `utux.yaml` is invalid, nothing is recorded, the snapshot is kept, and
+  the command fails.
+- If there is no snapshot, the current file becomes the snapshot and nothing
+  is recorded. A project created before this rule starts recording from its
+  first writing command.
+- `utux log repair` records the changes after the repair, since nothing can
+  be appended to a log whose last line is incomplete.
+
+The snapshot is tracked by git, so that a clone records changes from the
+same starting point.
 
 ## The exclude list for directory hashes
 
