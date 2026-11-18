@@ -32,8 +32,10 @@ An environment variable name must be letters, digits and `_`, not starting
 with a digit (`invalid_environment_name`). A name that contains `KEY`,
 `TOKEN`, `SECRET` or `PASSWORD`, in any case, is refused
 (`credential_like_name`), so that no key reaches model-written code. The
-rule is deliberately broad: `KEYRING` is refused too. The value is never
-repeated in the error.
+rule is deliberately broad: `KEYRING` and `MONKEY_LEVEL` are refused too. A
+harmless variable with such a name must be renamed, for example
+`KEYRING` to `KR_BACKEND`, and the code that reads it changed to match. The
+value is never repeated in the error.
 
 ## The result
 
@@ -54,18 +56,29 @@ Nothing then runs, and nothing falls back to running on the host.
 ### Captured output
 
 Each stream is kept up to a cap, by default 1 MiB, set when the executor is
-created. A cut is never silent:
+created. A stream of up to the cap is kept whole. A longer one keeps half of
+the cap from its start and half from its end (the extra byte of an odd cap
+at the end), with a marker between them that states how many bytes were
+left out, so that the end of a long standard error, where a traceback
+usually is, is kept:
+
+```text
+<first half>
+[utux: 936 bytes left out]
+<last half>
+```
 
 | Field | Meaning |
 | --- | --- |
-| `content` | The first `cap_bytes` bytes of the stream, or all of it |
+| `content` | The stream, or its two ends with the marker between them |
 | `total_bytes` | How many bytes the stream had in all |
 | `cap_bytes` | The cap that applied |
-| `truncated` | True exactly when bytes were cut |
+| `omitted_bytes` | How many bytes were left out: `total_bytes` less `cap_bytes`, or 0 |
+| `truncated` | True exactly when bytes were left out |
 
-`OutputCapture` collects a stream chunk by chunk and gives this result. The
-start of a stream is kept; the end of a long standard error, where a
-traceback usually is, is cut.
+A cut is never silent: values that contradict each other are refused.
+`OutputCapture` collects a stream chunk by chunk and gives this result;
+`omission_marker(n)` is the marker.
 
 ### Output files
 
@@ -74,6 +87,11 @@ below the output directory in path order, with their hashes and sizes. A
 symbolic link is refused with a `HashingError`, so that a run cannot make the
 listing point outside its output directory. Every executor lists its outputs
 with it.
+
+## Implementations
+
+Executors live in `utux.executors`. They depend only on the interfaces, the
+schemas and `utux.workspace`, never on each other.
 
 ## Conformance
 
@@ -87,6 +105,6 @@ must pass:
 - a missing backend, a typed error with nothing run.
 
 An implementation subclasses `ExecutorConformance` and supplies the steps.
-The scripted executor in `tests/conformance/scripted_executor.py` passes it.
+The scripted executor, `utux.executors.scripted.ScriptedExecutor`, passes it.
 It runs nothing: it writes the files of its script into the output directory
 and returns the scripted result.
