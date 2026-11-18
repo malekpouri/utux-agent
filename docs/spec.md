@@ -29,7 +29,7 @@ The contribution is a verifiable, evidence-grounded multi-agent framework for co
 
 ### Hypotheses
 
-The evaluation is designed before the system is built. Each hypothesis names the experiment that can refute it (section 11). Thresholds are fixed in the evaluation protocol in M0, before any results exist.
+The evaluation is designed before the system is built. Each hypothesis names the experiment that can refute it (section 11). Thresholds are fixed in the evaluation protocol before any system output is scored, and locked as RFC-002 section 8 states.
 
 | # | Hypothesis | Tested by | Refuted if |
 | --- | --- | --- | --- |
@@ -605,7 +605,7 @@ No deadline is set, so milestones are ordered by dependency and each has an exit
 
 | Milestone | Scope | Exit criterion |
 | --- | --- | --- |
-| M0. Foundations and evaluation protocol | Repository layout, file schemas, event log, CLI skeleton, `ModelProvider` with OpenRouter. Written hypotheses, metric definitions, thresholds, and gold set v0 | `utux init` creates a valid project; a model call is logged with cost; the protocol is committed before any results exist |
+| M0. Foundations and evaluation protocol | Repository layout, file schemas, event log, CLI skeleton, `ModelProvider` with OpenRouter. Written hypotheses, metric definitions, thresholds, and gold set v0 | `utux init` creates a valid project; a model call is logged with cost; the protocol is committed before any system output is scored |
 | M1. Execution spike | Stages 3 to 5 on LangGraph with the hardened Docker executor, run manifests and result records | The four LangGraph checks in section 6 pass; the orchestration choice is confirmed |
 | M2. Verification | Claim ledger, the four verification checks, `LiteratureSource` with OpenAlex and arXiv, PubMed through BioMCP | Verification is scored on gold set v0 with precision, recall and F1 |
 | M3. Full pipeline | Stages 1, 2 and 6, approval gates, tier routing, independent reviewer, artifact metadata and staleness | One ML task and the bio pilot task each run from question to reviewed PDF in `guided` mode |
