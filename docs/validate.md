@@ -63,7 +63,7 @@ absolute path.
 | `events.jsonl.fragment-*` | none | Side files of `utux log repair`. Each is recorded by a `log_repaired` event, and each such event's file exists with the recorded length and hash. See [the event log](event-log.md#side-files-and-utux-validate) |
 | `claims.jsonl` | claim ledger entry, per line | Required; may be empty. Ids are unique (`duplicate_id`). Every `claim` evidence id is a claim in the file, every `result_record` evidence id is a record in `results.jsonl`, and every `source` evidence `source_id` has a source record in `sources/` (`unknown_reference`) |
 | `results.jsonl` | result record, per line | Required; may be empty. Ids are unique (`duplicate_id`). Every `run_id` has `runs/<run_id>/manifest.json` (`unknown_reference`) |
-| `.utux/meta/<artifact_id>.json` | artifact metadata | The file name matches `artifact_id` (`name_mismatch`). Any other file here is `unexpected_file` |
+| `.utux/meta/<artifact_id>.json` | artifact metadata | The file name matches `artifact_id` (`name_mismatch`). No two sidecars share an `artifact_id` (`duplicate_id`, on the later file in name order). Every `input_artifacts` entry has a sidecar (`unknown_reference`). The current version of each path is checked against the file: see below. Any other file here is `unexpected_file` |
 | `sources/*.json` | source record | No two records share a `source_id` (`duplicate_id`, on the later file in name order). Other files in `sources/` hold stored text and are not read |
 | `runs/<run_id>/manifest.json` | run manifest | `run_id` matches the directory (`name_mismatch`). A run directory without a manifest is a run that has not ended and is accepted. Other files of a run are not read |
 | `approvals/<id>.request.json` | approval request | The file name matches `approval_id` (`name_mismatch`) |
@@ -79,13 +79,33 @@ still counts for the checks of uniqueness and of references, so that what
 cites it is not reported again. A run manifest counts as present when the
 file exists, whether or not it is valid.
 
+### The current version of each path
+
+A sidecar records the `path` of its artifact. The current version of a path
+is the sidecar with the highest version number for it, the number after `-v`
+in `artifact_id`. Only the current version is compared with the file, since
+older versions describe content that has since been replaced. It is reported
+on that sidecar:
+
+| Problem | Field | Code |
+| --- | --- | --- |
+| The content hash of the file differs from `content_hash` | `content_hash` | `content_hash_mismatch` |
+| Nothing exists at `path` | `path` | `missing_file` |
+| `path` leads outside the project, through a symbolic link; it is not read | `path` | `path_outside_project` |
+| A directory at `path` cannot be hashed, for example because it holds a symbolic link | `path` | `unhashable` |
+| Two sidecars have the same highest version of one path; the current version is not defined and nothing is compared | `artifact_id` | `duplicate_version`, on the later file |
+
+A file is hashed with `hash_file` and a directory with
+`hash_project_directory` ([Artifact metadata](artifact-metadata.md)). A
+sidecar that is invalid, or that repeats an `artifact_id`, takes no part in
+this check. Under ADR-0009, files under `inputs/` other than `*.md` and run
+outputs are not in git, so a project cloned without them reports them as
+`missing_file`.
+
 A `.jsonl` file is split into lines at `"\n"` only. Characters such as
 U+2028 and U+0085 may appear inside text and do not end a line. A `"\r"`
 before the `"\n"` is accepted.
 
 ## Not checked yet
 
-- That the content hash of a sidecar matches the file it describes, and that
-  `input_artifacts` name existing sidecars. The sidecar does not yet record
-  the path of its artifact; that is planned for M1.
 - That the edited version named by an approval response has a sidecar.

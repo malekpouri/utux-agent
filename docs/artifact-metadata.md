@@ -13,12 +13,29 @@ A sidecar is a JSON file. Every field is required.
 | --- | --- | --- |
 | `schema_version` | integer | Version of this schema. Currently `1` |
 | `artifact_id` | name, `-v`, and at least three digits, for example `method-v003` | The artifact version the sidecar describes |
+| `path` | a path relative to the project directory, with `/` as separator and without `.` or `..` parts (`not_relative_path`), for example `method.md` or `code` | Where the artifact is: a file, or a directory hashed as project content. The current version of a path is the sidecar with the highest version number for it, and `utux validate` compares its `content_hash` with the file ([Validating a project](validate.md)) |
 | `stage` | `ideation`, `literature`, `methodology`, `implementation`, `experiment` or `writing` | The stage that owns the artifact |
 | `created_by` | `agent:<role>`, `human:<id>` or `system:<component>`, for example `system:utux` | Who produced the artifact |
 | `created_at` | UTC timestamp, ISO 8601, ending in `Z` | When it was produced |
 | `input_artifacts` | list of artifact ids; may be empty | The exact versions it was built from. An entry may not be the artifact itself (`self_reference`) or be repeated (`duplicate_input`); each such entry is reported on its own position, for example `input_artifacts.2` |
 | `content_hash` | `sha256:` and 64 lower-case hexadecimal digits | Hash of the content |
 | `state` | `valid` or `stale` | Whether the artifact may still be used |
+
+A complete sidecar, `.utux/meta/method-v003.json`:
+
+```json
+{
+  "artifact_id": "method-v003",
+  "path": "method.md",
+  "stage": "methodology",
+  "schema_version": 1,
+  "created_by": "agent:methodologist",
+  "created_at": "2026-11-15T10:00:00Z",
+  "input_artifacts": ["idea-v002", "literature-v004"],
+  "content_hash": "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41",
+  "state": "valid"
+}
+```
 
 Timestamps are kept as text, so a sidecar that is read and written again
 keeps the exact timestamp it had.
