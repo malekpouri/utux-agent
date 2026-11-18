@@ -3,12 +3,14 @@
 import hashlib
 import json
 import shutil
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from utux.schemas.project_config import DataPolicy
+from utux.workspace.layout import GITIGNORE_LINES
 from utux.workspace.project import init_project
 from utux.workspace.validation import ValidationProblem, ValidationReport, validate_project
 
@@ -322,6 +324,7 @@ def test_json_report_is_machine_readable(tmp_path: Path) -> None:
                 "reason": "R0042 is already used on line 1",
             }
         ],
+        "warnings": [],
     }
 
 
@@ -605,4 +608,119 @@ def test_a_directory_that_cannot_be_hashed_is_reported(tmp_path: Path) -> None:
     _add_sidecar(project, "code-v001.json", artifact_id="code-v001", path="code")
     assert _found(validate_project(project)) == [
         (".utux/meta/code-v001.json", None, "path", "unhashable"),
+    ]
+
+
+# Files kept out of git (M1-03, ADR-0009)
+
+
+def test_a_missing_untracked_file_is_a_warning(tmp_path: Path) -> None:
+    project = _copy_valid(tmp_path)
+    _add_sidecar(
+        project,
+        "data-v001.json",
+        artifact_id="data-v001",
+        path="inputs/data.csv",
+        stage="ideation",
+        input_artifacts=[],
+    )
+    report = validate_project(project)
+    assert report.problems == ()
+    assert report.valid is True
+    assert [(w.file, w.line, w.field, w.code) for w in report.warnings] == [
+        (".utux/meta/data-v001.json", None, "path", "missing_untracked_file"),
+    ]
+    assert "inputs/data.csv" in report.warnings[0].reason
+
+
+def test_a_missing_run_output_directory_is_a_warning(tmp_path: Path) -> None:
+    project = _copy_valid(tmp_path)
+    _add_sidecar(
+        project,
+        "outputs-v001.json",
+        artifact_id="outputs-v001",
+        path="runs/r012/outputs",
+        stage="experiment",
+        input_artifacts=[],
+    )
+    report = validate_project(project)
+    assert report.problems == ()
+    assert [w.code for w in report.warnings] == ["missing_untracked_file"]
+
+
+def test_a_missing_tracked_file_stays_an_error(tmp_path: Path) -> None:
+    report = validate_project(build("sidecar_artifact_file_missing", tmp_path))
+    assert report.warnings == ()
+    assert _found(report) == [(".utux/meta/idea-v002.json", None, "path", "missing_file")]
+
+
+def test_a_present_untracked_file_is_still_checked(tmp_path: Path) -> None:
+    project = _copy_valid(tmp_path)
+    (project / "inputs" / "data.csv").write_bytes(b"a,b\n1,2\n")
+    _add_sidecar(
+        project,
+        "data-v001.json",
+        artifact_id="data-v001",
+        path="inputs/data.csv",
+        stage="ideation",
+        input_artifacts=[],
+    )
+    assert _found(validate_project(project)) == [
+        (".utux/meta/data-v001.json", None, "content_hash", "content_hash_mismatch"),
+    ]
+
+
+def _git(directory: Path, *arguments: str) -> None:
+    subprocess.run(["git", *arguments], cwd=directory, check=True, capture_output=True)
+
+
+def test_a_fresh_clone_without_its_untracked_files_has_warnings_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "synthetic.gitconfig"
+    config.write_text(
+        "[user]\n\tname = Synthetic Person\n\temail = person@example.org\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    project = _copy_valid(tmp_path)
+    (project / ".gitignore").write_text("\n".join(GITIGNORE_LINES) + "\n", encoding="utf-8")
+    data = b"a,b\n1,2\n"
+    output = b"synthetic model weights\n"
+    (project / "inputs" / "data.csv").write_bytes(data)
+    (project / "runs" / "r012" / "outputs").mkdir()
+    (project / "runs" / "r012" / "outputs" / "model.bin").write_bytes(output)
+    _add_sidecar(
+        project,
+        "data-v001.json",
+        artifact_id="data-v001",
+        path="inputs/data.csv",
+        stage="ideation",
+        input_artifacts=[],
+        content_hash="sha256:" + hashlib.sha256(data).hexdigest(),
+    )
+    _add_sidecar(
+        project,
+        "model-v001.json",
+        artifact_id="model-v001",
+        path="runs/r012/outputs/model.bin",
+        stage="experiment",
+        input_artifacts=["data-v001"],
+        content_hash="sha256:" + hashlib.sha256(output).hexdigest(),
+    )
+    assert validate_project(project).problems == ()
+    _git(project, "init", "-q", "-b", "main")
+    _git(project, "add", "-A")
+    _git(project, "commit", "-q", "-m", "Synthetic project")
+    _git(tmp_path, "clone", "-q", str(project), "clone")
+    clone = tmp_path / "clone"
+    assert not (clone / "inputs" / "data.csv").exists()
+    assert not (clone / "runs" / "r012" / "outputs").exists()
+
+    report = validate_project(clone)
+    assert report.problems == ()
+    assert report.valid is True
+    assert sorted((w.file, w.code) for w in report.warnings) == [
+        (".utux/meta/data-v001.json", "missing_untracked_file"),
+        (".utux/meta/model-v001.json", "missing_untracked_file"),
     ]

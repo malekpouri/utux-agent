@@ -96,3 +96,35 @@ def test_directory_defaults_to_the_current_one(
 def test_validate_is_listed_in_the_help() -> None:
     result = runner.invoke(app, ["--help"])
     assert "validate" in result.output
+
+
+def _with_missing_untracked_file(tmp_path: Path) -> Path:
+    project = tmp_path / "p"
+    shutil.copytree(FIXTURES / "valid_full", project)
+    sidecar = json.loads(
+        (project / ".utux" / "meta" / "idea-v002.json").read_text(encoding="utf-8")
+    )
+    sidecar.update(artifact_id="data-v001", path="inputs/data.csv")
+    (project / ".utux" / "meta" / "data-v001.json").write_text(
+        json.dumps(sidecar), encoding="utf-8"
+    )
+    return project
+
+
+def test_warnings_are_printed_and_give_exit_code_0(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["validate", str(_with_missing_untracked_file(tmp_path))])
+    assert result.exit_code == 0, result.output
+    assert "warning: .utux/meta/data-v001.json: path: inputs/data.csv" in result.output
+    assert "1 warning" in result.output
+
+
+def test_json_report_lists_warnings_apart_from_problems(tmp_path: Path) -> None:
+    project = _with_missing_untracked_file(tmp_path)
+    result = runner.invoke(app, ["validate", "--json", str(project)])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["valid"] is True
+    assert data["problems"] == []
+    assert [(w["file"], w["field"], w["code"]) for w in data["warnings"]] == [
+        (".utux/meta/data-v001.json", "path", "missing_untracked_file"),
+    ]
