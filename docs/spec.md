@@ -35,7 +35,7 @@ The evaluation is designed before the system is built. Each hypothesis names the
 | --- | --- | --- | --- |
 | H1 | Verification reduces unsupported claims, invalid citations and wrong numbers in the final output | Multi-agent with and without verification | Error rates on the gold set do not drop |
 | H2 | Model routing lowers cost without lowering reliability | Routing against a single strong model on the same tasks | Cost does not fall, or error rates rise |
-| H3 | The verification checks detect planted errors with useful precision and recall | Gold set with planted errors | F1 is below the pre-set threshold, or the false-positive rate is too high to be usable |
+| H3 | The verification checks detect planted errors with useful precision and recall | Gold set with planted errors | Any of the five thresholds of RFC-002 section 8 is missed: false-verified rate, critical miss rate, verified coverage, macro-F1 of status, review load |
 | H4 | Run manifests make results reproducible within a stated tolerance | `reproduce.sh` on a clean machine | Results fall outside tolerance |
 | H5 | The full system is more reliable than Denario at comparable cost | Controlled comparison | No difference, or worse, on the reliability metrics |
 
