@@ -104,9 +104,25 @@ __pycache__/
 *.pyc
 .utux/checkpoints.sqlite
 .*.tmp
+inputs/**
+!inputs/**/
+!inputs/**/*.md
+!inputs/.gitkeep
+runs/*/outputs/
 ```
 
-`.*.tmp` covers the temporary files of the atomic writer.
+`.*.tmp` covers the temporary files of the atomic writer. The last five
+lines are those of ADR-0009: every file under `inputs/` except `*.md` files,
+and everything under `runs/<run_id>/outputs/`, stays out of git. Their
+content hashes in sidecars and run manifests are the record. The directories
+under `inputs/` are taken back so that git still finds `*.md` files in them,
+and `inputs/.gitkeep` so that the directory is in the first commit.
+
+The lines are the constant `GITIGNORE_LINES` in `utux.workspace.layout`.
+`ignored_by_git(path)` applies the same lines, and `utux validate` uses it
+to tell a missing file kept out of git from a missing tracked file
+([Validating a project](validate.md)). A project created before these lines
+existed needs them added by hand.
 
 ## The exclude list for directory hashes
 
@@ -126,7 +142,7 @@ out. The list is fixed: changing it changes directory hashes, which needs a
 new `schema_version` of the artifact metadata sidecar.
 
 The `.gitignore` holds the same entries except `.gitkeep`, which git must
-track.
+track, and adds the lines above.
 
 ## The atomic writer
 

@@ -11,7 +11,7 @@ defaults to the current directory.
 
 | Exit code | Meaning |
 | --- | --- |
-| 0 | The project is valid |
+| 0 | The project is valid; it may have warnings |
 | 1 | At least one problem was found |
 | 2 | The command was called wrongly |
 
@@ -24,6 +24,14 @@ utux.yaml: colour: unknown key
 results.jsonl:2: id: R0042 is already used on line 1
 claims.jsonl: <document>: the file is missing
 3 problems found.
+```
+
+A warning does not make the project invalid. It is printed after the
+problems, starting with `warning:`, and counted in the last line:
+
+```text
+warning: .utux/meta/data-v001.json: path: inputs/data.csv does not exist; it is kept out of git (ADR-0009), so a clone does not have it. Its content hash is kept, so a restored file can be checked
+The project is valid (12 contract files checked, 1 warning).
 ```
 
 A file with one record per line (`.jsonl`) is named with its line number.
@@ -46,9 +54,13 @@ With `--json` the command prints only a JSON report:
   "problems": [
     {"file": "results.jsonl", "line": 2, "field": "id",
      "code": "duplicate_id", "reason": "R0042 is already used on line 1"}
-  ]
+  ],
+  "warnings": []
 }
 ```
+
+`warnings` has the same form as `problems`. `valid` depends on `problems`
+only.
 
 `line` is null for a file that is not read line by line. `code` is stable
 and meant for programs; `reason` is meant for people. The report holds no
@@ -90,7 +102,8 @@ on that sidecar:
 | Problem | Field | Code |
 | --- | --- | --- |
 | The content hash of the file differs from `content_hash` | `content_hash` | `content_hash_mismatch` |
-| Nothing exists at `path` | `path` | `missing_file` |
+| Nothing exists at `path`, and git tracks it | `path` | `missing_file` |
+| Nothing exists at `path`, and it is kept out of git (a warning, not a problem) | `path` | `missing_untracked_file` |
 | `path` leads outside the project, through a symbolic link; it is not read | `path` | `path_outside_project` |
 | A directory at `path` cannot be hashed, for example because it holds a symbolic link | `path` | `unhashable` |
 | Two sidecars have the same highest version of one path; the current version is not defined and nothing is compared | `artifact_id` | `duplicate_version`, on the later file |
@@ -98,9 +111,29 @@ on that sidecar:
 A file is hashed with `hash_file` and a directory with
 `hash_project_directory` ([Artifact metadata](artifact-metadata.md)). A
 sidecar that is invalid, or that repeats an `artifact_id`, takes no part in
-this check. Under ADR-0009, files under `inputs/` other than `*.md` and run
-outputs are not in git, so a project cloned without them reports them as
-`missing_file`.
+this check.
+
+### Files kept out of git
+
+Under ADR-0009, files under `inputs/` other than `*.md`, and everything
+under `runs/<run_id>/outputs/`, are kept out of git, so a clone of a project
+does not have them. When such a file is missing, `utux validate` reports the
+warning `missing_untracked_file`, not a problem: a fresh clone without its
+data and run outputs is valid. The sidecar and the run manifest keep the
+file's content hash, so a restored file is checked against it again. A
+missing file at a path that git tracks stays the problem `missing_file`.
+
+Whether a path is kept out of git is decided by `ignored_by_git` in
+`utux.workspace.layout`. It applies the lines that `utux init` writes to
+`.gitignore` ([Creating a project](project.md)), so the rule and the file
+cannot drift apart. A missing path counts as kept out of git when git would
+ignore a file or a directory of that name, since what it was is no longer
+known. The rule does not read the project's own `.gitignore`.
+
+A command that needs a missing file kept out of git, for example a run that
+reads a data file under `inputs/`, fails when it needs the file, and its
+message names the file. Nothing is assumed about the content of a file that
+is not there.
 
 A `.jsonl` file is split into lines at `"\n"` only. Characters such as
 U+2028 and U+0085 may appear inside text and do not end a line. A `"\r"`
