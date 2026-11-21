@@ -248,3 +248,62 @@ def test_the_size_of_a_directory_counts_every_file_below_it(tmp_path: Path) -> N
 
 def test_the_executor_is_named_docker(tmp_path: Path) -> None:
     assert _missing_docker(tmp_path).name == "docker"
+
+
+# Docker's report of a kill for memory (M1-07 follow-up)
+
+
+def _fake_inspect(tmp_path: Path, answers: list[str]) -> Path:
+    """A docker stand-in whose `inspect` gives the answers in turn, then the last."""
+    calls = tmp_path / "calls"
+    calls.write_text("0", encoding="utf-8")
+    lines = "\n".join(f'    {n}) echo "{answer}" ;;' for n, answer in enumerate(answers))
+    script = tmp_path / "fake-docker"
+    script.write_text(
+        "#!/bin/sh\n"
+        f'n=$(cat "{calls}")\n'
+        f'echo $((n + 1)) > "{calls}"\n'
+        'case "$n" in\n'
+        f"{lines}\n"
+        f'    *) echo "{answers[-1]}" ;;\n'
+        "esac\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    return script
+
+
+def _calls(tmp_path: Path) -> int:
+    return int((tmp_path / "calls").read_text(encoding="utf-8"))
+
+
+def test_a_late_report_after_exit_137_is_waited_for(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("utux.executors.docker.time.sleep", lambda seconds: None)
+    docker = _fake_inspect(tmp_path, ["false", "false", "true"])
+    executor = DockerExecutor(tmp_path, docker=str(docker))
+    assert executor._oom_killed("utux-r001-0000", 137) is True
+    assert _calls(tmp_path) == 3
+
+
+def test_without_a_report_no_limit_is_named_after_about_a_second(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    waited: list[float] = []
+    monkeypatch.setattr("utux.executors.docker.time.sleep", waited.append)
+    docker = _fake_inspect(tmp_path, ["false"])
+    executor = DockerExecutor(tmp_path, docker=str(docker))
+    assert executor._oom_killed("utux-r001-0000", 137) is False
+    assert 0.8 <= sum(waited) <= 1.5
+    assert _calls(tmp_path) > 1
+
+
+def test_another_exit_status_is_not_retried(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("utux.executors.docker.time.sleep", lambda seconds: None)
+    docker = _fake_inspect(tmp_path, ["false", "true"])
+    executor = DockerExecutor(tmp_path, docker=str(docker))
+    assert executor._oom_killed("utux-r001-0000", 1) is False
+    assert _calls(tmp_path) == 1
