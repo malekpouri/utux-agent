@@ -99,8 +99,36 @@ stage's budget was written after the request: raise the budget in
 `utux.yaml`, and the next `utux run` records the change and then repeats the
 refused call. Before that, the run stays paused. `reject` stops the run.
 
-The `retry_limit` pause comes with routing back to an earlier stage (task
-M1-12).
+**The experiment plan and later settings.** An approval of the experiment
+plan stops counting if a setting the experiment depends on changes after the
+request: any key under `resources`, or `domain_pack`, the pack whose image
+the experiment runs in. The run then asks again before the experiment runs.
+
+## The check after the analysis, and routing back
+
+M1 has no reviewer agent. A deterministic check runs after the analysis
+instead, as the graph's `check` node; it is not a stage, so it writes no
+stage events and makes no commit.
+
+| Finding | When | Routed back to |
+| --- | --- | --- |
+| `run_failed` | the execution run's exit status is not zero, or a limit stopped it | `implementation` |
+| `metric_missing` | a metric that `method.md` names has no result record of the run | `methodology` |
+
+`method.md` names a metric on a line of its own: `- metric: <name>`.
+
+A route back is a `route_back` event with status `ok`, naming the stages,
+the finding, the attempt and the cap; the stage runs again with the finding
+as part of its input, and the stages after it run again too. Each loop, one
+target stage, has a retry cap of 2 (`RETRY_CAP`). The route back after the
+cap is a `route_back` event with status `refused` and `status_reason`
+`retry_limit`, and the run pauses with a `retry_limit` request whose
+`refused_event_id` names that event. `approve` allows one more route back
+for that loop: the next `route_back` event shows the cap raised by one.
+`reject` stops the run.
+
+Attempts and caps are counted from the event log, not kept in the graph
+state.
 
 ## Checkpoints
 
