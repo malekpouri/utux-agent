@@ -76,7 +76,7 @@ def test_every_model_call_logs_its_prompt_version(project: Path) -> None:
     assert [e.prompt_version for e in calls] == [
         "methodologist@1",
         "implementer@1",
-        "analyst@1",
+        "analyst@2",
     ]
 
 

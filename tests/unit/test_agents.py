@@ -46,10 +46,13 @@ def _record(record_id: str, value: float, metric: str = "r2") -> ResultRecord:
 # Prompts
 
 
-@pytest.mark.parametrize("role", ["methodologist", "implementer", "analyst"])
-def test_each_role_has_a_versioned_prompt_in_the_pack(role: str) -> None:
+@pytest.mark.parametrize(
+    ("role", "version"),
+    [("methodologist", 1), ("implementer", 1), ("analyst", 2)],
+)
+def test_each_role_has_a_versioned_prompt_in_the_pack(role: str, version: int) -> None:
     prompt = load_prompt(PROMPTS, role)
-    assert prompt.version == f"{role}@1"
+    assert prompt.version == f"{role}@{version}"
     assert prompt.text.splitlines()[0] == f"# Role: {role}"
 
 
@@ -198,3 +201,45 @@ def test_the_example_reply_of_each_prompt_is_valid() -> None:
         text = load_prompt(PROMPTS, role).text
         example = text.split("```json\n", 1)[1].split("```", 1)[0]
         model.model_validate(json.loads(example))
+
+
+# Number words (PR #37 review)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Seventy of the points fit: [R0001].",
+        "The fit is twice as good: [R0001].",
+        "About half of them: [R0001].",
+        "A rise of ten per cent: [R0001].",
+        "Ninety PERCENT fit: [R0001].",
+        "One run gave [R0001].",
+        "A thousand points: [R0001].",
+    ],
+)
+def test_a_number_word_outside_a_reference_is_rejected(text: str) -> None:
+    with pytest.raises(AgentOutputError, match="number"):
+        check_analysis_text(text, {"R0001"})
+
+
+def test_words_that_only_contain_a_number_word_are_allowed() -> None:
+    check_analysis_text("The bone of the fit is often done: [R0001].", {"R0001"})
+
+
+def test_a_results_md_with_a_number_word_is_rejected() -> None:
+    with pytest.raises(AgentOutputError):
+        check_results(
+            "# Results\n\nTwelve folds gave 0.97 score [R0001].\n", [_record("R0001", 0.97)]
+        )
+
+
+def test_a_number_word_as_the_unit_of_a_reference_is_allowed() -> None:
+    record = _record("R0001", 0.97).model_copy(update={"unit": "percent"})
+    check_results("# Results\n\nThe fit is 0.97 percent [R0001].\n", [record])
+
+
+def test_the_analyst_prompt_says_configuration_numbers_belong_in_method_md() -> None:
+    text = load_prompt(PROMPTS, "analyst").text
+    assert "method.md" in text
+    assert "folds" in text

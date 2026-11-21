@@ -319,3 +319,37 @@ def test_a_method_without_a_valid_metric_line_stops_at_the_method_gate(
 def test_the_metric_line_form_is_exact() -> None:
     method = "- metric: r2\n- metric: auc_macro\n- metric: top-1.accuracy\nText - metric: x\n"
     assert named_metrics(method) == {"r2", "auc_macro", "top-1.accuracy"}
+
+
+# A metric value written into the code (PR #37 review)
+
+
+def test_a_metric_value_hard_coded_in_the_code_routes_back_to_implementation(
+    project: Path,
+) -> None:
+    switch_gates_off(project)
+    # The scripted metrics report r2 = 0.97 with tolerance 0.005: two decimals.
+    hard_coded = "import json, os\nr2 = 0.97\nprint(json.dumps({'r2': r2}))\n"
+    run_services, provider = _services(project, (METHOD, hard_coded, CODE_FIXED), [PASSED, PASSED])
+    outcome = run_workflow(project, run_services)
+    (route,) = _events(project, EventType.ROUTE_BACK)
+    assert (route.data["to_stage"], route.data["finding"]) == ("implementation", "hardcoded_metric")
+    assert "hardcoded_metric" in provider.of("implementer")[1].messages[-1].content
+    assert [r.run_id for r in outcome.results] == ["r002"]
+
+
+def test_a_value_within_the_rounding_counts_as_hard_coded(project: Path) -> None:
+    switch_gates_off(project)
+    hard_coded = "r2 = 0.9704\n"
+    run_services, _ = _services(project, (METHOD, hard_coded, CODE_FIXED), [PASSED, PASSED])
+    run_workflow(project, run_services)
+    (route,) = _events(project, EventType.ROUTE_BACK)
+    assert route.data["finding"] == "hardcoded_metric"
+
+
+def test_a_computed_value_is_not_a_finding(project: Path) -> None:
+    switch_gates_off(project)
+    computed = "import json\nresiduals = [0.01, 0.02]\nr2 = 1 - sum(residuals)\n"
+    run_services, _ = _services(project, (METHOD, computed), [PASSED])
+    run_workflow(project, run_services)
+    assert _events(project, EventType.ROUTE_BACK) == []
