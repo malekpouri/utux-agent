@@ -309,7 +309,7 @@ def test_text_fields_may_be_null_but_not_empty(field: str) -> None:
     document = _valid_document()
     # Not a model_call, which must name its model and its provider.
     document["type"] = "stage_start"
-    document["data"] = {}
+    document["data"] = {"node": "methodology"}
     document[field] = None
     assert getattr(Event.from_json(json.dumps(document)), field) is None
     document[field] = ""
@@ -511,6 +511,10 @@ def test_types_without_defined_keys_accept_only_an_empty_object() -> None:
             EventType.LOG_REPAIRED,
             EventType.MODEL_CALL,
             EventType.BUDGET_WARNING,
+            EventType.STAGE_START,
+            EventType.STAGE_END,
+            EventType.RUN_STARTED,
+            EventType.RUN_RESTARTED,
         ):
             continue
         document = _with(type=kind.value, data={})

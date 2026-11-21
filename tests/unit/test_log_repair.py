@@ -101,10 +101,22 @@ def test_the_log_can_be_appended_to_after_the_repair(tmp_path: Path) -> None:
     project, _, _ = _damaged(tmp_path)
     log = EventLog(project / "events.jsonl", clock=_clock)
     with pytest.raises(EventLogCorruptError):
-        log.append(NewEvent(actor="system:utux", type=EventType.STAGE_START, status=EventStatus.OK))
+        log.append(
+            NewEvent(
+                actor="system:utux",
+                type=EventType.STAGE_START,
+                status=EventStatus.OK,
+                data={"node": "methodology"},
+            )
+        )
     repair_log(project / "events.jsonl", clock=_clock)
     stored = log.append(
-        NewEvent(actor="system:utux", type=EventType.STAGE_START, status=EventStatus.OK)
+        NewEvent(
+            actor="system:utux",
+            type=EventType.STAGE_START,
+            status=EventStatus.OK,
+            data={"node": "methodology"},
+        )
     )
     assert stored.event_id == "e-000004"
 
@@ -240,7 +252,14 @@ def test_reading_and_appending_still_refuse_an_incomplete_line(tmp_path: Path) -
         list(log)
     assert "utux log repair" in str(caught.value)
     with pytest.raises(EventLogCorruptError):
-        log.append(NewEvent(actor="system:utux", type=EventType.STAGE_START, status=EventStatus.OK))
+        log.append(
+            NewEvent(
+                actor="system:utux",
+                type=EventType.STAGE_START,
+                status=EventStatus.OK,
+                data={"node": "methodology"},
+            )
+        )
     validate_project(project)
     assert (project / "events.jsonl").read_bytes() == complete + fragment
     assert _side_files(project) == []
