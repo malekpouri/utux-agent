@@ -278,6 +278,7 @@ my-project/
   .utux/settings-snapshot.yaml  # [init]  utux.yaml as last recorded; setting changes are recorded against it
   .utux/checkpoints.sqlite  # [later]
   .utux/lock                # [later] the project lock, held by a command that writes to the project
+  .utux/staging/            # [later] the staging area of a stage that has not finished
   reproduce.sh              # [later]
 ```
 
@@ -436,7 +437,7 @@ A complete manifest, on one line:
  "data": {"provider": "openrouter", "is_external": true}, "artifacts": ["method-v003"]}
 ```
 
-Event types include stage start and end, model call, tool call, code execution, verification result, approval requested, approval answered, budget warning, setting changed and error, and run started, resumed and restarted. The id of a run's `run_started` event is the run's id; the checkpoints of the run use it, so a checkpoint that no `run_started` event of the log matches is not resumed. On resume the files win: the run restarts at the earliest stage whose inputs changed since the checkpoint, and an event records it. `retry_reason` and `escalated_from` record why a call was repeated or moved to a stronger tier.
+Event types include stage start and end, model call, tool call, code execution, verification result, approval requested, approval answered, budget warning, setting changed and error, and run started, resumed and restarted. There are two kinds of run. A workflow run is one pass through the stages; its id is the id of its `run_started` event, stored in the `run_id` of each of its events, and its checkpoints use it, so a checkpoint that no `run_started` event of the log matches is not resumed. An execution run is one step in a container; its id, such as `r012`, names `runs/<id>/` and the run manifest. These two ids have different forms. A workflow run's checkpoints use its id, so a checkpoint that no `run_started` event of the log matches is not resumed. On resume the files win: the run restarts at the earliest stage whose inputs changed since the checkpoint, and an event records it. `retry_reason` and `escalated_from` record why a call was repeated or moved to a stronger tier.
 
 `status` is `ok`, `error` or `refused`. A refused action is one that utux itself declined, for example a call to an external provider under `local_only` or a call after the budget is exhausted. `status_reason` is a stable machine code that explains any status other than `ok`, such as `model_timeout` or `budget_exhausted`; it is null exactly when the status is `ok`. Free-text error messages are not stored.
 
