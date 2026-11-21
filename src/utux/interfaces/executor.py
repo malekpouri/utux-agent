@@ -12,13 +12,25 @@ credentials are refused, so that no key can be handed to model-written code.
 
 import re
 from datetime import datetime
-from enum import StrEnum
 from typing import Annotated, Protocol, Self, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from pydantic_core import InitErrorDetails, PydanticCustomError
 
-from utux.schemas.common import RelativePath, RunId, Sha256Hash, UtcTimestamp
+from utux.schemas.common import LimitKind, RelativePath, RunId, Sha256Hash, UtcTimestamp
+
+__all__ = [
+    "DEFAULT_OUTPUT_CAP_BYTES",
+    "CapturedOutput",
+    "ExecutionStep",
+    "Executor",
+    "LimitKind",
+    "OutputCapture",
+    "OutputFile",
+    "ResourceLimits",
+    "RunResult",
+    "omission_marker",
+]
 
 DEFAULT_OUTPUT_CAP_BYTES = 1024 * 1024
 """How much of each output stream an executor keeps unless told otherwise."""
@@ -131,16 +143,6 @@ class ExecutionStep(_Value):
                 ],
             )
         return self
-
-
-class LimitKind(StrEnum):
-    """The limit that stopped a run."""
-
-    WALL_CLOCK = "wall_clock"
-    MEMORY = "memory"
-    PROCESSES = "processes"
-    DISK = "disk"
-    OUTPUT_SIZE = "output_size"
 
 
 def omission_marker(omitted_bytes: int) -> bytes:

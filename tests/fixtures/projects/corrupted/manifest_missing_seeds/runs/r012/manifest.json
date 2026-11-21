@@ -62,5 +62,6 @@
   ],
   "started_at": "2026-11-15T10:00:00Z",
   "ended_at": "2026-11-15T10:14:30Z",
-  "exit_status": 0
+  "exit_status": 0,
+  "stopped_by": null
 }

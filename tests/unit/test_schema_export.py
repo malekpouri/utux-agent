@@ -25,6 +25,7 @@ EXPECTED = {
     "approval_response",
     "source_record",
     "gold_item",
+    "metrics",
 }
 
 
@@ -34,7 +35,7 @@ def _all_contract_models() -> set[type[ContractDocument]]:
     return set(ContractDocument.__subclasses__())
 
 
-def test_registry_names_the_nine_contracts() -> None:
+def test_registry_names_every_contract() -> None:
     assert set(CONTRACTS) == EXPECTED
 
 
@@ -125,6 +126,7 @@ FIXTURE_DIRECTORY = {
     "approval_response": "approval_response",
     "source_record": "source_record",
     "gold_item": "gold_item",
+    "metrics": "metrics",
 }
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 NOTE = (

@@ -16,6 +16,7 @@ from pydantic_core import PydanticCustomError
 from utux.schemas.base import ContractDocument, ContractPart, field_problem, raise_field_problems
 from utux.schemas.common import (
     FlatObject,
+    LimitKind,
     NonEmptyText,
     PositiveInt,
     RelativePath,
@@ -123,7 +124,12 @@ class RunManifest(ContractDocument):
             it produced none.
         started_at: When the run started.
         ended_at: When the run ended. Not before `started_at`.
-        exit_status: The exit status of the command.
+        exit_status: The exit status of the command, or null when a limit
+            stopped the run before it exited.
+        stopped_by: The limit that stopped the run, or null. It may be set
+            with an exit status, as when the container was killed for
+            memory; `exit_status` is null only when it is set
+            (`exit_status_required`).
     """
 
     SCHEMA_VERSION: ClassVar[int] = 1
@@ -142,7 +148,23 @@ class RunManifest(ContractDocument):
     outputs: tuple[FileRef, ...]
     started_at: UtcTimestamp
     ended_at: UtcTimestamp
-    exit_status: StrictInt
+    exit_status: StrictInt | None
+    stopped_by: LimitKind | None
+
+    @model_validator(mode="after")
+    def _exit_status_unless_stopped(self) -> Self:
+        if self.exit_status is None and self.stopped_by is None:
+            raise_field_problems(
+                type(self).__name__,
+                [
+                    field_problem(
+                        "exit_status_required",
+                        "a run that no limit stopped has an exit status",
+                        "exit_status",
+                    )
+                ],
+            )
+        return self
 
     @field_validator("ended_at")
     @classmethod

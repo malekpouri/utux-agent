@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "entries": {
+    "metric": "AUC",
+    "value": 0.95,
+    "unit": "score",
+    "dataset": "dataset_x",
+    "model": "model_a",
+    "split": "test",
+    "tolerance": 0.005
+  }
+}

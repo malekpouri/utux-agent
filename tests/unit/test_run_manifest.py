@@ -37,6 +37,7 @@ FIELDS = [
     "started_at",
     "ended_at",
     "exit_status",
+    "stopped_by",
 ]
 
 # One row per invalid fixture: file name, the field the error must name, and
@@ -60,6 +61,9 @@ INVALID: list[Row] = [
     ("parameter_is_nested.json", "parameters.optimizer", "not_scalar"),
     ("seed_is_not_an_integer.json", "seeds.numpy", "int_type"),
     ("exit_status_is_text.json", "exit_status", "int_type"),
+    ("exit_status_null_without_stopped_by.json", "exit_status", "exit_status_required"),
+    ("unknown_stopped_by.json", "stopped_by", "enum"),
+    ("missing_stopped_by.json", "stopped_by", "missing"),
     ("ended_before_started.json", "ended_at", "ended_before_started"),
     ("gpu_without_cuda_version.json", "hardware.cuda_version", "required_with_gpu"),
     ("cuda_version_without_gpu.json", "hardware.cuda_version", "not_allowed_without_gpu"),
@@ -230,3 +234,17 @@ def test_the_complete_manifests_of_the_documents_are_valid() -> None:
         assert found is not None, document
         manifest = RunManifest.from_json(found.group(1), source=document)
         assert manifest.container.rootless is False
+
+
+# A run stopped by a limit (M1-09)
+
+
+def test_a_run_stopped_by_its_timeout_has_no_exit_status() -> None:
+    from utux.schemas.common import LimitKind
+    from utux.schemas.run_manifest import load_run_manifest
+
+    root = Path(__file__).resolve().parents[1] / "fixtures" / "run_manifest" / "valid"
+    timeout = load_run_manifest(root / "stopped_by_timeout.json")
+    assert (timeout.exit_status, timeout.stopped_by) == (None, LimitKind.WALL_CLOCK)
+    memory = load_run_manifest(root / "stopped_by_memory_with_exit_status.json")
+    assert (memory.exit_status, memory.stopped_by) == (137, LimitKind.MEMORY)

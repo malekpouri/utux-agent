@@ -146,3 +146,13 @@ FlatObject = Annotated[dict[str, Scalar], BeforeValidator(_check_flat)]
 
 RunId = Annotated[str, Field(pattern=r"^r[0-9]{3,}$", strict=True)]
 """A run id: `r` and at least three digits, for example `r012`."""
+
+
+class LimitKind(StrEnum):
+    """The limit that stopped a run (run results and run manifests)."""
+
+    WALL_CLOCK = "wall_clock"
+    MEMORY = "memory"
+    PROCESSES = "processes"
+    DISK = "disk"
+    OUTPUT_SIZE = "output_size"

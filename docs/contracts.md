@@ -63,7 +63,8 @@ have stored full text (code `stored_text_exceeds_source_version`, on
 | `external_services` | list of `name`, `version` | External APIs or services the run depends on |
 | `outputs` | list of `path` and `hash`; may be empty | The files the run produced |
 | `started_at`, `ended_at` | UTC timestamps | Start and end. The end is not before the start (code `ended_before_started`) |
-| `exit_status` | integer | Exit status of the command |
+| `exit_status` | integer, or null | Exit status of the command. Null only when `stopped_by` is set (code `exit_status_required`) |
+| `stopped_by` | `wall_clock`, `memory`, `processes`, `disk`, `output_size`, or null | The limit that stopped the run. It may come with an exit status, as for `memory`, where Docker killed the container |
 
 A complete manifest:
 
@@ -136,7 +137,8 @@ A complete manifest:
   ],
   "started_at": "2026-11-15T10:00:00Z",
   "ended_at": "2026-11-15T10:14:30Z",
-  "exit_status": 0
+  "exit_status": 0,
+  "stopped_by": null
 }
 ```
 
