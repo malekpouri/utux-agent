@@ -17,9 +17,15 @@ exactly:
 - no `--privileged` and no `--device`; GPUs only when the step asks.
 
 A limit is named in the result only when it is known for certain: the
-wall-clock timeout from this executor's own timer, and memory from Docker's
-report that the container was killed for it. Anything else shows as the exit
-status and the captured output.
+wall-clock timeout from this executor's own timer; the size of the output
+directory, which this executor measures about once a second and stops the
+run when it exceeds `output_mb`; and memory from Docker's report that the
+container was killed for it. Anything else shows as the exit status and the
+captured output.
+
+Docker keeps no copy of the output (`--log-driver=none`): otherwise it
+would store its own full copy of everything the run prints, uncapped, on
+the host.
 
 If Docker is missing or its daemon cannot be reached, `run` raises
 `ExecutorUnavailableError`; nothing ever runs on the host instead.
@@ -32,6 +38,7 @@ import shutil
 import stat
 import subprocess
 import threading
+import time
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -51,7 +58,9 @@ from utux.workspace.outputs import collect_output_files
 CONTAINER_PROJECT = "/project"
 """Where the project's mounted paths appear inside the container."""
 
-DEFAULT_LIMITS = ResourceLimits(cpus=1.0, memory_mb=2048, disk_mb=512, max_processes=256)
+DEFAULT_LIMITS = ResourceLimits(
+    cpus=1.0, memory_mb=2048, disk_mb=512, max_processes=256, output_mb=1024
+)
 """The limits of a step that sets none."""
 
 _COMMAND_TIMEOUT_SECONDS = 60.0
@@ -107,6 +116,9 @@ def docker_run_arguments(
         "--security-opt=no-new-privileges",
         "--network=none",
         "--hostname=utux-sandbox",
+        # Docker keeps no copy of the output on the host; an attached run
+        # still streams both output streams to the executor.
+        "--log-driver=none",
         f"--pids-limit={pids}",
         f"--memory={memory}m",
         # Equal to the memory limit, so that no swap is used beyond it.
@@ -133,6 +145,25 @@ def docker_run_arguments(
     return arguments
 
 
+def directory_size(directory: Path) -> int:
+    """The total size in bytes of everything below a directory.
+
+    Symbolic links count as themselves and are not followed. Files that
+    vanish while it is measured are skipped. A missing directory has size 0.
+    """
+    total = 0
+    for current, directories, files in os.walk(directory, followlinks=False):
+        for name in [*files, *directories]:
+            path = os.path.join(current, name)
+            try:
+                info = os.lstat(path)
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISDIR(info.st_mode):
+                total += info.st_size
+    return total
+
+
 def _read_into(stream: IO[bytes], capture: OutputCapture) -> None:
     while chunk := stream.read(_READ_BYTES):
         capture.feed(chunk)
@@ -150,6 +181,7 @@ class DockerExecutor:
         docker: str = "docker",
         docker_environment: Mapping[str, str] | None = None,
         clock: Callable[[], datetime] = _utc_now,
+        output_check_seconds: float = 1.0,
     ) -> None:
         """Create the executor.
 
@@ -162,6 +194,8 @@ class DockerExecutor:
                 docker command itself, for example `DOCKER_HOST`. They never
                 reach the container.
             clock: Returns the current time in UTC.
+            output_check_seconds: How often the size of the output directory
+                is measured during a run.
         """
         self._project = project
         self._cap = output_cap_bytes
@@ -170,6 +204,7 @@ class DockerExecutor:
         self._docker_environment = dict(docker_environment or {})
         self._clock = clock
         self._rootless: bool | None = None
+        self._output_check_seconds = output_check_seconds
 
     @property
     def name(self) -> str:
@@ -208,6 +243,9 @@ class DockerExecutor:
         self.rootless()
         self._check_image(step.image_digest)
         output.mkdir(parents=True, exist_ok=True)
+        # Checked again after creating it: a parent could have been replaced
+        # by a symbolic link in between.
+        self._check_output_inside(step, output)
         name = f"utux-{step.run_id}-{secrets.token_hex(4)}"
         arguments = docker_run_arguments(
             step,
@@ -241,6 +279,15 @@ class DockerExecutor:
             if stat.S_ISSOCK(resolved.stat().st_mode):
                 raise ExecutorError(f"{relative} is a socket; sockets are never mounted")
         output = self._project / step.output_directory
+        # The nearest part that exists must be inside the project, so that
+        # nothing is created through a symbolic link that leads out of it.
+        existing = output
+        while not existing.exists() and existing != self._project:
+            existing = existing.parent
+        if existing.is_symlink() or not existing.resolve().is_relative_to(root):
+            raise ExecutorError(
+                f"the output directory {step.output_directory} leads outside the project"
+            )
         if output.exists():
             if not output.resolve().is_relative_to(root) or not output.is_dir():
                 raise ExecutorError(
@@ -253,6 +300,13 @@ class DockerExecutor:
                     "writes into a fresh directory"
                 )
         return output
+
+    def _check_output_inside(self, step: ExecutionStep, output: Path) -> None:
+        if output.is_symlink() or not output.resolve().is_relative_to(self._project.resolve()):
+            raise ExecutorError(
+                f"the output directory {step.output_directory} leads outside the project; "
+                "the container was not started"
+            )
 
     def _docker_command(self, *arguments: str) -> subprocess.CompletedProcess[str]:
         try:
@@ -325,11 +379,23 @@ class DockerExecutor:
         ]
         for reader in readers:
             reader.start()
-        timed_out = False
-        try:
-            process.wait(timeout=step.timeout_seconds)
-        except subprocess.TimeoutExpired:
-            timed_out = True
+        limit_bytes = (step.limits.output_mb or self._defaults.output_mb or 0) * 1024 * 1024
+        stopped_by: LimitKind | None = None
+        deadline = time.monotonic() + step.timeout_seconds
+        # Waits in steps, measuring the output directory between them. The
+        # limit can be exceeded by what the run writes within one step.
+        while process.poll() is None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                stopped_by = LimitKind.WALL_CLOCK
+                break
+            try:
+                process.wait(timeout=min(self._output_check_seconds, remaining))
+            except subprocess.TimeoutExpired:
+                if limit_bytes and directory_size(output) > limit_bytes:
+                    stopped_by = LimitKind.OUTPUT_SIZE
+                    break
+        if stopped_by is not None:
             self._docker_command("kill", name)
             try:
                 process.wait(timeout=_COMMAND_TIMEOUT_SECONDS)
@@ -340,9 +406,8 @@ class DockerExecutor:
             reader.join()
         ended = self._clock()
         status = process.returncode
-        stopped_by: LimitKind | None = None
-        if timed_out:
-            stopped_by, exit_status = LimitKind.WALL_CLOCK, None
+        if stopped_by is not None:
+            exit_status = None
         else:
             state = self._docker_command("inspect", "--format", "{{.State.OOMKilled}}", name)
             if state.returncode != 0:

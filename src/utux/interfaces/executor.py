@@ -42,6 +42,9 @@ class ResourceLimits(_Value):
         gpus: Number of GPUs passed through.
         disk_mb: Size of the writable scratch space in megabytes.
         max_processes: Number of processes and threads.
+        output_mb: Size of the output directory in mebibytes, as Docker
+            counts memory. An executor that measures it stops the run when it
+            is exceeded.
     """
 
     cpus: Annotated[float, Field(gt=0, allow_inf_nan=False)] | None = None
@@ -49,6 +52,7 @@ class ResourceLimits(_Value):
     gpus: Annotated[int, Field(ge=0, strict=True)] | None = None
     disk_mb: Annotated[int, Field(gt=0, strict=True)] | None = None
     max_processes: Annotated[int, Field(gt=0, strict=True)] | None = None
+    output_mb: Annotated[int, Field(gt=0, strict=True)] | None = None
 
 
 def _overlaps(first: str, second: str) -> bool:
@@ -136,6 +140,7 @@ class LimitKind(StrEnum):
     MEMORY = "memory"
     PROCESSES = "processes"
     DISK = "disk"
+    OUTPUT_SIZE = "output_size"
 
 
 def omission_marker(omitted_bytes: int) -> bytes:
