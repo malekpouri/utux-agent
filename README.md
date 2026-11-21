@@ -139,7 +139,7 @@ See [Cost and budget](docs/cost.md).
 - [Worked example of a gold item](docs/eval/example-item.md)
 - [M0 plan](docs/plan/M0.md) and [M1 plan](docs/plan/M1.md)
 - [Contributing](CONTRIBUTING.md) and [Security](SECURITY.md)
-- [How a run works](docs/workflow.md)
+- [How a run works](docs/run.md)
 - [Claim ledger and result records](docs/claim-ledger.md) and [result records from a run](docs/results.md)
 - [Run manifest, approvals, source record and schema export](docs/contracts.md)
 

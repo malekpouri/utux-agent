@@ -106,6 +106,7 @@ on that sidecar:
 | Nothing exists at `path`, and it is kept out of git (a warning, not a problem) | `path` | `missing_untracked_file` |
 | `path` leads outside the project, through a symbolic link; it is not read | `path` | `path_outside_project` |
 | A directory at `path` cannot be hashed, for example because it holds a symbolic link | `path` | `unhashable` |
+| A sidecar made by `human:unknown` that is not built from exactly one earlier version of the same artifact; that maker is only for a version edited outside utux | `created_by` | `edit_actor_misused` |
 | Two sidecars have the same highest version of one path; the current version is not defined and nothing is compared | `artifact_id` | `duplicate_version`, on the later file |
 
 A file is hashed with `hash_file` and a directory with
