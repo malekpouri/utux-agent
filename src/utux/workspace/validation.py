@@ -21,6 +21,7 @@ from pathlib import Path
 from utux.errors import DOCUMENT_FIELD, ContractValidationError, HashingError
 from utux.events.log import FRAGMENT_SUFFIX, fragment_files
 from utux.schemas.approval import (
+    ApprovalKind,
     ApprovalRequest,
     ApprovalResponse,
     check_response_matches_request,
@@ -59,6 +60,12 @@ SOURCES_DIRECTORY = "sources"
 RUNS_DIRECTORY = "runs"
 APPROVALS_DIRECTORY = "approvals"
 MANIFEST_FILE = "manifest.json"
+
+# The event a request that is not about an artifact names: type, status, reason.
+_REFUSED_EVENT_OF: dict[ApprovalKind, tuple[str, str, str]] = {
+    ApprovalKind.BUDGET_EXHAUSTED: ("model_call", "refused", "budget_exhausted"),
+    ApprovalKind.RETRY_LIMIT: ("route_back", "refused", "retry_limit"),
+}
 
 EDITED_OUTSIDE_UTUX = "human:unknown"
 """The maker of a version that changed outside utux, by a person not known by name."""
@@ -161,6 +168,8 @@ class _Validator:
         # Ids of every line of the log that has one, valid or not; None if
         # the log is missing, so that nothing is reported against it.
         self.event_ids: set[str] | None = None
+        # The type, status and reason of every valid event, by id.
+        self.event_kinds: dict[str, tuple[str, str, str | None]] = {}
 
     def add(self, file: str, line: int | None, field: str, code: str, reason: str) -> None:
         self.problems.append(ValidationProblem(file, line, field, code, reason))
@@ -253,6 +262,11 @@ class _Validator:
                         "the first event of the log must be project_created, "
                         f"not {event.type.value}",
                     )
+                self.event_kinds[event.event_id] = (
+                    event.type.value,
+                    event.status.value,
+                    event.status_reason,
+                )
                 if event.type is EventType.LOG_REPAIRED:
                     self.repairs.append((number, dict(event.data)))
                 if event.parent_id is not None and event.parent_id not in earlier:
@@ -637,6 +651,20 @@ class _Validator:
                 "refused_event_id",
                 "unknown_reference",
                 f"{request.refused_event_id} is not an event in {EVENT_LOG_FILE}",
+            )
+            return
+        expected = _REFUSED_EVENT_OF.get(request.kind)
+        found = self.event_kinds.get(request.refused_event_id)
+        # An invalid event is reported on its own line.
+        if expected is not None and found is not None and found != expected:
+            kind, status, reason = expected
+            self.add(
+                file,
+                None,
+                "refused_event_id",
+                "wrong_refused_event",
+                f"a {request.kind.value} request names a {kind} event with status {status} "
+                f"and reason {reason}; {request.refused_event_id} is not one",
             )
 
     def check_name(

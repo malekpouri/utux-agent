@@ -25,6 +25,7 @@ builds the graph.
 import itertools
 import os
 import platform
+import re
 import shutil
 import sqlite3
 from collections.abc import Callable, Iterator
@@ -72,7 +73,13 @@ from utux.schemas.event import EventStatus, EventType, NewEvent
 from utux.schemas.json_io import parse_json
 from utux.schemas.project_config import Gate, OversightMode, ProjectConfig, load_project_config
 from utux.schemas.result_record import ResultRecord
-from utux.schemas.run_manifest import Container, GitState, Hardware, RunManifest
+from utux.schemas.run_manifest import (
+    Container,
+    GitState,
+    Hardware,
+    RunManifest,
+    load_run_manifest,
+)
 from utux.workspace.atomic import atomic_write_text
 from utux.workspace.commits import check_commits, commit_stage, head_commit
 from utux.workspace.hashing import hash_file
@@ -157,11 +164,18 @@ class StageRecord(TypedDict):
 
 
 class RunState(TypedDict, total=False):
-    """The graph state. Only ids, relative paths, hashes and node names."""
+    """The graph state. Only ids, relative paths, hashes and small enums.
+
+    `route_to` and `finding` are set by the check after the analysis: the
+    node to go back to (or `end`) and the finding that sends the run there
+    (or `none`).
+    """
 
     stages: dict[str, StageRecord]
     experiment_run: str
     results: list[str]
+    route_to: str
+    finding: str
 
 
 def _now() -> datetime:
@@ -324,6 +338,17 @@ class _Context:
     commits: bool
 
 
+def _with_finding(state: RunState, node: str, prompt: str) -> str:
+    """Add the finding that routed the run back to this node, if it did."""
+    if state.get("route_to") == node and state.get("finding", NO_FINDING) != NO_FINDING:
+        return (
+            prompt
+            + "\n\nThe previous attempt was sent back to this stage with the finding: "
+            + f"{state['finding']}."
+        )
+    return prompt
+
+
 def _ask(context: _Context, node: str, prompt: str) -> str:
     role = _AGENTS[node].removeprefix("agent:")
     tier = context.config.models.roles.get(role, Tier.STANDARD)
@@ -356,7 +381,10 @@ def _methodology(
     project = context.project
     inputs = {p: hash_file(project / p) for p in _question_files(project)}
     question = "\n\n".join((project / p).read_text(encoding="utf-8") for p in inputs)
-    method = _ask(context, "methodology", "Write the method for this question.\n\n" + question)
+    prompt = _with_finding(
+        state, "methodology", "Write the method for this question.\n\n" + question
+    )
+    method = _ask(context, "methodology", prompt)
     atomic_write_text(staging.path("method.md"), method)
     artifact = _record_artifact(
         project, staging, "method", "method.md", Stage.METHODOLOGY, _AGENTS["methodology"], ()
@@ -374,7 +402,8 @@ def _implementation(
     project = context.project
     inputs = {"method.md": hash_file(project / "method.md")}
     method = (project / "method.md").read_text(encoding="utf-8")
-    code = _ask(context, "implementation", "Write the code for this method.\n\n" + method)
+    prompt = _with_finding(state, "implementation", "Write the code for this method.\n\n" + method)
+    code = _ask(context, "implementation", prompt)
     atomic_write_text(staging.path("code/main.py"), code)
     artifact = _record_artifact(
         project,
@@ -594,6 +623,120 @@ def _node(context: _Context, node: str) -> Callable[[RunState], RunState]:
     return run_node
 
 
+# The check after the analysis, and routing back (M1-12)
+
+CHECK_NODE = "check"
+"""The deterministic check after the analysis; not a stage, so it writes no
+stage events and makes no commit."""
+
+RETRY_CAP = 2
+"""How many times a run may be routed back to one stage before it pauses."""
+
+RUN_FAILED = "run_failed"
+METRIC_MISSING = "metric_missing"
+NO_FINDING = "none"
+END_ROUTE = "end"
+FINDINGS = (RUN_FAILED, METRIC_MISSING, NO_FINDING)
+ROUTES = (*NODES, END_ROUTE)
+
+_ROUTE_FOR = {RUN_FAILED: "implementation", METRIC_MISSING: "methodology"}
+_NAMED_METRIC = re.compile(r"^\s*-\s*metric:\s*(\S+)\s*$", flags=re.MULTILINE | re.IGNORECASE)
+
+
+def named_metrics(method: str) -> set[str]:
+    """The metrics a method names, one per line of the form `- metric: <name>`."""
+    return set(_NAMED_METRIC.findall(method))
+
+
+def _finding(context: _Context, state: RunState) -> str:
+    project = context.project
+    run = state.get("experiment_run", "")
+    manifest = load_run_manifest(project / "runs" / run / "manifest.json")
+    if manifest.exit_status != 0 or manifest.stopped_by is not None:
+        return RUN_FAILED
+    method = (project / "method.md").read_text(encoding="utf-8")
+    recorded = {record.metric for record in _read_records(project, state.get("results", []))}
+    if named_metrics(method) - recorded:
+        return METRIC_MISSING
+    return NO_FINDING
+
+
+def _routes_so_far(context: _Context, to_stage: str) -> tuple[int, int]:
+    """The route backs to a stage in this run, and the approved raises of its cap."""
+    routes = 0
+    refused: set[str] = set()
+    for event in context.log:
+        if event.type is not EventType.ROUTE_BACK or event.run_id != context.run_id:
+            continue
+        if event.data.get("to_stage") != to_stage:
+            continue
+        if event.status is EventStatus.OK:
+            routes += 1
+        else:
+            refused.add(event.event_id)
+    answered = _answered(context)
+    raises = sum(
+        1
+        for approval_id, request in _requests_of_run(context)
+        if request.kind is ApprovalKind.RETRY_LIMIT
+        and request.refused_event_id in refused
+        and answered.get(approval_id) == Decision.APPROVE.value
+    )
+    return routes, raises
+
+
+def _check(context: _Context) -> Callable[[RunState], RunState]:
+    def run_check(state: RunState) -> RunState:
+        finding = _finding(context, state)
+        if finding == NO_FINDING:
+            return {"route_to": END_ROUTE, "finding": NO_FINDING}
+        to = _ROUTE_FOR[finding]
+        to_stage = STAGE_OF[to].value
+        routes, raises = _routes_so_far(context, to_stage)
+        attempt, cap = routes + 1, RETRY_CAP + raises
+        data: dict[str, Scalar] = {
+            "from_stage": Stage.EXPERIMENT.value,
+            "to_stage": to_stage,
+            "finding": finding,
+            "attempt": attempt,
+            "cap": cap,
+        }
+        if attempt > cap:
+            refused = context.log.append(
+                NewEvent(
+                    actor=SYSTEM_ACTOR,
+                    type=EventType.ROUTE_BACK,
+                    status=EventStatus.REFUSED,
+                    status_reason=RETRY_LIMIT,
+                    run_id=context.run_id,
+                    stage=Stage.EXPERIMENT,
+                    data=data,
+                )
+            )
+            _ask_for_approval(
+                context,
+                Stage.EXPERIMENT,
+                kind=ApprovalKind.RETRY_LIMIT,
+                refused_event_id=refused.event_id,
+            )
+        context.log.append(
+            NewEvent(
+                actor=SYSTEM_ACTOR,
+                type=EventType.ROUTE_BACK,
+                status=EventStatus.OK,
+                run_id=context.run_id,
+                stage=Stage.EXPERIMENT,
+                data=data,
+            )
+        )
+        return {"route_to": to, "finding": finding}
+
+    return run_check
+
+
+RETRY_LIMIT = "retry_limit"
+
+
 # Gates and pauses (M1-11, ADR-0011)
 
 GATE_BEFORE: dict[str, tuple[Gate, str]] = {
@@ -716,12 +859,38 @@ def _pass_gate(context: _Context, gate: Gate, path: str) -> None:
         approved = {request.artifact_id}
         if response is not None and response.edited_artifact_id is not None:
             approved.add(response.edited_artifact_id)
-        if current.artifact_id in approved:
+        if current.artifact_id in approved and not (
+            gate is Gate.EXPERIMENT_PLAN and _plan_settings_changed(context, approval_id)
+        ):
             return
         break
     _ask_for_approval(
         context, current.stage, kind=ApprovalKind.ARTIFACT, gate=gate, artifact=current
     )
+
+
+_PLAN_SETTINGS = ("resources.", "domain_pack")
+
+
+def _plan_settings_changed(context: _Context, approval_id: str) -> bool:
+    """Whether a setting the experiment depends on changed after the request.
+
+    Those are the keys under `resources` and the pack, whose image the
+    experiment runs in. A change makes the approval of the plan no longer
+    valid.
+    """
+    seen_request = False
+    for event in context.log:
+        if (
+            event.type is EventType.APPROVAL_REQUESTED
+            and event.data.get("approval_id") == approval_id
+        ):
+            seen_request = True
+        elif seen_request and event.type is EventType.SETTING_CHANGED:
+            key = str(event.data.get("key"))
+            if key.startswith(_PLAN_SETTINGS[0]) or key == _PLAN_SETTINGS[1]:
+                return True
+    return False
 
 
 def _pause_for_budget(context: _Context, node: str, error: BudgetExhaustedError) -> NoReturn:
@@ -876,7 +1045,13 @@ def _graph(context: _Context, saver: SqliteSaver) -> Any:
     graph.add_edge(START, NODES[0])
     for first, second in itertools.pairwise(NODES):
         graph.add_edge(first, second)
-    graph.add_edge(NODES[-1], END)
+    graph.add_node(CHECK_NODE, _check(context))  # type: ignore[call-overload]
+    graph.add_edge(NODES[-1], CHECK_NODE)
+    graph.add_conditional_edges(
+        CHECK_NODE,
+        lambda state: state["route_to"],
+        {"implementation": "implementation", "methodology": "methodology", END_ROUTE: END},
+    )
     return graph.compile(checkpointer=saver)
 
 
