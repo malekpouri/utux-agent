@@ -224,7 +224,8 @@ class LoggedModelCaller:
             scope = "the project" if exhausted.stage is None else f"the stage {exhausted.stage}"
             raise BudgetExhaustedError(
                 f"the budget of {scope} is exhausted: {exhausted.spent_usd} USD spent "
-                f"of {exhausted.total_usd} USD; no request was sent"
+                f"of {exhausted.total_usd} USD; no request was sent",
+                refused_event_id=refused.event_id,
             )
         started = self._clock()
         try:
