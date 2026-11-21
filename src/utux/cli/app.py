@@ -424,10 +424,16 @@ def run(
     typer.echo(_spend(directory))
 
 
-def _approve_arguments(first: str, second: str, third: str | None) -> tuple[Path, str, Decision]:
-    directory, approval_id, decision = (
-        (Path(), first, second) if third is None else (Path(first), second, third)
-    )
+def _approve_arguments(arguments: list[str]) -> tuple[Path, str, Decision]:
+    if len(arguments) == 2:
+        directory, (approval_id, decision) = Path(), arguments
+    elif len(arguments) == 3:
+        directory, approval_id, decision = Path(arguments[0]), arguments[1], arguments[2]
+    else:
+        raise typer.BadParameter(
+            "give the approval id and the decision, after the project directory if it is "
+            "not the current one"
+        )
     try:
         return directory, approval_id, Decision(decision)
     except ValueError:
@@ -438,11 +444,14 @@ def _approve_arguments(first: str, second: str, third: str | None) -> tuple[Path
 
 @app.command("approve")
 def approve(
-    first: Annotated[str, typer.Argument(metavar="[DIR] APPROVAL_ID", show_default=False)],
-    second: Annotated[str, typer.Argument(metavar="", show_default=False)],
-    third: Annotated[
-        str | None, typer.Argument(metavar="approve|reject|edit", show_default=False)
-    ] = None,
+    arguments: Annotated[
+        list[str],
+        typer.Argument(
+            metavar="[DIR] APPROVAL_ID approve|reject|edit",
+            help="The project directory (default: the current one), the request and the decision.",
+            show_default=False,
+        ),
+    ],
     feedback: Annotated[
         str | None, typer.Option("--feedback", help="Your remarks; required for reject.")
     ] = None,
@@ -456,7 +465,7 @@ def approve(
     For edit, save your change to the file first; the answer names the saved
     file as the next version, which the run takes when it resumes.
     """
-    directory, approval_id, decision = _approve_arguments(first, second, third)
+    directory, approval_id, decision = _approve_arguments(arguments)
     try:
         require_valid(directory, "approve")
         person = by
