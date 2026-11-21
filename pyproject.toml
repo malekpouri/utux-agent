@@ -38,11 +38,13 @@ packages = ["src/utux"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Live tests need the network and API keys; `-m live` on the command line
-# overrides this default selection.
-addopts = ["--strict-markers", "--strict-config", "-m", "not live"]
+# Live tests need the network and API keys, and docker tests a Docker
+# daemon; `-m live` or `-m docker` on the command line overrides this default
+# selection.
+addopts = ["--strict-markers", "--strict-config", "-m", "not live and not docker"]
 markers = [
     "live: needs network access and API keys; deselected unless run with `-m live`",
+    "docker: needs a Docker daemon and a local image; deselected unless run with `-m docker`",
 ]
 
 [tool.ruff]

@@ -23,7 +23,8 @@
     "locked_packages": {
       "numpy": "2.1.0",
       "scikit-learn": "1.5.2"
-    }
+    },
+    "rootless": false
   },
   "datasets": [
     {

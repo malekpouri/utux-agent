@@ -74,6 +74,7 @@ def test_minimal_file_validates_and_fills_documented_defaults() -> None:
     assert config.resources.wall_clock_seconds is None
     assert config.resources.disk_mb is None
     assert config.resources.max_processes is None
+    assert config.resources.output_mb is None
     assert config.models.tiers == {}
     assert config.models.roles == {}
     assert config.local_server.base_url == "http://localhost:11434/v1"
@@ -133,6 +134,7 @@ def test_full_file_reads_every_field() -> None:
     assert config.ai_disclosure.draft is False
     assert config.resources.cpus == 4
     assert config.resources.wall_clock_seconds == 3600
+    assert config.resources.output_mb == 2048
     assert config.models.tiers[Tier.STRONG] == "example/strong-model"
     assert config.models.roles == {
         "planner": Tier.STRONG,

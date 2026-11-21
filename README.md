@@ -128,7 +128,7 @@ See [Cost and budget](docs/cost.md).
 - [Schema conventions](docs/schema-conventions.md)
 - [Artifact metadata and content hashes](docs/artifact-metadata.md)
 - [The `ModelProvider` interface](docs/model-provider.md)
-- [The `Executor` interface](docs/executor.md)
+- [The `Executor` interface](docs/executor.md) and [the sandbox](docs/sandbox.md)
 - [Events and the event log](docs/event-log.md)
 - [Logged model calls and `utux model ping`](docs/model-calls.md)
 - [Cost and budget: `utux cost`](docs/cost.md)
@@ -149,6 +149,7 @@ Python 3.12 or newer and [uv](https://docs.astral.sh/uv/) are required.
 ```bash
 uv sync                      # install dependencies from uv.lock
 uv run pytest                # unit and integration tests (no network)
+uv run pytest -m docker      # sandbox tests (need Docker and a local image)
 uv run ruff check .          # lint
 uv run ruff format --check . # format check
 uv run mypy src              # type check (strict)

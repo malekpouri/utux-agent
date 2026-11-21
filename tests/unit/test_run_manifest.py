@@ -53,6 +53,7 @@ INVALID: list[Row] = [
     ("git_commit_abbreviated.json", "git.commit", "string_pattern_mismatch"),
     ("git_dirty_not_boolean.json", "git.dirty", "bool_type"),
     ("image_digest_is_a_tag.json", "container.image_digest", "string_pattern_mismatch"),
+    ("rootless_not_boolean.json", "container.rootless", "bool_type"),
     ("config_file_outside_project.json", "config_files.0.path", "not_relative_path"),
     ("dataset_file_hash_elided.json", "datasets.0.files.0.hash", "string_pattern_mismatch"),
     ("dataset_without_version.json", "datasets.0.version", "missing"),
@@ -102,6 +103,7 @@ def test_cpu_run_reads_every_group() -> None:
     assert manifest.git.commit == "0123456789abcdef0123456789abcdef01234567"
     assert manifest.git.dirty is False
     assert manifest.container.locked_packages == {"numpy": "2.1.0", "scikit-learn": "1.5.2"}
+    assert manifest.container.rootless is False
     assert manifest.datasets[0].name == "dataset_x"
     assert manifest.datasets[0].version == "1.0"
     assert manifest.datasets[0].obtained_from == "synthetic public archive"
@@ -208,3 +210,23 @@ def test_invalid_fixture_fails_for_its_own_reason(row: Row) -> None:
 def test_run_that_produced_no_file_has_empty_outputs() -> None:
     assert _validate(_manifest(outputs=[])).outputs == ()
     assert load_run_manifest(valid_paths(CONTRACT)[1]).outputs == ()
+
+
+# Examples in the documents (M1 rule 2)
+
+
+def test_the_complete_manifests_of_the_documents_are_valid() -> None:
+    import re
+
+    from utux.schemas.run_manifest import RunManifest
+
+    root = Path(__file__).resolve().parents[2]
+    for document, start in (
+        ("docs/contracts.md", "## Run manifest"),
+        ("docs/spec.md", "### Run manifest"),
+    ):
+        section = (root / document).read_text(encoding="utf-8").split(start, 1)[1]
+        found = re.search(r"```json\n(.*?)```", section, flags=re.DOTALL)
+        assert found is not None, document
+        manifest = RunManifest.from_json(found.group(1), source=document)
+        assert manifest.container.rootless is False

@@ -182,6 +182,7 @@ class Resources(ContractPart):
     wall_clock_seconds: PositiveInt | None = None
     disk_mb: PositiveInt | None = None
     max_processes: PositiveInt | None = None
+    output_mb: PositiveInt | None = None
 
 
 class Models(ContractPart):

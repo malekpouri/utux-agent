@@ -41,10 +41,14 @@ class GitState(ContractPart):
 
 
 class Container(ContractPart):
-    """The container image by digest, and the locked version of each package."""
+    """The container image, its packages, and whether Docker ran rootless.
+
+    Rootless Docker is preferred but not required (specification, section 10).
+    """
 
     image_digest: Sha256Hash
     locked_packages: dict[NonEmptyText, NonEmptyText]
+    rootless: StrictBool
 
 
 class Dataset(ContractPart):

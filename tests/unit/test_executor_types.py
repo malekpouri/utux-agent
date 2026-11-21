@@ -261,8 +261,21 @@ def test_a_run_stopped_by_a_limit_names_it_and_may_have_no_exit_status() -> None
     assert result.stopped_by is LimitKind.WALL_CLOCK
 
 
-def test_the_limits_are_the_four_kinds() -> None:
-    assert [kind.value for kind in LimitKind] == ["wall_clock", "memory", "processes", "disk"]
+def test_the_limits_are_the_five_kinds() -> None:
+    assert [kind.value for kind in LimitKind] == [
+        "wall_clock",
+        "memory",
+        "processes",
+        "disk",
+        "output_size",
+    ]
+
+
+def test_limits_include_the_size_of_the_output_directory() -> None:
+    assert ResourceLimits(output_mb=10).output_mb == 10
+    assert ResourceLimits().output_mb is None
+    with pytest.raises(ValidationError):
+        ResourceLimits(output_mb=0)
 
 
 def test_a_run_without_an_exit_status_must_name_the_limit() -> None:
