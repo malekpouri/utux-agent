@@ -16,6 +16,7 @@ from utux.schemas.artifact_metadata import ArtifactMetadata
 from utux.schemas.base import ContractDocument
 from utux.schemas.claim_ledger import ClaimLedgerEntry
 from utux.schemas.event import Event
+from utux.schemas.metrics import MetricsFile
 from utux.schemas.project_config import ProjectConfig
 from utux.schemas.result_record import ResultRecord
 from utux.schemas.run_manifest import RunManifest
@@ -40,6 +41,7 @@ CONTRACTS: dict[str, type[ContractDocument]] = {
     "approval_response": ApprovalResponse,
     "source_record": SourceRecord,
     "gold_item": GoldItem,
+    "metrics": MetricsFile,
 }
 """Every file contract, by the name used for its schema file."""
 

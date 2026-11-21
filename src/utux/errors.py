@@ -210,3 +210,12 @@ class ExecutorUnavailableError(ExecutorError):
 
     Nothing was run, and nothing falls back to running on the host.
     """
+
+
+class ResultRecordingError(UtuxError):
+    """The results of a run cannot be recorded as given.
+
+    The manifest does not belong to the run, its outputs differ from what
+    the run wrote, the run is already recorded, or the metrics file changed
+    after the run. Nothing was written.
+    """
