@@ -3,8 +3,7 @@
 Model-written code runs only inside a Docker container started by
 `utux.executors.docker.DockerExecutor`. The flags and checks are listed in
 [The `Executor` interface](executor.md); this page says what the sandbox
-prevents, what it does not, and what to know when reproducing a run. Task
-M1-17 completes it.
+prevents, what it does not, and what to know when reproducing a run.
 
 ## What it prevents
 
@@ -74,9 +73,39 @@ on the host, so the output directory may not be writable from the container.
 
 ## What it does not prevent
 
-Docker is not a complete security boundary. A flaw in the kernel or in
-Docker can let code break out of any container. The flags reduce what
-model-written code can reach; they do not make it safe to run hostile code
-on a machine that holds secrets. Run utux on a machine where a breakout
-would cost little, and keep keys out of the environment of the user who runs
-it.
+**Docker is not a complete security boundary.** A container shares the
+host's kernel. A flaw in the kernel, in the container runtime or in Docker
+itself can let code break out of any container, whatever its flags. With a
+daemon that runs as root, which is the usual setup, a breakout gives root
+on the host. The flags reduce what model-written code can reach; they do
+not make it safe to run hostile code on a machine that holds secrets.
+
+The sandbox does not prevent:
+
+- **reading what is mounted.** The step's read-only paths, `code/` and
+  `inputs/` in M1, are readable in full, data files included, and the code
+  can copy any of it into its output directory;
+- **writing anything into the output directory**, within its size limit:
+  wrong numbers, numbers written into the code rather than computed (the
+  check after the analysis catches only the plain case), or data hidden in
+  an output. A person reviews the code at the experiment-plan gate;
+- **using the CPUs, memory and time it is given**, up to the limits; a run
+  that loops is stopped only by the wall-clock timeout;
+- **side channels**, such as timing or the CPU's caches, which containers do
+  not isolate;
+- **flaws in the image**: the packages of the pack's image run with the
+  code. They are pinned by hash in `requirements.txt`
+  ([The image of a pack](pack-image.md)), which fixes what is installed but
+  says nothing about flaws in it; utux does not scan the image for known
+  vulnerabilities yet (the specification, section 14, plans automated
+  scanning in CI);
+- **what GPUs expose**, when a step asks for them: GPU drivers are not
+  isolated as the rest is, and the tests do not cover GPUs;
+- **an attack on Docker or the host from outside utux**: the host's own
+  configuration, other containers, and who may use the Docker socket are
+  the host's matter.
+
+Run utux on a machine where a breakout would cost little: a separate user,
+a virtual machine or a dedicated host, with no keys in the environment of
+the user who runs Docker. Prefer rootless Docker where it works.
+
