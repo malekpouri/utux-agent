@@ -38,9 +38,22 @@ from typing import Any, NoReturn, TypedDict
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
+from pydantic import BaseModel, ValidationError
 
+from utux.core.agents import (
+    AnalysisOutput,
+    CodeOutput,
+    MethodPlan,
+    Prompt,
+    check_analysis_text,
+    check_results,
+    load_prompt,
+    render_method,
+    render_results,
+)
 from utux.core.checkpoints import StrictCheckpointSerializer
 from utux.errors import (
+    AgentOutputError,
     ApprovalMismatchError,
     BudgetExhaustedError,
     CheckpointMismatchError,
@@ -108,9 +121,6 @@ SYSTEM_ACTOR = "system:utux"
 EDITED_BY = "human:unknown"
 """Who made a version that changed outside utux: a person, not known by name."""
 
-# The prompts of the skeleton. Versioned prompts and real agents are M1-13.
-PROMPT_VERSION = "skeleton@1"
-_AGENTS = {"methodology": "agent:methodologist", "implementation": "agent:implementer"}
 _DEFAULT_TIMEOUT_SECONDS = 3600.0
 
 
@@ -124,6 +134,7 @@ class WorkflowServices:
         image_digest: The image to run code in, the pack's recorded image.
         locked_packages: Reads the package versions from inside an image.
         rootless: Whether the executor runs rootless Docker.
+        prompts: The directory of the pack's prompts.
         before_stage: Called with a node's name before it starts; tests use
             it to look at the log or to stop a run.
         inside_stage: Called with a node's name and `staged` once its outputs
@@ -136,6 +147,7 @@ class WorkflowServices:
     image_digest: str
     locked_packages: Callable[[str], dict[str, str]]
     rootless: bool
+    prompts: Path
     before_stage: Callable[[str], None] | None = None
     inside_stage: Callable[[str, str], None] | None = None
 
@@ -169,9 +181,10 @@ class StageRecord(TypedDict):
 class RunState(TypedDict, total=False):
     """The graph state. Only ids, relative paths, hashes and small enums.
 
-    `route_to` and `finding` are set by the check after the analysis: the
-    node to go back to (or `end`) and the finding that sends the run there
-    (or `none`).
+    `route_to` and `finding` are set by the check after the analysis, or by
+    a rejection at a gate: the node to go back to (or `end`) and the finding
+    that sends the run there (or `none`). After a rejection, `feedback` is
+    the id of the approval whose response holds the person's feedback.
     """
 
     stages: dict[str, StageRecord]
@@ -179,6 +192,7 @@ class RunState(TypedDict, total=False):
     results: list[str]
     route_to: str
     finding: str
+    feedback: str
 
 
 def _now() -> datetime:
@@ -341,19 +355,40 @@ class _Context:
     commits: bool
 
 
-def _with_finding(state: RunState, node: str, prompt: str) -> str:
-    """Add the finding that routed the run back to this node, if it did."""
-    if state.get("route_to") == node and state.get("finding", NO_FINDING) != NO_FINDING:
+def _with_finding(context: _Context, state: RunState, node: str, inputs: str) -> str:
+    """Add why the run came back to this node, if it did: a finding or a person's feedback."""
+    if state.get("route_to") != node:
+        return inputs
+    finding = state.get("finding", NO_FINDING)
+    if finding == REJECTED_AT_GATE and state.get("feedback"):
+        response = _response(context.project, state["feedback"])
+        if response is not None and response.feedback is not None:
+            return (
+                inputs
+                + "\n\nA person rejected the previous version of this stage's output with "
+                + "this feedback:\n\n"
+                + response.feedback
+            )
+    if finding != NO_FINDING:
         return (
-            prompt
+            inputs
             + "\n\nThe previous attempt was sent back to this stage with the finding: "
-            + f"{state['finding']}."
+            + f"{finding}."
         )
-    return prompt
+    return inputs
 
 
-def _ask(context: _Context, node: str, prompt: str) -> str:
-    role = _AGENTS[node].removeprefix("agent:")
+_ROLE_OF = {
+    "methodology": "methodologist",
+    "implementation": "implementer",
+    "analysis": "analyst",
+}
+
+INVALID_STRUCTURED_OUTPUT = "invalid_structured_output"
+
+
+def _call(context: _Context, node: str, prompt: Prompt, inputs: str, retry: bool) -> str:
+    role = _ROLE_OF[node]
     tier = context.config.models.roles.get(role, Tier.STANDARD)
     model = context.config.models.tiers.get(tier)
     if model is None:
@@ -365,17 +400,84 @@ def _ask(context: _Context, node: str, prompt: str) -> str:
         response = context.caller.call(
             ModelRequest(
                 model=model,
-                messages=(Message(role=MessageRole.USER, content=prompt),),
+                messages=(
+                    Message(role=MessageRole.SYSTEM, content=prompt.fill()),
+                    Message(role=MessageRole.USER, content=inputs),
+                ),
                 timeout_seconds=300.0,
+                temperature=0.0,
             ),
-            actor=_AGENTS[node],
-            prompt_version=PROMPT_VERSION,
+            actor=f"agent:{role}",
+            prompt_version=prompt.version,
             stage=STAGE_OF[node],
             run_id=context.run_id,
+            retry_reason=INVALID_STRUCTURED_OUTPUT if retry else None,
         )
     except BudgetExhaustedError as error:
         _pause_for_budget(context, node, error)
     return response.content
+
+
+def _ask[T: BaseModel](
+    context: _Context,
+    node: str,
+    inputs: str,
+    output: type[T],
+    check: Callable[[T], None] | None = None,
+) -> T:
+    """Ask a role for its JSON answer, validate it, and ask once more if it fails.
+
+    Raises:
+        AgentOutputError: The second answer is not valid either. An `error`
+            event records it.
+    """
+    role = _ROLE_OF[node]
+    prompt = load_prompt(context.services.prompts, role)
+    problem = ""
+    for attempt in range(2):
+        asked = (
+            inputs
+            if attempt == 0
+            else (
+                inputs
+                + "\n\nYour previous answer was not valid: "
+                + problem
+                + "\nAnswer again with JSON only, of the form the instructions give."
+            )
+        )
+        content = _call(context, node, prompt, asked, retry=attempt > 0)
+        try:
+            answer = output.model_validate_json(content)
+            if check is not None:
+                check(answer)
+            return answer
+        except ValidationError as error:
+            problem = "; ".join(
+                f"{'.'.join(str(p) for p in e['loc']) or 'answer'}: {e['msg']}"
+                for e in error.errors()
+            )
+        except AgentOutputError as error:
+            problem = str(error)
+    context.log.append(
+        NewEvent(
+            actor=SYSTEM_ACTOR,
+            type=EventType.ERROR,
+            status=EventStatus.ERROR,
+            status_reason=INVALID_STRUCTURED_OUTPUT,
+            run_id=context.run_id,
+            stage=STAGE_OF[node],
+        )
+    )
+    raise AgentOutputError(
+        f"the {role}'s answer was not valid twice, so the {node} stage failed: {problem}"
+    )
+
+
+def _input_files(project: Path) -> str:
+    return "\n\n".join(
+        f"{path}:\n\n" + (project / path).read_text(encoding="utf-8")
+        for path in _question_files(project)
+    )
 
 
 def _methodology(
@@ -383,14 +485,16 @@ def _methodology(
 ) -> tuple[StageRecord, RunState]:
     project = context.project
     inputs = {p: hash_file(project / p) for p in _question_files(project)}
-    question = "\n\n".join((project / p).read_text(encoding="utf-8") for p in inputs)
-    prompt = _with_finding(
-        state, "methodology", "Write the method for this question.\n\n" + question
+    asked = _with_finding(
+        context,
+        state,
+        "methodology",
+        "The research question and the data description:\n\n" + _input_files(project),
     )
-    method = _ask(context, "methodology", prompt)
-    atomic_write_text(staging.path("method.md"), method)
+    plan = _ask(context, "methodology", asked, MethodPlan)
+    atomic_write_text(staging.path("method.md"), render_method(plan))
     artifact = _record_artifact(
-        project, staging, "method", "method.md", Stage.METHODOLOGY, _AGENTS["methodology"], ()
+        project, staging, "method", "method.md", Stage.METHODOLOGY, "agent:methodologist", ()
     )
     return {
         "inputs": inputs,
@@ -405,16 +509,16 @@ def _implementation(
     project = context.project
     inputs = {"method.md": hash_file(project / "method.md")}
     method = (project / "method.md").read_text(encoding="utf-8")
-    prompt = _with_finding(state, "implementation", "Write the code for this method.\n\n" + method)
-    code = _ask(context, "implementation", prompt)
-    atomic_write_text(staging.path("code/main.py"), code)
+    asked = _with_finding(context, state, "implementation", "The method:\n\n" + method)
+    code = _ask(context, "implementation", asked, CodeOutput)
+    atomic_write_text(staging.path("code/main.py"), code.code)
     artifact = _record_artifact(
         project,
         staging,
         "code",
         "code/main.py",
         Stage.IMPLEMENTATION,
-        _AGENTS["implementation"],
+        "agent:implementer",
         _current_id(project, "method.md"),
     )
     return {
@@ -497,7 +601,8 @@ def _experiment(
             output_mb=limits.output_mb,
         ),
         timeout_seconds=limits.timeout_seconds,
-        environment={},
+        # The code writes its metrics.json here (the implementer's prompt says so).
+        environment={"UTUX_OUTPUT_DIR": f"{staging.relative}/runs/{run}/outputs"},
     )
     result = services.executor.run(step)
     final = step.model_copy(update={"output_directory": f"runs/{run}/outputs"})
@@ -562,19 +667,30 @@ def _analysis(
     manifest = f"runs/{run}/manifest.json"
     inputs = {manifest: hash_file(project / manifest)}
     records = _read_records(project, state.get("results", []))
-    lines = [
-        "# Results",
-        "",
-        f"Run {run}. Every number below is a result record in results.jsonl.",
-        "",
-    ]
-    if not records:
-        lines.append(f"No result records were made for run {run}.")
-    for r in records:
-        where = r.dataset + (f" ({r.split})" if r.split else "")
-        model = f", model {r.model}" if r.model else ""
-        lines.append(f"- {r.metric} on {where}{model}: {r.value!r} {r.unit} [{r.id}]")
-    atomic_write_text(staging.path("results.md"), "\n".join(lines) + "\n")
+    listing = "\n".join(
+        f"- {r.id}: {r.metric} on {r.dataset}"
+        + (f", split {r.split}" if r.split else "")
+        + (f", model {r.model}" if r.model else "")
+        + f": {r.value!r} {r.unit}"
+        for r in records
+    )
+    asked = (
+        f"The result records of run {run}:\n\n{listing}"
+        if records
+        else f"Run {run} has no result records."
+    )
+    ids = {r.id for r in records}
+    output = _ask(
+        context,
+        "analysis",
+        asked,
+        AnalysisOutput,
+        check=lambda answer: check_analysis_text(answer.text, ids),
+    )
+    text = render_results(output, records)
+    # Checked again as written: no number in results.md without its record.
+    check_results(text, records)
+    atomic_write_text(staging.path("results.md"), text)
     metrics = f"runs/{run}/outputs/{METRICS_FILE}"
     artifact = _record_artifact(
         project,
@@ -582,7 +698,7 @@ def _analysis(
         "results",
         "results.md",
         Stage.EXPERIMENT,
-        SYSTEM_ACTOR,
+        "agent:analyst",
         _current_id(project, metrics),
     )
     return {
@@ -665,8 +781,9 @@ back to one stage before it pauses."""
 RUN_FAILED = "run_failed"
 METRIC_MISSING = "metric_missing"
 NO_FINDING = "none"
+REJECTED_AT_GATE = "rejected_at_gate"
 END_ROUTE = "end"
-FINDINGS = (RUN_FAILED, METRIC_MISSING, NO_FINDING)
+FINDINGS = (RUN_FAILED, METRIC_MISSING, REJECTED_AT_GATE, NO_FINDING)
 ROUTES = (*NODES, END_ROUTE)
 
 _ROUTE_FOR = {RUN_FAILED: "implementation", METRIC_MISSING: "methodology"}
@@ -927,6 +1044,10 @@ def _pass_gate(context: _Context, gate: Gate, path: str) -> None:
             if request.artifact_id == current.artifact_id:
                 raise _paused(approval_id)
             break
+        if decision == Decision.REJECT.value:
+            # A rejected version is never approved, even if the stage gave the
+            # same output again: the gate asks anew.
+            break
         response = _response(context.project, approval_id)
         approved = {request.artifact_id}
         if response is not None and response.edited_artifact_id is not None:
@@ -1067,11 +1188,24 @@ def _apply_answers(context: _Context) -> None:
                 status=EventStatus.OK,
                 run_id=context.run_id,
                 stage=request.stage,
-                data={"approval_id": approval_id, "decision": response.decision.value},
+                data={
+                    "approval_id": approval_id,
+                    "decision": response.decision.value,
+                    "feedback": response.feedback,
+                },
             )
         )
         answered[approval_id] = response.decision.value
-    rejected = [i for i, decision in answered.items() if decision == Decision.REJECT.value]
+    # A rejected artifact sends the run back to the stage that made it (see
+    # _rejected_gate); a rejected budget or retry pause stops the run.
+    unbound = {
+        approval_id
+        for approval_id, request in _requests_of_run(context)
+        if request.kind is not ApprovalKind.ARTIFACT
+    }
+    rejected = [
+        i for i, decision in answered.items() if decision == Decision.REJECT.value and i in unbound
+    ]
     if rejected:
         raise RunRejectedError(
             f"{rejected[-1]} was rejected, so the run stops; see its feedback in "
@@ -1241,7 +1375,24 @@ def resume_workflow(project: Path, services: WorkflowServices) -> RunOutcome:
             # person's version, not as an edit outside utux.
             _apply_answers(context)
             _record_edits(project, state)
-            restart = _restart_point(project, state)
+            rejection = _rejected_gate(context)
+            restart = None if rejection is not None else _restart_point(project, state)
+            if rejection is not None:
+                approval_id, node = rejection
+                position = NODES.index(node)
+                _route_after_rejection(context, node)
+                kept = {n: state["stages"][n] for n in NODES[:position]}
+                as_node = NODES[position - 1] if position else START
+                app.update_state(
+                    _thread(run_id),
+                    {
+                        "stages": kept,
+                        "route_to": node,
+                        "finding": REJECTED_AT_GATE,
+                        "feedback": approval_id,
+                    },
+                    as_node=as_node,
+                )
             if restart is not None:
                 position, node, path, expected, actual = restart
                 log.append(
@@ -1263,6 +1414,67 @@ def resume_workflow(project: Path, services: WorkflowServices) -> RunOutcome:
                 app.update_state(_thread(run_id), {"stages": kept}, as_node=as_node)
             final = app.invoke(None, _thread(run_id), durability="sync")
         return _outcome(project, run_id, commits, final)
+
+
+_PRODUCER = {Gate.METHOD: "methodology", Gate.EXPERIMENT_PLAN: "implementation"}
+"""The node that makes the file a gate approves."""
+
+
+def _rejected_gate(context: _Context) -> tuple[str, str] | None:
+    """The rejected gate request the run has not yet acted on, and its node.
+
+    A rejection is acted on by running the node again, after which the gate
+    asks anew; so a rejection waits as long as it is the latest request of
+    its gate.
+    """
+    answered = _answered(context)
+    latest: dict[Gate, str] = {}
+    for approval_id, request in _requests_of_run(context):
+        if request.kind is ApprovalKind.ARTIFACT and request.gate is not None:
+            latest[request.gate] = approval_id
+    for gate, approval_id in latest.items():
+        if answered.get(approval_id) == Decision.REJECT.value and gate in _PRODUCER:
+            return approval_id, _PRODUCER[gate]
+    return None
+
+
+def _route_after_rejection(context: _Context, node: str) -> None:
+    """Record the route back after a rejection, within the retry cap, or pause."""
+    stage = STAGE_OF[node]
+    routes, raises = _routes_so_far(context, stage.value)
+    attempt, cap = routes + 1, context.config.workflow.retry_cap + raises
+    data: dict[str, Scalar] = {
+        "from_stage": stage.value,
+        "to_stage": stage.value,
+        "finding": REJECTED_AT_GATE,
+        "attempt": attempt,
+        "cap": cap,
+    }
+    if attempt > cap:
+        refused = context.log.append(
+            NewEvent(
+                actor=SYSTEM_ACTOR,
+                type=EventType.ROUTE_BACK,
+                status=EventStatus.REFUSED,
+                status_reason=RETRY_LIMIT,
+                run_id=context.run_id,
+                stage=stage,
+                data=data,
+            )
+        )
+        _ask_for_approval(
+            context, stage, kind=ApprovalKind.RETRY_LIMIT, refused_event_id=refused.event_id
+        )
+    context.log.append(
+        NewEvent(
+            actor=SYSTEM_ACTOR,
+            type=EventType.ROUTE_BACK,
+            status=EventStatus.OK,
+            run_id=context.run_id,
+            stage=stage,
+            data=data,
+        )
+    )
 
 
 def _record_edits(project: Path, state: RunState) -> None:

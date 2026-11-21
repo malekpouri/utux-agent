@@ -81,7 +81,7 @@ _DATA_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.RUN_STARTED: ("mode", "commits", "commit_check_reason"),
     EventType.RUN_RESTARTED: ("changed_path", "expected_hash", "actual_hash"),
     EventType.APPROVAL_REQUESTED: ("approval_id", "kind", "gate"),
-    EventType.APPROVAL_ANSWERED: ("approval_id", "decision"),
+    EventType.APPROVAL_ANSWERED: ("approval_id", "decision", "feedback"),
     EventType.ROUTE_BACK: ("from_stage", "to_stage", "finding", "attempt", "cap"),
 }
 
@@ -114,6 +114,11 @@ _HASH_KEYS: dict[EventType, tuple[str, ...]] = {
 # Keys of `data` whose value must be a content hash or null.
 _OPTIONAL_HASH_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.RUN_RESTARTED: ("expected_hash", "actual_hash"),
+}
+
+# Keys of `data` whose value must be non-empty text or null.
+_OPTIONAL_TEXT_KEYS: dict[EventType, tuple[str, ...]] = {
+    EventType.APPROVAL_ANSWERED: ("feedback",),
 }
 
 # Keys of `data` whose value must be a stable code, as `status_reason`, or null.
@@ -210,6 +215,11 @@ def _check_data_keys(value: dict[str, Scalar], info: ValidationInfo) -> dict[str
                         "input": None,
                     }
                 )
+    for key in _OPTIONAL_TEXT_KEYS.get(kind, ()):
+        if key in value and value[key] is not None:
+            text = value[key]
+            if not isinstance(text, str) or not text:
+                errors.append({"type": "string_type", "loc": (key,), "input": None})
     for key in _CODE_KEYS.get(kind, ()):
         if key in value:
             code = value[key]

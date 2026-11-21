@@ -279,3 +279,14 @@ class MethodFormatError(UtuxError):
 
     The run stops before the implementation; correct `method.md` and run again.
     """
+
+
+class PromptError(UtuxError):
+    """A role's prompt is missing or malformed."""
+
+
+class AgentOutputError(UtuxError):
+    """A role's answer is not valid, after the one retry it is given.
+
+    The stage fails and writes nothing; an `error` event records it.
+    """
