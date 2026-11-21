@@ -517,6 +517,7 @@ def test_types_without_defined_keys_accept_only_an_empty_object() -> None:
             EventType.STAGE_END,
             EventType.RUN_STARTED,
             EventType.RUN_RESTARTED,
+            EventType.LOCK_REMOVED,
             EventType.APPROVAL_REQUESTED,
             EventType.APPROVAL_ANSWERED,
             EventType.ROUTE_BACK,

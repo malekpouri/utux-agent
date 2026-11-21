@@ -5,6 +5,7 @@ given them in place of the real services. Nothing is executed. The person
 `human:alex` is synthetic.
 """
 
+import importlib
 import json
 import os
 import socket
@@ -27,7 +28,6 @@ from workflow_scripts import (
     switch_gates_off,
 )
 
-import utux.cli.app as cli
 from utux.cli import app
 from utux.core.workflow import WorkflowServices, current_artifact, planned_execution
 from utux.events.log import EventLog
@@ -39,6 +39,8 @@ from utux.workspace.hashing import hash_file
 from utux.workspace.project import init_project
 
 runner = CliRunner(env={"NO_COLOR": "1", "TERM": "dumb"})
+# The module, not the Typer object that utux.cli re-exports under the same name.
+cli = importlib.import_module("utux.cli.app")
 
 
 @pytest.fixture
@@ -196,7 +198,7 @@ def test_run_from_a_stage_records_a_hand_edit_of_its_input_first(
     assert code == 0, output
     current = current_artifact(project, "method.md")
     assert current is not None
-    assert (current.artifact_id, current.created_by) == ("method-v2", "human:unknown")
+    assert (current.artifact_id, current.created_by) == ("method-v002", "human:unknown")
     (request,) = made[0].provider.of("implementer")  # type: ignore[attr-defined]
     assert "Edited by hand." in request.messages[-1].content
 
@@ -304,15 +306,15 @@ def test_edit_records_the_saved_file_as_a_new_version_by_the_person(
     (project / "method.md").write_text(edited, encoding="utf-8")
     code, output = _approve(project, "a-000001", "edit")
     assert code == 0, output
-    assert "method-v2" in output
+    assert "method-v002" in output
     response = load_approval_response(project / "approvals" / "a-000001.response.json")
-    assert response.edited_artifact_id == "method-v2"
+    assert response.edited_artifact_id == "method-v002"
     assert response.edited_content_hash == hash_file(project / "method.md")
     # The run takes the edit when it resumes and records the version as the person's.
     _utux("run", str(project))
     current = current_artifact(project, "method.md")
     assert current is not None
-    assert (current.artifact_id, current.created_by) == ("method-v2", "human:alex")
+    assert (current.artifact_id, current.created_by) == ("method-v002", "human:alex")
 
 
 def test_edit_of_an_unchanged_file_is_refused(
@@ -533,3 +535,20 @@ def test_every_run_command_refuses_a_project_that_fails_validate(
     assert code == 1
     assert "utux validate" in output
     assert {p: p.read_bytes() for p in project.rglob("*") if p.is_file()} == before
+
+
+def test_a_file_edited_since_its_version_is_acted_on_and_validate_still_reports_it(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The edit is what utux run (files win) and utux approve edit record; the
+    # run commands do not refuse it, but utux validate reports it as before.
+    _script(monkeypatch)
+    _utux("run", str(project))
+    (project / "method.md").write_text(METHOD_MD + "\nEdited.\n", encoding="utf-8")
+    code, output = _utux("validate", str(project))
+    assert code == 1
+    assert "content_hash" in output or "the file changed" in output
+    code, output = _utux("status", str(project))
+    assert code == 0, output
+    code, output = _approve(project, "a-000001", "edit")
+    assert code == 0, output
