@@ -27,12 +27,14 @@ from pydantic import Field, model_validator
 from pydantic_core import InitErrorDetails
 
 from utux.errors import ContractValidationError, Problem
-from utux.schemas.base import ContractDocument, field_problem, raise_field_problems
+from utux.schemas.base import ContractDocument, ContractPart, field_problem, raise_field_problems
 from utux.schemas.common import (
     Actor,
     ArtifactId,
     EventId,
     NonEmptyText,
+    NonNegativeInt,
+    PositiveInt,
     RelativePath,
     Sha256Hash,
     Stage,
@@ -84,6 +86,36 @@ class Decision(StrEnum):
     EDIT = "edit"
 
 
+class ExecutionLimits(ContractPart):
+    """The limits of a planned execution.
+
+    Every field is required; a limit that is not set is null, and left to the
+    executor.
+    """
+
+    cpus: Annotated[float, Field(gt=0, allow_inf_nan=False)] | None
+    memory_mb: PositiveInt | None
+    gpus: NonNegativeInt | None
+    disk_mb: PositiveInt | None
+    max_processes: PositiveInt | None
+    output_mb: PositiveInt | None
+    timeout_seconds: Annotated[float, Field(gt=0, allow_inf_nan=False)]
+
+
+class PlannedExecution(ContractPart):
+    """The execution an experiment-plan request approves.
+
+    Before the experiment runs, utux builds this record again from the step
+    it is about to run; if it differs in anything, the approval does not
+    cover it and the run asks again.
+    """
+
+    image_digest: Sha256Hash
+    command: Annotated[tuple[NonEmptyText, ...], Field(min_length=1)]
+    read_only_paths: tuple[RelativePath, ...]
+    limits: ExecutionLimits
+
+
 class ApprovalRequest(ContractDocument):
     """A question to a person. Every field is required; some are null by kind.
 
@@ -100,6 +132,8 @@ class ApprovalRequest(ContractDocument):
         refused_event_id: The event of the refused call, which the run
             repeats after `approve`. Kinds `budget_exhausted` and
             `retry_limit` only, else null.
+        execution: The execution to approve: image, command, read-only paths
+            and limits. Given exactly when the gate is `experiment_plan`.
         requested_by: Who asks.
         requested_at: When the request was written.
     """
@@ -114,6 +148,7 @@ class ApprovalRequest(ContractDocument):
     path: RelativePath | None
     stage: Stage | None
     refused_event_id: EventId | None
+    execution: PlannedExecution | None
     requested_by: Actor
     requested_at: UtcTimestamp
 
@@ -125,6 +160,23 @@ class ApprovalRequest(ContractDocument):
             bound=("gate", "artifact_id", "content_hash", "path"),
             unbound=("stage", "refused_event_id"),
         )
+        planned = self.gate is Gate.EXPERIMENT_PLAN
+        if planned and self.execution is None:
+            problems.append(
+                field_problem(
+                    "required_for_gate",
+                    "an experiment-plan request records the execution it approves",
+                    "execution",
+                )
+            )
+        if not planned and self.execution is not None:
+            problems.append(
+                field_problem(
+                    "not_allowed_for_gate",
+                    "only an experiment-plan request records an execution",
+                    "execution",
+                )
+            )
         raise_field_problems(type(self).__name__, problems)
         return self
 

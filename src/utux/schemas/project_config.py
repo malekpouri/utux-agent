@@ -195,6 +195,16 @@ class Models(ContractPart):
     roles: dict[Identifier, Tier] = Field(default_factory=dict)
 
 
+class Workflow(ContractPart):
+    """Settings of a run's workflow.
+
+    `retry_cap`: how many times a run may be routed back to one stage before
+    it pauses and asks the user; the same cap for every loop.
+    """
+
+    retry_cap: NonNegativeInt = 2
+
+
 class ProjectConfig(ContractDocument):
     """The content of `utux.yaml`.
 
@@ -215,6 +225,7 @@ class ProjectConfig(ContractDocument):
     ai_disclosure: AiDisclosure = Field(default_factory=AiDisclosure)
     resources: Resources = Field(default_factory=Resources)
     models: Models = Field(default_factory=Models)
+    workflow: Workflow = Field(default_factory=Workflow)
 
     @classmethod
     def from_yaml(cls, text: str, source: str = FILE_NAME) -> Self:

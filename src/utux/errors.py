@@ -272,3 +272,10 @@ class RunRejectedError(UtuxError):
 
 class ApprovalMismatchError(UtuxError):
     """An answer cannot be taken: an edit does not match the edited file."""
+
+
+class MethodFormatError(UtuxError):
+    """`method.md` names no metric, or a metric line is not of the exact form.
+
+    The run stops before the implementation; correct `method.md` and run again.
+    """

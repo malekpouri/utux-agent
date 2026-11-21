@@ -44,6 +44,7 @@ from utux.errors import (
     ApprovalMismatchError,
     BudgetExhaustedError,
     CheckpointMismatchError,
+    MethodFormatError,
     ModelProviderConfigError,
     NoRunToResumeError,
     RunPausedError,
@@ -63,6 +64,8 @@ from utux.schemas.approval import (
     ApprovalRequest,
     ApprovalResponse,
     Decision,
+    ExecutionLimits,
+    PlannedExecution,
     check_response_matches_request,
     load_approval_request,
     load_approval_response,
@@ -445,6 +448,29 @@ def _hardware() -> Hardware:
     )
 
 
+def planned_execution(config: ProjectConfig, image_digest: str) -> PlannedExecution:
+    """The execution the experiment runs: what its approval covers.
+
+    The experiment builds its step from this record, and the experiment-plan
+    gate compares it with the record its request approved.
+    """
+    resources = config.resources
+    return PlannedExecution(
+        image_digest=image_digest,
+        command=("python", "code/main.py"),
+        read_only_paths=("code", "inputs"),
+        limits=ExecutionLimits(
+            cpus=resources.cpus,
+            memory_mb=resources.memory_mb,
+            gpus=resources.gpus,
+            disk_mb=resources.disk_mb,
+            max_processes=resources.max_processes,
+            output_mb=resources.output_mb,
+            timeout_seconds=float(resources.wall_clock_seconds or _DEFAULT_TIMEOUT_SECONDS),
+        ),
+    )
+
+
 def _experiment(
     context: _Context, state: RunState, staging: _Staging
 ) -> tuple[StageRecord, RunState]:
@@ -452,24 +478,25 @@ def _experiment(
     services = context.services
     inputs = {"code/main.py": hash_file(project / "code/main.py")}
     run = _next_run_id(project)
-    resources = context.config.resources
+    planned = planned_execution(context.config, services.image_digest)
+    limits = planned.limits
     step = ExecutionStep(
         run_id=run,
-        command=("python", "code/main.py"),
-        image_digest=services.image_digest,
-        read_only_paths=("code", "inputs"),
+        command=planned.command,
+        image_digest=planned.image_digest,
+        read_only_paths=planned.read_only_paths,
         # The container writes into the staging area; the outputs are moved
         # to runs/<run>/outputs when the node completes.
         output_directory=f"{staging.relative}/runs/{run}/outputs",
         limits=ResourceLimits(
-            cpus=resources.cpus,
-            memory_mb=resources.memory_mb,
-            gpus=resources.gpus,
-            disk_mb=resources.disk_mb,
-            max_processes=resources.max_processes,
-            output_mb=resources.output_mb,
+            cpus=limits.cpus,
+            memory_mb=limits.memory_mb,
+            gpus=limits.gpus,
+            disk_mb=limits.disk_mb,
+            max_processes=limits.max_processes,
+            output_mb=limits.output_mb,
         ),
-        timeout_seconds=float(resources.wall_clock_seconds or _DEFAULT_TIMEOUT_SECONDS),
+        timeout_seconds=limits.timeout_seconds,
         environment={},
     )
     result = services.executor.run(step)
@@ -577,6 +604,8 @@ def _node(context: _Context, node: str) -> Callable[[RunState], RunState]:
     def run_node(state: RunState) -> RunState:
         if context.services.before_stage is not None:
             context.services.before_stage(node)
+        if node == "implementation":
+            check_method((context.project / "method.md").read_text(encoding="utf-8"))
         if node in GATE_BEFORE:
             gate, path = GATE_BEFORE[node]
             if context.config.oversight.gate_enabled(gate):
@@ -629,8 +658,9 @@ CHECK_NODE = "check"
 """The deterministic check after the analysis; not a stage, so it writes no
 stage events and makes no commit."""
 
-RETRY_CAP = 2
-"""How many times a run may be routed back to one stage before it pauses."""
+DEFAULT_RETRY_CAP = 2
+"""The default of `workflow.retry_cap`: how many times a run may be routed
+back to one stage before it pauses."""
 
 RUN_FAILED = "run_failed"
 METRIC_MISSING = "metric_missing"
@@ -640,12 +670,43 @@ FINDINGS = (RUN_FAILED, METRIC_MISSING, NO_FINDING)
 ROUTES = (*NODES, END_ROUTE)
 
 _ROUTE_FOR = {RUN_FAILED: "implementation", METRIC_MISSING: "methodology"}
-_NAMED_METRIC = re.compile(r"^\s*-\s*metric:\s*(\S+)\s*$", flags=re.MULTILINE | re.IGNORECASE)
+_METRIC_LINE = re.compile(r"^- metric: ([A-Za-z0-9][A-Za-z0-9_.-]*)$")
+_LOOKS_LIKE_METRIC_LINE = re.compile(r"^\s*[-*+]?\s*metric\b", flags=re.IGNORECASE)
 
 
 def named_metrics(method: str) -> set[str]:
-    """The metrics a method names, one per line of the form `- metric: <name>`."""
-    return set(_NAMED_METRIC.findall(method))
+    """The metrics a method names.
+
+    A metric is named on a line of exactly this form: `- metric: <name>`,
+    the hyphen at the start of the line, one space on each side of
+    `metric:`, and a name of letters, digits, `_`, `.` and `-` that starts
+    with a letter or digit, with nothing after it.
+    """
+    return {
+        found.group(1)
+        for line in method.splitlines()
+        if (found := _METRIC_LINE.fullmatch(line)) is not None
+    }
+
+
+def check_method(method: str) -> None:
+    """Refuse a method that names no metric, or whose metric line is malformed.
+
+    Raises:
+        MethodFormatError: No line names a metric, or a line looks like a
+            metric line but is not of the exact form.
+    """
+    for number, line in enumerate(method.splitlines(), start=1):
+        if _LOOKS_LIKE_METRIC_LINE.match(line) and _METRIC_LINE.fullmatch(line) is None:
+            raise MethodFormatError(
+                f"method.md, line {number}: {line!r} is not a metric line of the form "
+                "'- metric: <name>'; correct method.md and run utux run again"
+            )
+    if not named_metrics(method):
+        raise MethodFormatError(
+            "method.md names no metric; add a line '- metric: <name>' for each metric "
+            "the method's success criteria use, and run utux run again"
+        )
 
 
 def _finding(context: _Context, state: RunState) -> str:
@@ -693,7 +754,7 @@ def _check(context: _Context) -> Callable[[RunState], RunState]:
         to = _ROUTE_FOR[finding]
         to_stage = STAGE_OF[to].value
         routes, raises = _routes_so_far(context, to_stage)
-        attempt, cap = routes + 1, RETRY_CAP + raises
+        attempt, cap = routes + 1, context.config.workflow.retry_cap + raises
         data: dict[str, Scalar] = {
             "from_stage": Stage.EXPERIMENT.value,
             "to_stage": to_stage,
@@ -797,6 +858,7 @@ def _ask_for_approval(
     gate: Gate | None = None,
     artifact: ArtifactMetadata | None = None,
     refused_event_id: str | None = None,
+    execution: PlannedExecution | None = None,
 ) -> NoReturn:
     """Write a request and its event, then pause the run."""
     approval_id = _next_approval_id(context.project)
@@ -810,6 +872,7 @@ def _ask_for_approval(
         path=None if artifact is None else artifact.path,
         stage=None if kind is ApprovalKind.ARTIFACT else stage,
         refused_event_id=refused_event_id,
+        execution=execution,
         requested_by=SYSTEM_ACTOR,
         requested_at=_timestamp(),
     )
@@ -846,10 +909,19 @@ def _pass_gate(context: _Context, gate: Gate, path: str) -> None:
     current = current_artifact(context.project, path)
     if current is None:
         raise RunRefusedError(f"there is no version of {path} for the {gate.value} gate")
+    # The execution the experiment would run now; an experiment-plan
+    # approval covers only the execution its request recorded.
+    planned = (
+        planned_execution(context.config, context.services.image_digest)
+        if gate is Gate.EXPERIMENT_PLAN
+        else None
+    )
     answered = _answered(context)
     for approval_id, request in reversed(_requests_of_run(context)):
         if request.kind is not ApprovalKind.ARTIFACT or request.gate is not gate:
             continue
+        if request.execution != planned:
+            break
         decision = answered.get(approval_id)
         if decision is None:
             if request.artifact_id == current.artifact_id:
@@ -859,38 +931,17 @@ def _pass_gate(context: _Context, gate: Gate, path: str) -> None:
         approved = {request.artifact_id}
         if response is not None and response.edited_artifact_id is not None:
             approved.add(response.edited_artifact_id)
-        if current.artifact_id in approved and not (
-            gate is Gate.EXPERIMENT_PLAN and _plan_settings_changed(context, approval_id)
-        ):
+        if current.artifact_id in approved:
             return
         break
     _ask_for_approval(
-        context, current.stage, kind=ApprovalKind.ARTIFACT, gate=gate, artifact=current
+        context,
+        current.stage,
+        kind=ApprovalKind.ARTIFACT,
+        gate=gate,
+        artifact=current,
+        execution=planned,
     )
-
-
-_PLAN_SETTINGS = ("resources.", "domain_pack")
-
-
-def _plan_settings_changed(context: _Context, approval_id: str) -> bool:
-    """Whether a setting the experiment depends on changed after the request.
-
-    Those are the keys under `resources` and the pack, whose image the
-    experiment runs in. A change makes the approval of the plan no longer
-    valid.
-    """
-    seen_request = False
-    for event in context.log:
-        if (
-            event.type is EventType.APPROVAL_REQUESTED
-            and event.data.get("approval_id") == approval_id
-        ):
-            seen_request = True
-        elif seen_request and event.type is EventType.SETTING_CHANGED:
-            key = str(event.data.get("key"))
-            if key.startswith(_PLAN_SETTINGS[0]) or key == _PLAN_SETTINGS[1]:
-                return True
-    return False
 
 
 def _pause_for_budget(context: _Context, node: str, error: BudgetExhaustedError) -> NoReturn:
