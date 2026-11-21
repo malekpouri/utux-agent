@@ -142,6 +142,7 @@ class LoggedModelCaller:
         prompt_version: str | None,
         stage: Stage | None = None,
         run_id: str | None = None,
+        retry_reason: str | None = None,
     ) -> ModelResponse:
         """Make one model call and log it as exactly one event.
 
@@ -175,6 +176,7 @@ class LoggedModelCaller:
                 type=EventType.MODEL_CALL,
                 stage=stage,
                 run_id=run_id,
+                retry_reason=retry_reason,
                 prompt_version=prompt_version,
                 input_hash=input_hash(request),
                 data={"provider": self._provider.name, "is_external": self._provider.is_external},

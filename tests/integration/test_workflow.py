@@ -14,8 +14,9 @@ import pytest
 from workflow_scripts import (
     CODE,
     CODE_AFTER_EDIT,
-    METHOD,
     METHOD_AFTER_QUESTION_EDIT,
+    METHOD_AFTER_QUESTION_EDIT_MD,
+    METHOD_MD,
     QUESTION,
     configure_models,
     services,
@@ -96,7 +97,7 @@ def _crash_before(stage: str) -> object:
 def test_a_run_goes_through_the_four_nodes(project: Path) -> None:
     outcome = run_workflow(project, services(project))
     assert NODES == ("methodology", "implementation", "experiment", "analysis")
-    assert (project / "method.md").read_text(encoding="utf-8") == METHOD
+    assert (project / "method.md").read_text(encoding="utf-8") == METHOD_MD
     assert (project / "code" / "main.py").read_text(encoding="utf-8") == CODE
     (record,) = outcome.results
     assert (record.id, record.metric, record.value, record.run_id) == ("R0001", "r2", 0.97, "r001")
@@ -146,7 +147,7 @@ def test_a_run_starts_with_run_started_and_its_id_names_the_run(project: Path) -
     assert started[0].status is EventStatus.OK
     assert started[0].data == {"mode": "guided", "commits": True, "commit_check_reason": None}
     calls = [e for e in _events(project) if e.type is EventType.MODEL_CALL]
-    assert [e.run_id for e in calls] == [outcome.run_id, outcome.run_id]
+    assert [e.run_id for e in calls] == [outcome.run_id] * 3
 
 
 def test_each_stage_is_committed(project: Path) -> None:
@@ -194,7 +195,7 @@ def test_graph_state_holds_only_ids_paths_hashes_and_small_enums(project: Path) 
         assert _ID.match(value) or _HASH.match(value) or value in enums, (key, value)
     # Neither artifact text nor model output is in the checkpoint database.
     database = (project / CHECKPOINT_FILE).read_bytes()
-    assert METHOD.encode() not in database
+    assert METHOD_MD.encode() not in database
     assert CODE.encode() not in database
 
 
@@ -276,7 +277,7 @@ def test_a_resume_after_a_crash_continues_where_it_stopped(project: Path) -> Non
 def test_an_edited_input_restarts_the_earliest_stage_that_reads_it(project: Path) -> None:
     with pytest.raises(SyntheticCrashError):
         run_workflow(project, services(project, before_stage=_crash_before("experiment")))
-    (project / "method.md").write_text(METHOD + "\nEdited by hand.\n", encoding="utf-8")
+    (project / "method.md").write_text(METHOD_MD + "\nEdited by hand.\n", encoding="utf-8")
     outcome = resume_workflow(project, services(project, replies=(CODE_AFTER_EDIT,)))
     (restart,) = [e for e in _events(project) if e.type is EventType.RUN_RESTARTED]
     assert restart.stage is not None
@@ -304,7 +305,7 @@ def test_an_edited_question_restarts_from_methodology(project: Path) -> None:
     assert restart.stage is not None
     assert restart.stage.value == "methodology"
     assert restart.data["changed_path"] == "inputs/question.md"
-    assert (project / "method.md").read_text(encoding="utf-8") == METHOD_AFTER_QUESTION_EDIT
+    assert (project / "method.md").read_text(encoding="utf-8") == METHOD_AFTER_QUESTION_EDIT_MD
 
 
 # Resume: only our own checkpoint
