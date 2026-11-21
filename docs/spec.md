@@ -390,13 +390,19 @@ Every number in a manuscript has a source type, and each type is checked against
 
 - The command, the full experiment parameters and the configuration files.
 - The git commit, and whether the working tree had uncommitted changes.
-- The container image digest and locked package versions.
+- The container image digest and locked package versions, and whether Docker ran rootless.
 - The dataset version, how it was obtained, and input data hashes.
 - Random seeds.
 - Hardware, plus CUDA and driver versions when a GPU is used.
 - Model versions and inference settings, for runs that call models.
 - Versions of any external API or service the run depends on.
 - Start and end time, and exit status.
+
+A complete manifest, on one line:
+
+```json
+{"schema_version": 1, "run_id": "r012", "command": ["python", "code/train.py", "--config", "code/config.yaml"], "parameters": {"learning_rate": 0.001, "epochs": 20, "scheduler": "cosine", "augment": true}, "config_files": [{"path": "code/config.yaml", "hash": "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41"}], "git": {"commit": "0123456789abcdef0123456789abcdef01234567", "dirty": false}, "container": {"image_digest": "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41", "locked_packages": {"numpy": "2.1.0", "scikit-learn": "1.5.2"}, "rootless": false}, "datasets": [{"name": "dataset_x", "version": "1.0", "obtained_from": "synthetic public archive", "files": [{"path": "inputs/dataset_x/train.csv", "hash": "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41"}]}], "seeds": {"python": 0, "numpy": 0}, "hardware": {"cpu": "synthetic 8-core CPU", "cpu_count": 8, "memory_mb": 16384, "gpu": null, "cuda_version": null, "driver_version": null}, "models": [], "external_services": [], "outputs": [{"path": "runs/r012/metrics.json", "hash": "sha256:abababababababababababababababababababababababababababababababab"}], "started_at": "2026-11-15T10:00:00Z", "ended_at": "2026-11-15T10:14:30Z", "exit_status": 0}
+```
 
 `reproduce.sh` replays the manifests in order. Two levels are distinguished. Exact reproducibility, meaning identical output, is expected only for deterministic CPU runs. Reproducibility within tolerance applies to GPU and parallel runs, where the same seed does not guarantee identical numbers. Each result record carries its accepted tolerance.
 
