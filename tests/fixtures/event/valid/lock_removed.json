@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "event_id": "e-000043",
+  "run_id": null,
+  "request_id": null,
+  "parent_id": null,
+  "ts": "2026-11-21T10:00:00.000Z",
+  "actor": "system:utux",
+  "stage": null,
+  "type": "lock_removed",
+  "model": null,
+  "prompt_version": null,
+  "tool_version": null,
+  "input_hash": null,
+  "output_hash": null,
+  "tokens_in": null,
+  "tokens_out": null,
+  "cost_usd": null,
+  "duration_ms": null,
+  "status": "ok",
+  "status_reason": null,
+  "retry_reason": null,
+  "escalated_from": null,
+  "data": {
+    "pid": 4242,
+    "host": "host-a",
+    "command": "run",
+    "started_at": "2026-11-21T09:00:00Z"
+  },
+  "artifacts": []
+}

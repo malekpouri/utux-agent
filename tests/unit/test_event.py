@@ -241,6 +241,7 @@ def test_event_types_are_the_ones_named_in_the_specification_and_the_plan() -> N
         "run_resumed",
         "run_restarted",
         "route_back",
+        "lock_removed",
     }
 
 
@@ -805,3 +806,30 @@ def test_route_back_names_both_stages_the_finding_the_attempt_and_the_cap() -> N
 )
 def test_route_back_data_is_checked(data: dict[str, object], problem: tuple[str, str]) -> None:
     assert _problems(_of("route_back.json", **data)) == [problem]
+
+
+# data of lock_removed (M1-14)
+
+
+def test_lock_removed_names_the_holder_of_the_removed_lock() -> None:
+    event = load_event(FIXTURES / "valid" / "lock_removed.json")
+    assert event.data == {
+        "pid": 4242,
+        "host": "host-a",
+        "command": "run",
+        "started_at": "2026-11-21T09:00:00Z",
+    }
+
+
+@pytest.mark.parametrize(
+    ("data", "problem"),
+    [
+        ({"pid": -1, "host": "host-a", "command": "run", "started_at": "x"}, "data.pid"),
+        ({"pid": "4242", "host": "host-a", "command": "run", "started_at": "x"}, "data.pid"),
+        ({"pid": 4242, "host": "", "command": "run", "started_at": "x"}, "data.host"),
+        ({"pid": 4242, "host": "host-a", "command": None, "started_at": "x"}, "data.command"),
+        ({"pid": 4242, "host": "host-a", "command": "run"}, "data.started_at"),
+    ],
+)
+def test_lock_removed_data_is_checked(data: dict[str, object], problem: str) -> None:
+    assert [field for field, _ in _problems(_of("lock_removed.json", **data))] == [problem]
