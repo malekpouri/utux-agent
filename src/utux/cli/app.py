@@ -150,10 +150,18 @@ def log_repair(
 ) -> None:
     """Save an incomplete last line of the event log aside and record the repair."""
     try:
-        repairs, changes = repair_project_log(directory)
+        repaired = repair_project_log(directory)
     except UtuxError as error:
         typer.echo(f"error: {error}", err=True)
         raise typer.Exit(code=1) from error
+    repairs, changes, removed = repaired.repairs, repaired.changes, repaired.lock_removed
+    if removed is not None:
+        data = removed.data
+        typer.echo(
+            f"Removed {LOCK_FILE}, left by process {data['pid']} on {data['host']} "
+            f"({data['command']}, since {data['started_at']}), which is no longer running; "
+            f"recorded as {removed.event_id}."
+        )
     for event in changes.events:
         typer.echo(f"Recorded the change of {event.data['key']} in utux.yaml as {event.event_id}.")
     if not repairs:
@@ -370,6 +378,10 @@ def _fail(error: UtuxError, hint: str | None = None) -> typer.Exit:
     return typer.Exit(code=1)
 
 
+PAUSED_EXIT_STATUS = 3
+"""The exit status of `utux run` when the run paused for an approval."""
+
+
 def _spend(directory: Path) -> str:
     return _cost_lines(project_cost_report(directory))[0]
 
@@ -406,7 +418,7 @@ def run(
             "approve|reject|edit [--feedback TEXT]"
         )
         typer.echo(_spend(directory))
-        return
+        raise typer.Exit(code=PAUSED_EXIT_STATUS) from None
     except RunRejectedError as error:
         raise _fail(
             error, f"Start a new run with: utux run {directory} --from methodology"
@@ -481,6 +493,10 @@ def approve(
         raise _fail(error) from error
     response = answer.response
     typer.echo(f"Wrote {answer.path}: {response.decision.value} by {response.answered_by}.")
+    typer.echo(
+        f"Recorded you as {response.answered_by}. This id stays in the project and is shared "
+        "through git; set it with --by."
+    )
     if response.edited_artifact_id is not None:
         typer.echo(
             f"It names your saved file as {response.edited_artifact_id} "

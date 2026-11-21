@@ -375,24 +375,97 @@ def record_setting_changes(
     return SettingChanges(events, snapshot_created=False)
 
 
+@dataclass(frozen=True)
+class ProjectLogRepair:
+    """What `repair_project_log` did.
+
+    Attributes:
+        repairs: One entry per fragment recorded.
+        changes: The setting changes recorded after the repair.
+        lock_removed: The `lock_removed` event of a stale lock that was
+            removed first, or None.
+    """
+
+    repairs: tuple[LogRepair, ...]
+    changes: SettingChanges
+    lock_removed: Event | None
+
+
+def _remove_stale_lock(project: Path) -> LockHolder | None:
+    """Remove the lock if its holder is a process on this host that is gone.
+
+    A lock that is held, of another host, or unreadable is left, and
+    `project_lock` then refuses as for any command.
+    """
+    path = project / LOCK_FILE
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return None
+    state = _state(raw)
+    if state.holder is None or state.running is not False:
+        return None
+    if path.read_bytes() == raw:
+        path.unlink()
+    return state.holder
+
+
 def repair_project_log(
     project: Path, *, clock: Callable[[], datetime] | None = None
-) -> tuple[tuple[LogRepair, ...], SettingChanges]:
+) -> ProjectLogRepair:
     """Repair the event log of a project under the project lock (`utux log repair`).
+
+    A crash can leave both a stale lock and an incomplete last line. So the
+    command makes the check `utux unlock` makes: a lock whose holder is a
+    process on this host that is no longer running is removed, the log is
+    repaired, and a `lock_removed` event, then the `log_repaired` event, is
+    appended. A lock whose holder is running or on another host is refused,
+    as by every command.
 
     Setting changes are recorded after the repair, not before: an event
     cannot be appended to a log whose last line is incomplete.
 
     Raises:
+        NotAProjectError: The directory has no `.utux/` directory.
         ProjectLockedError: As `project_lock`; nothing is changed.
         EventLogError: As `repair_log`.
         ContractValidationError: As `repair_log`, or `utux.yaml` is invalid.
             In the second case the repair is already done.
     """
+    if not (project / LOCK_FILE).parent.is_dir():
+        raise NotAProjectError(
+            f"{project} is not a utux project: it has no .utux/ directory beside "
+            f"{CONFIG_FILE} and {EVENT_LOG_FILE}; create a project with utux init"
+        )
+    stale = _remove_stale_lock(project)
+    first: tuple[NewEvent, ...] = ()
+    if stale is not None:
+        first = (
+            NewEvent(
+                actor=SYSTEM_ACTOR,
+                type=EventType.LOCK_REMOVED,
+                status=EventStatus.OK,
+                data={
+                    "pid": stale.pid,
+                    "host": stale.host,
+                    "command": stale.command,
+                    "started_at": stale.started_at,
+                },
+            ),
+        )
     with project_lock(project, "log repair", **({} if clock is None else {"clock": clock})):
         log_path = project / EVENT_LOG_FILE
-        repairs = repair_log(log_path) if clock is None else repair_log(log_path, clock=clock)
-        return repairs, record_setting_changes(project, clock=clock)
+        repairs = (
+            repair_log(log_path, first=first)
+            if clock is None
+            else repair_log(log_path, clock=clock, first=first)
+        )
+        removed = None
+        if stale is not None:
+            removed = next(
+                e for e in reversed(list(EventLog(log_path))) if e.type is EventType.LOCK_REMOVED
+            )
+        return ProjectLogRepair(repairs, record_setting_changes(project, clock=clock), removed)
 
 
 @contextmanager
