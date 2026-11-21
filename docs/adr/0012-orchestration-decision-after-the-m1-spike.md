@@ -1,6 +1,6 @@
 # ADR-0012: LangGraph confirmed as the orchestration engine after the M1 spike
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-21
 
 ## Context
