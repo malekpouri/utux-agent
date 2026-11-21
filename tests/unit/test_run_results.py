@@ -15,7 +15,7 @@ import pytest
 
 from utux.errors import ContractValidationError, ResultRecordingError
 from utux.executors.scripted import ScriptedExecutor, ScriptedRun
-from utux.interfaces.executor import ExecutionStep, ResourceLimits, RunResult
+from utux.interfaces.executor import ExecutionStep, LimitKind, ResourceLimits, RunResult
 from utux.schemas.result_record import ResultRecord
 from utux.schemas.run_manifest import RunManifest
 from utux.workspace import results as results_module
@@ -70,8 +70,8 @@ def _step() -> ExecutionStep:
     )
 
 
-def _run(project: Path, files: dict[str, bytes]) -> RunResult:
-    return ScriptedExecutor(project, [ScriptedRun(files=files)]).run(_step())
+def _run(project: Path, files: dict[str, bytes], **run: Any) -> RunResult:
+    return ScriptedExecutor(project, [ScriptedRun(files=files, **run)]).run(_step())
 
 
 def _metrics_bytes(document: dict[str, Any] = METRICS) -> bytes:
@@ -87,6 +87,7 @@ def _manifest(project: Path, result: RunResult, **changes: Any) -> RunManifest:
             "started_at": result.started_at,
             "ended_at": result.ended_at,
             "exit_status": result.exit_status,
+            "stopped_by": None if result.stopped_by is None else result.stopped_by.value,
         }
     )
     document.update(changes)
@@ -100,7 +101,9 @@ def _lines(project: Path) -> list[str]:
 def test_each_entry_becomes_one_record_with_a_new_id(project: Path) -> None:
     before = _lines(project)
     result = _run(project, {METRICS_FILE: _metrics_bytes()})
-    records = record_run(project, _step(), result, _manifest(project, result))
+    recording = record_run(project, _step(), result, _manifest(project, result))
+    records = recording.records
+    assert recording.not_recorded is None
     assert [r.id for r in records] == ["R0043", "R0044"]
     first, second = records
     assert (first.metric, first.value, first.unit, first.dataset) == (
@@ -135,7 +138,7 @@ def test_the_first_record_of_a_project_is_r0001(project: Path) -> None:
     (project / "results.jsonl").write_bytes(b"")
     (project / "claims.jsonl").write_bytes(b"")
     result = _run(project, {METRICS_FILE: _metrics_bytes()})
-    records = record_run(project, _step(), result, _manifest(project, result))
+    records = record_run(project, _step(), result, _manifest(project, result)).records
     assert [r.id for r in records] == ["R0001", "R0002"]
 
 
@@ -157,7 +160,9 @@ def test_an_invalid_metrics_file_fails_with_its_problems_and_writes_no_record(
 def test_a_run_without_a_metrics_file_has_no_records(project: Path) -> None:
     before = (project / "results.jsonl").read_bytes()
     result = _run(project, {"log.txt": b"synthetic\n"})
-    assert record_run(project, _step(), result, _manifest(project, result)) == ()
+    recording = record_run(project, _step(), result, _manifest(project, result))
+    assert recording.records == ()
+    assert recording.not_recorded == "no_metrics_file"
     assert (project / "results.jsonl").read_bytes() == before
 
 
@@ -226,3 +231,38 @@ def test_manifest_outputs_name_each_output_by_its_project_path(project: Path) ->
     (output,) = manifest_outputs(_step(), result)
     assert output.path == f"{OUTPUT}/{METRICS_FILE}"
     assert output.hash == "sha256:" + hashlib.sha256(content).hexdigest()
+
+
+# A run stopped by a limit
+
+
+@pytest.mark.parametrize(
+    ("stopped_by", "exit_status"),
+    [(LimitKind.WALL_CLOCK, None), (LimitKind.OUTPUT_SIZE, None), (LimitKind.MEMORY, 137)],
+)
+def test_a_run_stopped_by_a_limit_gets_a_manifest_but_no_records(
+    project: Path, stopped_by: LimitKind, exit_status: int | None
+) -> None:
+    before = (project / "results.jsonl").read_bytes()
+    result = _run(
+        project, {METRICS_FILE: _metrics_bytes()}, stopped_by=stopped_by, exit_status=exit_status
+    )
+    manifest = _manifest(project, result)
+    recording = record_run(project, _step(), result, manifest)
+    # A file that may be cut off mid-write never becomes a published number.
+    assert recording.records == ()
+    assert recording.not_recorded == "stopped_by_limit"
+    assert (project / "results.jsonl").read_bytes() == before
+    written = RunManifest.from_json(
+        (project / "runs" / "r013" / "manifest.json").read_text("utf-8")
+    )
+    assert (written.exit_status, written.stopped_by) == (exit_status, stopped_by)
+    assert validate_project(project).problems == ()
+
+
+def test_a_manifest_that_misstates_how_the_run_ended_is_refused(project: Path) -> None:
+    result = _run(project, {}, stopped_by=LimitKind.WALL_CLOCK, exit_status=None)
+    manifest = _manifest(project, result, exit_status=0, stopped_by=None)
+    with pytest.raises(ResultRecordingError, match="ended"):
+        record_run(project, _step(), result, manifest)
+    assert not (project / "runs" / "r013" / "manifest.json").exists()
