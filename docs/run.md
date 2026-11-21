@@ -207,11 +207,24 @@ node names: for each finished node, its inputs and outputs by path and hash
 and the artifact versions it made, the id of the experiment's run, and the
 ids of its result records. Texts and model output stay in the files.
 
+## Exit status
+
+`utux run` ends with one of three exit statuses, so that a script can tell
+them apart:
+
+| Status | Meaning |
+| --- | --- |
+| 0 | The run completed: it finished, or it stopped after the stage `--to` named, as asked |
+| 1 | An error: the run did not start, failed, or was stopped by a rejected budget or retry pause; the message says why |
+| 3 | The run paused for an approval; the message names the request, and `utux run` continues once it is answered |
+
 ## Resuming
 
 `resume_workflow` continues the last unfinished workflow run and writes a
 `run_resumed` event. After a crash the project lock is left behind;
-`utux unlock` removes it once its holder is no longer running.
+`utux unlock` removes it once its holder is no longer running, and
+`utux log repair` does the same when the crash also left an incomplete last
+line in the event log.
 
 **Only our own checkpoint.** The checkpoint's run must match a `run_started`
 event of the project's log. A checkpoint copied from another project, or

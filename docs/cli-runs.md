@@ -40,12 +40,13 @@ The command prints how the run ended and the known cost against the budget:
 - stopped after `--to`: `Run e-000004 stopped after methodology, as --to asked; utux run DIR continues it.`
 - paused at a gate, a budget or the retry cap: the message names the
   request and the command to answer it, `utux approve DIR a-000001
-  approve|reject|edit [--feedback TEXT]`. A pause is not an error: the
-  exit status is 0.
+  approve|reject|edit [--feedback TEXT]`.
 - a rejected budget or retry pause stops the run for good; the command
   fails and suggests `utux run DIR --from methodology`.
 
-Any other failure prints `error: ...` and exits with status 1.
+Any other failure prints `error: ...`. The exit status is 0 when the run
+completed (finished, or stopped after `--to` as asked), 1 on an error, and 3
+when it paused for an approval ([How a run works](run.md#exit-status)).
 
 `utux run` uses the provider of the project's profile, the Docker sandbox,
 and the image and prompts of the project's domain pack. In M1 the packs are
@@ -66,7 +67,11 @@ the run takes the answer when it resumes. It does not write an event: the
 
 - `--by ID` is the person, recorded as `human:<ID>`: lower-case letters,
   digits, `_`, `.` and `-`. The default is the login name. `unknown` is
-  refused, since `human:unknown` stands for edits made outside utux.
+  refused, since `human:unknown` stands for edits made outside utux. The
+  command prints the id it recorded. **This id stays in the project**: it is
+  in the response file and in the run's events, and it is shared with
+  everyone the project is shared with through git. Set it with `--by` if
+  the login name should not be shared.
 - `approve` and `reject` are about the version the request names. If the
   file changed since the request, they are refused: answer with `edit` to
   take the file as it is, or undo the change.
@@ -128,11 +133,12 @@ no longer running. The removal is recorded first, as a `lock_removed` event
 that names the holder ([The event log](event-log.md)), and the file is then
 removed. It is refused, and the lock left, when there is no lock, when the
 lock cannot be read, when its holder is on another host (which cannot be
-checked from here), and when its holder is still running. In the first
-three cases a person who is sure nothing is running can remove the file by
-hand.
+checked from here), and when its holder is still running.
 
-After a crash the event log can end with an incomplete line. `utux unlock`
-then refuses, because the project fails `utux validate`, and
-`utux log repair` refuses, because the project is locked: remove
-`.utux/lock` by hand, then run `utux log repair`.
+After a crash the event log can also end with an incomplete line. The
+project then fails `utux validate`, so `utux unlock` refuses; run
+`utux log repair` instead. It makes the same check as `utux unlock`: if the
+lock's holder is a process on this host that is no longer running, it
+removes the lock, repairs the log, and appends `lock_removed` and then
+`log_repaired`. One `utux log repair` recovers the project. A holder that
+is running or on another host is refused, as by every command.

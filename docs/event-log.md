@@ -159,6 +159,12 @@ A person repairs the log with:
 uv run utux log repair [DIRECTORY]
 ```
 
+If the project lock was left by a process on this host that is no longer
+running, as after a crash, the command first removes it, as `utux unlock`
+does; a lock whose holder is running or on another host is refused. The
+`lock_removed` event is appended once the log ends with a complete line,
+before the `log_repaired` event.
+
 The command, while it holds the lock of the log:
 
 1. checks that the last complete line is a valid event, and refuses with
