@@ -179,6 +179,7 @@ while True:
 
 def test_memory_beyond_the_limit_ends_the_run(project: Path, digest: str) -> None:
     script = "blocks = []\nwhile True:\n    blocks.append(bytearray(16 * 1024 * 1024))\n"
+    started = time.monotonic()
     result = _run(
         project,
         digest,
@@ -186,9 +187,12 @@ def test_memory_beyond_the_limit_ends_the_run(project: Path, digest: str) -> Non
         limits=ResourceLimits(memory_mb=64, max_processes=32, cpus=1.0, disk_mb=64),
         timeout_seconds=60.0,
     )
-    # Docker's own report says the run was killed for memory.
-    assert result.stopped_by is LimitKind.MEMORY
-    assert result.exit_status != 0
+    # What utux promises: the run is killed (137), within its timeout, and it
+    # names memory only when Docker reports it. Some Docker setups do not
+    # report the kill; the run then names no limit, and never another one.
+    assert time.monotonic() - started < 60.0
+    assert result.exit_status == 137
+    assert result.stopped_by in (LimitKind.MEMORY, None)
 
 
 def test_no_host_variable_reaches_the_container(

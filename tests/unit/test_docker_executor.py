@@ -307,3 +307,38 @@ def test_another_exit_status_is_not_retried(
     executor = DockerExecutor(tmp_path, docker=str(docker))
     assert executor._oom_killed("utux-r001-0000", 1) is False
     assert _calls(tmp_path) == 1
+
+
+# Naming the memory limit in a whole run, with a fake docker
+
+
+def _fake_docker_run(tmp_path: Path, oom_killed: str) -> Path:
+    """A docker stand-in for a whole run: the daemon answers with seccomp on,
+    the image is present, the container exits with 137, and inspect reports
+    OOMKilled as given."""
+    script = tmp_path / "fake-docker"
+    script.write_text(
+        "#!/bin/sh\n"
+        'case "$1" in\n'
+        "  info) echo '[\"name=seccomp,profile=builtin\"]' ;;\n"
+        f'  image) echo "{DIGEST}" ;;\n'
+        "  run) exit 137 ;;\n"
+        f'  inspect) echo "{oom_killed}" ;;\n'
+        "  rm|kill) exit 0 ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    return script
+
+
+@pytest.mark.parametrize(("reported", "named"), [("true", "memory"), ("false", None)])
+def test_memory_is_named_exactly_when_docker_reports_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reported: str, named: str | None
+) -> None:
+    monkeypatch.setattr("utux.executors.docker.time.sleep", lambda seconds: None)
+    project = _project(tmp_path)
+    executor = DockerExecutor(project, docker=str(_fake_docker_run(tmp_path, reported)))
+    result = executor.run(_step())
+    assert result.exit_status == 137
+    assert (None if result.stopped_by is None else result.stopped_by.value) == named
