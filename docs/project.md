@@ -136,10 +136,10 @@ existed needs them added by hand.
 ## Commands that write to a project
 
 Every command that writes to a project holds the project lock while it
-runs, and records changes of `utux.yaml` before it acts. Today these are
-`utux model ping` and `utux log repair`; `utux run` and `utux approve` will
-be too. Read-only commands (`utux validate`, `utux cost`, `utux schema
-export`) do neither. The code is in `utux.workspace.writer`.
+runs, and records changes of `utux.yaml` before it acts. These are
+`utux run`, `utux approve`, `utux model ping` and `utux log repair`.
+Read-only commands (`utux validate`, `utux cost`, `utux status`,
+`utux schema export`) do neither. The code is in `utux.workspace.writer`.
 
 ### The project lock
 
@@ -160,7 +160,10 @@ The lock file is one JSON object:
 
 - **A lock left by a process that is no longer running** (after a crash or
   a kill) is reported, not taken over. Check the project with
-  `utux validate`, then remove `.utux/lock` and run the command again.
+  `utux validate`, then remove the lock with `utux unlock`, which removes
+  only a lock whose holder on this host is no longer running and records a
+  `lock_removed` event ([Running a project from the command line](cli-runs.md)),
+  and run the command again.
 - **A lock of another host**, on a shared file system, cannot be checked;
   it is treated as held.
 - **A lock that cannot be read** is reported with the same advice.
