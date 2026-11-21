@@ -59,6 +59,7 @@ def services(
     *,
     runs: int = 1,
     before_stage: Callable[[str], None] | None = None,
+    inside_stage: Callable[[str, str], None] | None = None,
 ) -> WorkflowServices:
     """Scripted services: one reply per model call, `runs` scripted runs."""
     provider = ScriptedModelProvider(
@@ -77,4 +78,5 @@ def services(
         locked_packages=lambda digest: {"numpy": "2.5.5"},
         rootless=False,
         before_stage=before_stage,
+        inside_stage=inside_stage,
     )

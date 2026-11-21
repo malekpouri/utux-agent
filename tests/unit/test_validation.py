@@ -812,3 +812,38 @@ def test_a_missing_gitignore_is_a_warning(tmp_path: Path) -> None:
 def test_a_complete_gitignore_gives_no_warning(tmp_path: Path) -> None:
     project = _copy_valid(tmp_path)
     assert validate_project(project).warnings == ()
+
+
+# human:unknown, the maker of a version edited outside utux (M1-10)
+
+
+def test_an_edit_outside_utux_may_be_made_by_human_unknown(tmp_path: Path) -> None:
+    project = _copy_valid(tmp_path)
+    (project / "method.md").write_text("synthetic fixture content, edited\n", encoding="utf-8")
+    edited = "sha256:" + hashlib.sha256(b"synthetic fixture content, edited\n").hexdigest()
+    _add_sidecar(
+        project,
+        "method-v004.json",
+        created_by="human:unknown",
+        input_artifacts=["method-v003"],
+        content_hash=edited,
+    )
+    assert validate_project(project).problems == ()
+
+
+@pytest.mark.parametrize(
+    "inputs", [[], ["idea-v002"], ["method-v003", "idea-v002"], ["method-v005"]]
+)
+def test_human_unknown_is_allowed_only_for_an_edit_of_the_version_before(
+    tmp_path: Path, inputs: list[str]
+) -> None:
+    project = _copy_valid(tmp_path)
+    _add_sidecar(
+        project,
+        "method-v004.json",
+        created_by="human:unknown",
+        input_artifacts=inputs,
+        content_hash="sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41",
+    )
+    found = [p for p in _found(validate_project(project)) if p[3] == "edit_actor_misused"]
+    assert found == [(".utux/meta/method-v004.json", None, "created_by", "edit_actor_misused")]

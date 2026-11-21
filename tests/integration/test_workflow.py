@@ -330,3 +330,81 @@ def test_the_checkpoint_database_is_sqlite(project: Path) -> None:
     with sqlite3.connect(project / CHECKPOINT_FILE) as connection:
         tables = {row[0] for row in connection.execute("select name from sqlite_master")}
     assert "checkpoints" in tables
+
+
+# A stage that stops halfway (specification, section 7)
+
+
+def _crash_inside(stage: str, point: str) -> object:
+    def hook(node: str, where: str) -> None:
+        if (node, where) == (stage, point):
+            raise SyntheticCrashError(f"{node} {where}")
+
+    return hook
+
+
+def _versions(project: Path) -> list[str]:
+    return sorted(p.stem for p in (project / ".utux" / "meta").glob("*.json"))
+
+
+def test_a_node_stopped_after_writing_its_outputs_leaves_nothing_in_place(
+    project: Path,
+) -> None:
+    with pytest.raises(SyntheticCrashError):
+        run_workflow(
+            project, services(project, inside_stage=_crash_inside("methodology", "staged"))
+        )
+    # The output and its sidecar were written, but only in the staging area.
+    assert not (project / "method.md").exists()
+    assert _versions(project) == []
+    resume_workflow(project, services(project))
+    assert _versions(project) == ["code-v001", "method-v001", "metrics-v001", "results-v001"]
+    assert not (project / ".utux" / "staging").exists()
+    assert validate_project(project).problems == ()
+
+
+def test_an_experiment_stopped_halfway_leaves_no_extra_run(project: Path) -> None:
+    with pytest.raises(SyntheticCrashError):
+        run_workflow(
+            project,
+            services(project, runs=2, inside_stage=_crash_inside("experiment", "staged")),
+        )
+    assert not (project / "runs" / "r001").exists()
+    outcome = resume_workflow(project, services(project, replies=()))
+    assert sorted(p.name for p in (project / "runs").iterdir() if p.is_dir()) == ["r001"]
+    assert [r.id for r in outcome.results] == ["R0001"]
+    assert _versions(project) == ["code-v001", "method-v001", "metrics-v001", "results-v001"]
+
+
+def test_a_node_stopped_after_moving_its_outputs_makes_no_new_version(project: Path) -> None:
+    with pytest.raises(SyntheticCrashError):
+        run_workflow(project, services(project, inside_stage=_crash_inside("methodology", "moved")))
+    assert _versions(project) == ["method-v001"]
+    # The node runs again and gets the same reply; the version is the same one.
+    resume_workflow(project, services(project))
+    assert _versions(project) == ["code-v001", "method-v001", "metrics-v001", "results-v001"]
+
+
+def test_the_staging_area_is_not_in_git(project: Path) -> None:
+    from utux.workspace.layout import ignored_by_git
+
+    assert ignored_by_git(".utux/staging/methodology/method.md")
+    assert ignored_by_git(".utux/staging", directory=True)
+
+
+# Two kinds of run
+
+
+def test_an_execution_run_id_never_has_the_form_of_a_workflow_run_id(project: Path) -> None:
+    import json
+
+    from utux.errors import ContractValidationError
+    from utux.schemas.run_manifest import RunManifest
+
+    outcome = run_workflow(project, services(project))
+    manifest = json.loads((project / "runs" / "r001" / "manifest.json").read_text("utf-8"))
+    assert manifest["run_id"] == "r001"
+    assert outcome.run_id.startswith("e-")
+    manifest["run_id"] = outcome.run_id
+    with pytest.raises(ContractValidationError):
+        RunManifest.from_json(json.dumps(manifest))
