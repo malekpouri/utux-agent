@@ -9,7 +9,9 @@ commands (`utux validate`, `utux cost`, `utux schema export`) do neither.
 
 The lock is the file `.utux/lock`. It names the process that holds it. A
 lock whose process is no longer running is reported, never taken over: a
-person checks that nothing is writing and removes the file. The snapshot is
+person checks that nothing is writing and removes it with `utux unlock`,
+which removes only a lock whose holder is a process on this host that is no
+longer running, and records a `lock_removed` event. The snapshot is
 `.utux/settings-snapshot.yaml`, a copy of `utux.yaml` as last recorded; it is
 tracked by git like `utux.yaml`.
 """
@@ -23,7 +25,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from utux.errors import NotAProjectError, ProjectLockedError, StaleProjectLockError
+from utux.errors import (
+    NotAProjectError,
+    ProjectLockedError,
+    StaleProjectLockError,
+    UnlockRefusedError,
+)
 from utux.events.log import EventLog, LogRepair, repair_log
 from utux.schemas.common import Scalar
 from utux.schemas.event import Event, EventStatus, EventType, NewEvent
@@ -59,36 +66,168 @@ def _process_running(pid: int) -> bool:
     return True
 
 
-def _refusal(path: Path, raw: bytes) -> ProjectLockedError:
-    """Describe the holder of an existing lock, as an error to raise."""
+@dataclass(frozen=True)
+class LockHolder:
+    """The process a lock file names.
+
+    Attributes:
+        pid: Its process id.
+        host: The host it runs on.
+        command: The utux command it runs, for example `run`.
+        started_at: When it took the lock.
+    """
+
+    pid: int
+    host: str
+    command: str
+    started_at: str
+
+    def describe(self) -> str:
+        """The holder as a person reads it."""
+        return f"process {self.pid} on {self.host} ({self.command}, since {self.started_at})"
+
+
+@dataclass(frozen=True)
+class LockState:
+    """What `.utux/lock` says, read without taking the lock.
+
+    Attributes:
+        exists: Whether the file exists.
+        holder: The process it names, or None if it is absent or unreadable.
+        running: Whether that process is running: None if there is no
+            holder or it is on another host, which cannot be checked.
+    """
+
+    exists: bool
+    holder: LockHolder | None
+    running: bool | None
+
+
+def _holder(raw: bytes) -> LockHolder | None:
     try:
         holder = json.loads(raw)
-        pid = holder["pid"]
-        host = holder["host"]
-        command = holder["command"]
-        started = holder["started_at"]
-        if not (isinstance(pid, int) and isinstance(host, str)):
-            raise TypeError
+        pid, host = holder["pid"], holder["host"]
+        command, started = holder["command"], holder["started_at"]
     except (ValueError, KeyError, TypeError):
+        return None
+    if not (
+        isinstance(pid, int)
+        and not isinstance(pid, bool)
+        and isinstance(host, str)
+        and isinstance(command, str)
+        and isinstance(started, str)
+    ):
+        return None
+    return LockHolder(pid=pid, host=host, command=command, started_at=started)
+
+
+def _state(raw: bytes | None) -> LockState:
+    if raw is None:
+        return LockState(exists=False, holder=None, running=None)
+    holder = _holder(raw)
+    if holder is None or holder.host != socket.gethostname():
+        return LockState(exists=True, holder=holder, running=None)
+    return LockState(exists=True, holder=holder, running=_process_running(holder.pid))
+
+
+def read_lock(project: Path) -> LockState:
+    """Read the project lock without taking it, for `utux status`."""
+    try:
+        raw: bytes | None = (project / LOCK_FILE).read_bytes()
+    except FileNotFoundError:
+        raw = None
+    return _state(raw)
+
+
+def _refusal(path: Path, raw: bytes) -> ProjectLockedError:
+    """Describe the holder of an existing lock, as an error to raise."""
+    state = _state(raw)
+    holder = state.holder
+    if holder is None:
         return ProjectLockedError(
             f"the project lock {LOCK_FILE} exists but cannot be read; if no utux command "
             f"is running on this project, remove {path} and run the command again"
         )
-    held_by = f"process {pid} on {host} ({command}, since {started})"
-    if host != socket.gethostname():
+    held_by = holder.describe()
+    if state.running is None:
         return ProjectLockedError(
             f"the project is locked by {held_by}; that host cannot be checked from here, "
             f"so wait for it to finish, or remove {path} if you are sure it has stopped"
         )
-    if not _process_running(pid):
+    if not state.running:
         return StaleProjectLockError(
             f"the project lock was left by {held_by}, which is no longer running; it may "
             f"have stopped halfway. Check the project with utux validate, then remove "
-            f"{LOCK_FILE} and run the command again"
+            f"{LOCK_FILE} with utux unlock and run the command again"
         )
     return ProjectLockedError(
         f"the project is locked by {held_by}; wait for it to finish and run the command again"
     )
+
+
+def unlock_project(project: Path, *, clock: Callable[[], datetime] | None = None) -> Event:
+    """Remove a lock left by a process on this host that is no longer running.
+
+    The removal is recorded first, as a `lock_removed` event naming the
+    holder, and the file is then removed (`utux unlock`).
+
+    Returns:
+        The `lock_removed` event.
+
+    Raises:
+        NotAProjectError: The directory has no `.utux/` directory.
+        UnlockRefusedError: There is no lock; it cannot be read; its holder
+            is on another host, which cannot be checked; or its holder is
+            still running. Nothing is changed.
+    """
+    path = project / LOCK_FILE
+    if not path.parent.is_dir():
+        raise NotAProjectError(
+            f"{project} is not a utux project: it has no .utux/ directory beside "
+            f"{CONFIG_FILE} and {EVENT_LOG_FILE}; create a project with utux init"
+        )
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        raise UnlockRefusedError(f"the project is not locked: there is no {LOCK_FILE}") from None
+    state = _state(raw)
+    holder = state.holder
+    if holder is None:
+        raise UnlockRefusedError(
+            f"the project lock {LOCK_FILE} cannot be read, so utux cannot tell whether its "
+            "holder is still running; if you are sure no utux command is running on this "
+            f"project, remove {path} by hand"
+        )
+    if state.running is None:
+        raise UnlockRefusedError(
+            f"the project is locked by {holder.describe()}; that host cannot be checked "
+            f"from here, so utux does not remove the lock; if you are sure that process has "
+            f"stopped, remove {path} by hand"
+        )
+    if state.running:
+        raise UnlockRefusedError(
+            f"the project is locked by {holder.describe()}, which is still running; wait for "
+            "it to finish"
+        )
+    log_path = project / EVENT_LOG_FILE
+    log = EventLog(log_path) if clock is None else EventLog(log_path, clock=clock)
+    event = log.append(
+        NewEvent(
+            actor=SYSTEM_ACTOR,
+            type=EventType.LOCK_REMOVED,
+            status=EventStatus.OK,
+            data={
+                "pid": holder.pid,
+                "host": holder.host,
+                "command": holder.command,
+                "started_at": holder.started_at,
+            },
+        )
+    )
+    # Removed only if it is still the lock that was checked.
+    if path.read_bytes() == raw:
+        path.unlink()
+    return event
 
 
 @contextmanager
@@ -236,24 +375,97 @@ def record_setting_changes(
     return SettingChanges(events, snapshot_created=False)
 
 
+@dataclass(frozen=True)
+class ProjectLogRepair:
+    """What `repair_project_log` did.
+
+    Attributes:
+        repairs: One entry per fragment recorded.
+        changes: The setting changes recorded after the repair.
+        lock_removed: The `lock_removed` event of a stale lock that was
+            removed first, or None.
+    """
+
+    repairs: tuple[LogRepair, ...]
+    changes: SettingChanges
+    lock_removed: Event | None
+
+
+def _remove_stale_lock(project: Path) -> LockHolder | None:
+    """Remove the lock if its holder is a process on this host that is gone.
+
+    A lock that is held, of another host, or unreadable is left, and
+    `project_lock` then refuses as for any command.
+    """
+    path = project / LOCK_FILE
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return None
+    state = _state(raw)
+    if state.holder is None or state.running is not False:
+        return None
+    if path.read_bytes() == raw:
+        path.unlink()
+    return state.holder
+
+
 def repair_project_log(
     project: Path, *, clock: Callable[[], datetime] | None = None
-) -> tuple[tuple[LogRepair, ...], SettingChanges]:
+) -> ProjectLogRepair:
     """Repair the event log of a project under the project lock (`utux log repair`).
+
+    A crash can leave both a stale lock and an incomplete last line. So the
+    command makes the check `utux unlock` makes: a lock whose holder is a
+    process on this host that is no longer running is removed, the log is
+    repaired, and a `lock_removed` event, then the `log_repaired` event, is
+    appended. A lock whose holder is running or on another host is refused,
+    as by every command.
 
     Setting changes are recorded after the repair, not before: an event
     cannot be appended to a log whose last line is incomplete.
 
     Raises:
+        NotAProjectError: The directory has no `.utux/` directory.
         ProjectLockedError: As `project_lock`; nothing is changed.
         EventLogError: As `repair_log`.
         ContractValidationError: As `repair_log`, or `utux.yaml` is invalid.
             In the second case the repair is already done.
     """
+    if not (project / LOCK_FILE).parent.is_dir():
+        raise NotAProjectError(
+            f"{project} is not a utux project: it has no .utux/ directory beside "
+            f"{CONFIG_FILE} and {EVENT_LOG_FILE}; create a project with utux init"
+        )
+    stale = _remove_stale_lock(project)
+    first: tuple[NewEvent, ...] = ()
+    if stale is not None:
+        first = (
+            NewEvent(
+                actor=SYSTEM_ACTOR,
+                type=EventType.LOCK_REMOVED,
+                status=EventStatus.OK,
+                data={
+                    "pid": stale.pid,
+                    "host": stale.host,
+                    "command": stale.command,
+                    "started_at": stale.started_at,
+                },
+            ),
+        )
     with project_lock(project, "log repair", **({} if clock is None else {"clock": clock})):
         log_path = project / EVENT_LOG_FILE
-        repairs = repair_log(log_path) if clock is None else repair_log(log_path, clock=clock)
-        return repairs, record_setting_changes(project, clock=clock)
+        repairs = (
+            repair_log(log_path, first=first)
+            if clock is None
+            else repair_log(log_path, clock=clock, first=first)
+        )
+        removed = None
+        if stale is not None:
+            removed = next(
+                e for e in reversed(list(EventLog(log_path))) if e.type is EventType.LOCK_REMOVED
+            )
+        return ProjectLogRepair(repairs, record_setting_changes(project, clock=clock), removed)
 
 
 @contextmanager

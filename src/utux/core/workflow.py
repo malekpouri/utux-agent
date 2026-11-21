@@ -162,11 +162,14 @@ class RunOutcome:
         run_id: The run, the id of its `run_started` event.
         commits: Whether stages were committed.
         results: The result records of the run.
+        finished: Whether the run ended; False if it stopped after the stage
+            `--to` named, and `utux run` continues it.
     """
 
     run_id: str
     commits: bool
     results: tuple[ResultRecord, ...]
+    finished: bool = True
 
 
 class StageRecord(TypedDict):
@@ -1304,22 +1307,132 @@ def _context(project: Path, services: WorkflowServices, run_id: str, commits: bo
     return _Context(project, services, config, log, caller, run_id, commits)
 
 
-def _outcome(project: Path, run_id: str, commits: bool, state: RunState) -> RunOutcome:
+def _outcome(
+    project: Path, run_id: str, commits: bool, state: RunState, finished: bool
+) -> RunOutcome:
     records = tuple(_read_records(project, state.get("results", [])))
-    return RunOutcome(run_id=run_id, commits=commits, results=records)
+    return RunOutcome(run_id=run_id, commits=commits, results=records, finished=finished)
 
 
-def run_workflow(project: Path, services: WorkflowServices) -> RunOutcome:
-    """Run the four nodes from the start, under the project lock.
+# Where a run starts and stops (utux run --from and --to)
+
+RUN_STAGES = (Stage.METHODOLOGY, Stage.IMPLEMENTATION, Stage.EXPERIMENT)
+"""The stages a run has in M1, in order."""
+
+_FIRST_NODE = {
+    Stage.METHODOLOGY: "methodology",
+    Stage.IMPLEMENTATION: "implementation",
+    Stage.EXPERIMENT: "experiment",
+}
+# The node after which a run stops for --to; None runs to the end, check included.
+_LAST_NODE: dict[Stage, str | None] = {
+    Stage.METHODOLOGY: "methodology",
+    Stage.IMPLEMENTATION: "implementation",
+    Stage.EXPERIMENT: None,
+}
+# The files a node reads that an earlier node of the run would have made.
+_FROM_INPUTS = {
+    "methodology": (),
+    "implementation": ("method.md",),
+    "experiment": ("method.md", "code/main.py"),
+}
+
+
+def run_stage(name: str, option: str) -> Stage:
+    """The stage a `--from` or `--to` option names.
+
+    Raises:
+        RunRefusedError: It is not a stage a run has in M1.
+    """
+    names = ", ".join(s.value for s in RUN_STAGES[:-1]) + f" and {RUN_STAGES[-1].value}"
+    try:
+        stage = Stage(name)
+    except ValueError:
+        stage = None
+    if stage not in RUN_STAGES:
+        raise RunRefusedError(
+            f"{option} {name}: a run has the stages {names}; {name} is not one of them"
+        )
+    assert stage is not None
+    return stage
+
+
+def _check_stages(from_stage: Stage, to_stage: Stage | None) -> None:
+    for stage, option in ((from_stage, "--from"), (to_stage, "--to")):
+        if stage is not None:
+            run_stage(stage.value, option)
+    if to_stage is not None and RUN_STAGES.index(to_stage) < RUN_STAGES.index(from_stage):
+        raise RunRefusedError(
+            f"--to {to_stage.value} comes before --from {from_stage.value}; a run goes "
+            "forward from the stage it starts at"
+        )
+
+
+def _interrupt(to_stage: Stage | None) -> list[str] | None:
+    last = None if to_stage is None else _LAST_NODE[to_stage]
+    return None if last is None else [last]
+
+
+def _check_from_inputs(project: Path, node: str) -> None:
+    """Refuse to start at a node whose inputs have no usable recorded version."""
+    for path in _FROM_INPUTS[node]:
+        current = current_artifact(project, path)
+        if current is None or not (project / path).is_file():
+            raise RunRefusedError(
+                f"--from {STAGE_OF[node].value} needs a recorded version of {path}, and there "
+                "is none; run from an earlier stage"
+            )
+        if current.state is ArtifactState.STALE:
+            raise RunRefusedError(
+                f"--from {STAGE_OF[node].value}: {path} ({current.artifact_id}) is stale, built "
+                "from an earlier version of its input; run from an earlier stage"
+            )
+
+
+def _record_input_edits(project: Path, node: str) -> None:
+    """Record an input changed by hand since its version, as files win on resume."""
+    for path in _FROM_INPUTS[node]:
+        current = current_artifact(project, path)
+        assert current is not None
+        if hash_file(project / path) != current.content_hash:
+            name = current.artifact_id.rsplit("-v", 1)[0]
+            _record_artifact(
+                project, None, name, path, current.stage, EDITED_BY, (current.artifact_id,)
+            )
+
+
+def run_workflow(
+    project: Path,
+    services: WorkflowServices,
+    *,
+    from_stage: Stage = Stage.METHODOLOGY,
+    to_stage: Stage | None = None,
+) -> RunOutcome:
+    """Start a new run, under the project lock.
 
     The run starts with the test commit of ADR-0010 and a `run_started`
     event. If the check fails, `auto` mode refuses to start and `guided` mode
     runs without commits.
 
+    Args:
+        project: The project directory.
+        services: What the run uses.
+        from_stage: The stage to start at. A later stage than methodology
+            starts from the current versions of the files the earlier stages
+            made; one changed by hand is first recorded as a new version.
+        to_stage: The stage after which the run stops, unfinished; None
+            runs to the end.
+
     Raises:
-        RunRefusedError: `auto` mode, and commits fail. Nothing else is written.
+        RunRefusedError: `auto` mode, and commits fail; or the stages cannot
+            be run: not stages of a run, `to_stage` before `from_stage`, or a
+            file `from_stage` needs has no usable version. Nothing else is
+            written.
         ProjectLockedError: Another command holds the project lock.
     """
+    _check_stages(from_stage, to_stage)
+    start = _FIRST_NODE[from_stage]
+    _check_from_inputs(project, start)
     with writing_command(project, "run"):
         config = load_project_config(project / CONFIG_FILE)
         log = EventLog(project / EVENT_LOG_FILE)
@@ -1354,8 +1467,20 @@ def run_workflow(project: Path, services: WorkflowServices) -> RunOutcome:
         with _saver(project) as saver:
             app = _graph(context, saver)
             initial: RunState = {"stages": {}, "results": []}
-            final = app.invoke(initial, _thread(run_id), durability="sync")
-        return _outcome(project, run_id, check.ok, final)
+            interrupt = _interrupt(to_stage)
+            if start == NODES[0]:
+                final = app.invoke(
+                    initial, _thread(run_id), interrupt_after=interrupt, durability="sync"
+                )
+            else:
+                _record_input_edits(project, start)
+                previous = NODES[NODES.index(start) - 1]
+                app.update_state(_thread(run_id), initial, as_node=previous)
+                final = app.invoke(
+                    None, _thread(run_id), interrupt_after=interrupt, durability="sync"
+                )
+            finished = not app.get_state(_thread(run_id)).next
+        return _outcome(project, run_id, check.ok, final, finished)
 
 
 def checkpointed_state(project: Path, run_id: str) -> tuple[dict[str, Any], Any]:
@@ -1373,8 +1498,13 @@ def _threads(project: Path) -> list[str]:
     return [str(row[0]) for row in rows]
 
 
-def resume_workflow(project: Path, services: WorkflowServices) -> RunOutcome:
+def resume_workflow(
+    project: Path, services: WorkflowServices, *, to_stage: Stage | None = None
+) -> RunOutcome:
     """Resume the last unfinished run from its checkpoint, under the project lock.
+
+    `to_stage` stops the run after that stage, unfinished, as in
+    `run_workflow`; a run already past it is refused.
 
     The files win: if an input that a finished node recorded has changed,
     the run restarts at the earliest such node, and a `run_restarted` event
@@ -1383,11 +1513,15 @@ def resume_workflow(project: Path, services: WorkflowServices) -> RunOutcome:
 
     Raises:
         NoRunToResumeError: There is no checkpoint, or the run is finished.
+        RunRefusedError: `to_stage` is not a stage of a run, or the run is
+            past it. Nothing is written.
         CheckpointMismatchError: No `run_started` event matches the
             checkpoint. Nothing is written.
         ProjectLockedError: Another command holds the project lock, or a
             crashed run left it behind.
     """
+    if to_stage is not None:
+        run_stage(to_stage.value, "--to")
     with writing_command(project, "run"):
         if not (project / CHECKPOINT_FILE).is_file():
             raise NoRunToResumeError(f"there is no {CHECKPOINT_FILE} to resume from")
@@ -1415,6 +1549,16 @@ def resume_workflow(project: Path, services: WorkflowServices) -> RunOutcome:
             snapshot = app.get_state(_thread(run_id))
             if not snapshot.next:
                 raise NoRunToResumeError(f"run {run_id} is finished; there is nothing to resume")
+            last = None if to_stage is None else _LAST_NODE[to_stage]
+            upcoming = snapshot.next[0]
+            if last is not None and (
+                upcoming == CHECK_NODE or NODES.index(upcoming) > NODES.index(last)
+            ):
+                at = Stage.EXPERIMENT if upcoming == CHECK_NODE else STAGE_OF[upcoming]
+                raise RunRefusedError(
+                    f"run {run_id} is at the {at.value} stage, past --to {to_stage}; continue "
+                    "it without --to, or start a new run with --from"
+                )
             log.append(
                 NewEvent(
                     actor=SYSTEM_ACTOR,
@@ -1434,7 +1578,7 @@ def resume_workflow(project: Path, services: WorkflowServices) -> RunOutcome:
                 approval_id, node = rejection
                 position = NODES.index(node)
                 _route_after_rejection(context, node)
-                kept = {n: state["stages"][n] for n in NODES[:position]}
+                kept = {n: state["stages"][n] for n in NODES[:position] if n in state["stages"]}
                 as_node = NODES[position - 1] if position else START
                 app.update_state(
                     _thread(run_id),
@@ -1462,11 +1606,37 @@ def resume_workflow(project: Path, services: WorkflowServices) -> RunOutcome:
                         },
                     )
                 )
-                kept = {n: state["stages"][n] for n in NODES[:position]}
+                kept = {n: state["stages"][n] for n in NODES[:position] if n in state["stages"]}
                 as_node = NODES[position - 1] if position else START
                 app.update_state(_thread(run_id), {"stages": kept}, as_node=as_node)
-            final = app.invoke(None, _thread(run_id), durability="sync")
-        return _outcome(project, run_id, commits, final)
+            final = app.invoke(
+                None, _thread(run_id), interrupt_after=_interrupt(to_stage), durability="sync"
+            )
+            finished = not app.get_state(_thread(run_id)).next
+        return _outcome(project, run_id, commits, final, finished)
+
+
+def run_or_resume(
+    project: Path,
+    services: WorkflowServices,
+    *,
+    from_stage: Stage | None = None,
+    to_stage: Stage | None = None,
+) -> RunOutcome:
+    """What `utux run` does: resume the last run if it is unfinished, else start one.
+
+    With `from_stage`, a new run starts at that stage, whatever the state of
+    the last run; an unfinished one is left as it is.
+
+    Raises:
+        As `run_workflow` and `resume_workflow`.
+    """
+    if from_stage is not None:
+        return run_workflow(project, services, from_stage=from_stage, to_stage=to_stage)
+    try:
+        return resume_workflow(project, services, to_stage=to_stage)
+    except NoRunToResumeError:
+        return run_workflow(project, services, to_stage=to_stage)
 
 
 _PRODUCER = {Gate.METHOD: "methodology", Gate.EXPERIMENT_PLAN: "implementation"}
@@ -1551,10 +1721,15 @@ def _restart_point(
 ) -> tuple[int, str, str, str | None, str | None] | None:
     """The earliest finished node whose inputs changed, and the first change."""
     stages = state.get("stages", {})
+    seen = False
     for position, node in enumerate(NODES):
         record = stages.get(node)
         if record is None:
-            return None
+            # A run started --from a later node has no record of the nodes before it.
+            if seen:
+                return None
+            continue
+        seen = True
         now = _current_inputs(project, node, state)
         for path in sorted(set(record["inputs"]) | set(now)):
             expected = record["inputs"].get(path)

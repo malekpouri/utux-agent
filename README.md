@@ -28,6 +28,10 @@ there are no agents and no pipeline stages. What works:
   event before they act.
 - `utux schema export <dir>` writes a JSON Schema file for every file
   contract.
+- `utux run`, `utux approve`, `utux status` and `utux unlock` drive a run
+  through methodology, implementation and experiment, answer its approval
+  gates, show where it is, and remove a lock left by a crash
+  ([Running a project from the command line](docs/cli-runs.md)).
 - As library code: the schemas of all file contracts, the append-only event
   log, the internal `Executor` contract with its conformance suite, the
   `ModelProvider` interface with one OpenAI-compatible client

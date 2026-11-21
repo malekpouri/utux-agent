@@ -18,7 +18,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from utux.errors import DOCUMENT_FIELD, ContractValidationError, HashingError
+from utux.errors import DOCUMENT_FIELD, ContractValidationError, HashingError, InvalidProjectError
 from utux.events.log import FRAGMENT_SUFFIX, fragment_files
 from utux.schemas.approval import (
     ApprovalKind,
@@ -808,6 +808,42 @@ def validate_project(directory: Path) -> ValidationReport:
     validator.approvals()
     validator.gitignore()
     return _report(validator)
+
+
+PENDING_EDIT_CODES = ("content_hash_mismatch",)
+"""Problems the run commands act on rather than refuse.
+
+`content_hash_mismatch` is a file changed since its current version was
+recorded: an edit that `utux run` records as a new version (files win) and
+`utux approve ... edit` names as the person's version.
+"""
+
+
+def require_valid(directory: Path, command: str) -> None:
+    """Refuse to act on a project that fails `utux validate`.
+
+    Warnings do not count; only problems do, as in `utux validate`, apart
+    from those in `PENDING_EDIT_CODES`, which `utux validate` still reports.
+
+    Raises:
+        InvalidProjectError: The project has problems. The message counts
+            them and gives the first.
+    """
+    report = validate_project(directory)
+    problems = [p for p in report.problems if p.code not in PENDING_EDIT_CODES]
+    if not problems and not report.newer_schema_version:
+        return
+    count = len(problems)
+    first = (
+        f"the first: {problems[0].message}"
+        if problems
+        else "it was written by a newer version of utux"
+    )
+    counted = f"{count} {'problem' if count == 1 else 'problems'}"
+    raise InvalidProjectError(
+        f"utux {command} does not act on a project that fails utux validate ({counted}; "
+        f"{first}); run utux validate {directory} to see every problem"
+    )
 
 
 def _report(validator: _Validator) -> ValidationReport:

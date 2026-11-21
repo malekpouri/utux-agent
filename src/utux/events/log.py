@@ -220,7 +220,12 @@ class LogRepair:
     interrupted: bool
 
 
-def repair_log(path: Path, *, clock: Callable[[], datetime] = _utc_now) -> tuple[LogRepair, ...]:
+def repair_log(
+    path: Path,
+    *,
+    clock: Callable[[], datetime] = _utc_now,
+    first: tuple[NewEvent, ...] = (),
+) -> tuple[LogRepair, ...]:
     """Repair a log whose last line was left incomplete by an interrupted write.
 
     This runs only when a person asks for it, through `utux log repair`. It
@@ -237,6 +242,9 @@ def repair_log(path: Path, *, clock: Callable[[], datetime] = _utc_now) -> tuple
     Args:
         path: The log file.
         clock: Returns the current time in UTC. Tests pass a fixed time.
+        first: Events to append before the `log_repaired` events, once the
+            log ends with a complete line; `utux log repair` passes the
+            `lock_removed` event of a stale lock it removed.
 
     Returns:
         One entry per fragment that was recorded. Empty if the last line of
@@ -256,6 +264,8 @@ def repair_log(path: Path, *, clock: Callable[[], datetime] = _utc_now) -> tuple
         size = os.stat(path).st_size
         keep = _complete_length(path, size)
         if keep == size:
+            for event in first:
+                log._store(fd, event, log._now())
             return _record_saved_fragments(log, fd)
         fragment = _read_range(path, keep, size)
         if keep > 0:
@@ -275,6 +285,8 @@ def repair_log(path: Path, *, clock: Callable[[], datetime] = _utc_now) -> tuple
             os.fsync(fd)
         except OSError as error:
             raise EventLogError(f"cannot repair {path}: {error.strerror}") from error
+        for event in first:
+            log._store(fd, event, log._now())
         return (_record(log, fd, side.name, fragment, now, interrupted=False),)
     finally:
         os.close(fd)

@@ -4,9 +4,9 @@ A run takes a project through stages 3 to 5 of the specification:
 methodology, implementation, and experiment and analysis. It is the graph in
 `utux.core.workflow`, built on LangGraph, which no module outside `utux.core`
 imports. `run_workflow(project, services)` starts a run and
-`resume_workflow(project, services)` continues one; the command line for
-them is task M1-14. Both hold the project lock and record setting changes
-first ([Creating a project](project.md)).
+`resume_workflow(project, services)` continues one; `utux run` does either
+([Running a project from the command line](cli-runs.md)). Both hold the
+project lock and record setting changes first ([Creating a project](project.md)).
 
 ## Two kinds of run
 
@@ -112,8 +112,8 @@ stops with `RunPausedError`, whose message names the request. The lock is
 released; the checkpoint of the last finished node stays. Resuming before
 an answer pauses again on the same request.
 
-**Answers.** A person writes `approvals/<id>.response.json` (task M1-14 adds
-`utux approve`). When the run resumes, the answers are taken first, each
+**Answers.** A person writes `approvals/<id>.response.json`, with
+`utux approve` ([Running a project from the command line](cli-runs.md)). When the run resumes, the answers are taken first, each
 recorded as an `approval_answered` event by the person:
 
 - `approve`: the run continues from the gate.
@@ -207,12 +207,24 @@ node names: for each finished node, its inputs and outputs by path and hash
 and the artifact versions it made, the id of the experiment's run, and the
 ids of its result records. Texts and model output stay in the files.
 
+## Exit status
+
+`utux run` ends with one of three exit statuses, so that a script can tell
+them apart:
+
+| Status | Meaning |
+| --- | --- |
+| 0 | The run completed: it finished, or it stopped after the stage `--to` named, as asked |
+| 1 | An error: the run did not start, failed, or was stopped by a rejected budget or retry pause; the message says why |
+| 3 | The run paused for an approval; the message names the request, and `utux run` continues once it is answered |
+
 ## Resuming
 
 `resume_workflow` continues the last unfinished workflow run and writes a
-`run_resumed` event. After a crash the project lock is left behind; remove
-`.utux/lock` once you have checked that nothing is still running (task M1-14
-adds `utux unlock` for this).
+`run_resumed` event. After a crash the project lock is left behind;
+`utux unlock` removes it once its holder is no longer running, and
+`utux log repair` does the same when the crash also left an incomplete last
+line in the event log.
 
 **Only our own checkpoint.** The checkpoint's run must match a `run_started`
 event of the project's log. A checkpoint copied from another project, or

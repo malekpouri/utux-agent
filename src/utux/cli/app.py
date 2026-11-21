@@ -1,5 +1,6 @@
 """Root command of the `utux` CLI."""
 
+import getpass
 import json
 from decimal import Decimal
 from pathlib import Path
@@ -9,16 +10,27 @@ import typer
 
 from utux import __version__
 from utux.budget.accounting import CostReport, CostTotals, project_cost_report, remaining, usd
-from utux.errors import SchemaExportError, UtuxError
+from utux.core.approvals import answer_approval
+from utux.core.services import services_for_run
+from utux.core.status import ProjectStatus, RunState, project_status
+from utux.core.workflow import run_or_resume, run_stage
+from utux.errors import (
+    ApprovalAnswerError,
+    RunPausedError,
+    RunRejectedError,
+    SchemaExportError,
+    UtuxError,
+)
 from utux.executors.image import DIGEST_FILE, build_image
+from utux.schemas.approval import ApprovalKind, Decision, ExecutionLimits
 from utux.schemas.common import Tier
 from utux.schemas.export import export_json_schemas
 from utux.schemas.project_config import DataPolicy
 from utux.workspace.layout import EVENT_LOG_FILE
 from utux.workspace.model_calls import ping_model
 from utux.workspace.project import init_project
-from utux.workspace.validation import validate_project
-from utux.workspace.writer import repair_project_log
+from utux.workspace.validation import require_valid, validate_project
+from utux.workspace.writer import LOCK_FILE, LockState, repair_project_log, unlock_project
 
 app = typer.Typer(
     name="utux",
@@ -138,10 +150,18 @@ def log_repair(
 ) -> None:
     """Save an incomplete last line of the event log aside and record the repair."""
     try:
-        repairs, changes = repair_project_log(directory)
+        repaired = repair_project_log(directory)
     except UtuxError as error:
         typer.echo(f"error: {error}", err=True)
         raise typer.Exit(code=1) from error
+    repairs, changes, removed = repaired.repairs, repaired.changes, repaired.lock_removed
+    if removed is not None:
+        data = removed.data
+        typer.echo(
+            f"Removed {LOCK_FILE}, left by process {data['pid']} on {data['host']} "
+            f"({data['command']}, since {data['started_at']}), which is no longer running; "
+            f"recorded as {removed.event_id}."
+        )
     for event in changes.events:
         typer.echo(f"Recorded the change of {event.data['key']} in utux.yaml as {event.event_id}.")
     if not repairs:
@@ -346,3 +366,274 @@ def image_build(
         raise typer.Exit(code=1) from error
     typer.echo(f"Built {image_id}")
     typer.echo(f"Recorded it in {directory / DIGEST_FILE}; commit that file.")
+
+
+# Runs (M1-14). Each command refuses a project that fails utux validate.
+
+
+def _fail(error: UtuxError, hint: str | None = None) -> typer.Exit:
+    typer.echo(f"error: {error}", err=True)
+    if hint is not None:
+        typer.echo(hint, err=True)
+    return typer.Exit(code=1)
+
+
+PAUSED_EXIT_STATUS = 3
+"""The exit status of `utux run` when the run paused for an approval."""
+
+
+def _spend(directory: Path) -> str:
+    return _cost_lines(project_cost_report(directory))[0]
+
+
+@app.command("run")
+def run(
+    directory: Annotated[
+        Path, typer.Argument(help="The project directory. Default: the current directory.")
+    ] = Path(),
+    from_stage: Annotated[
+        str | None,
+        typer.Option(
+            "--from",
+            help="Start a new run at this stage: methodology, implementation or experiment.",
+        ),
+    ] = None,
+    to_stage: Annotated[
+        str | None,
+        typer.Option("--to", help="Stop after this stage; a later utux run continues."),
+    ] = None,
+) -> None:
+    """Resume the last run if it is unfinished, else start a new one."""
+    try:
+        require_valid(directory, "run")
+        start = None if from_stage is None else run_stage(from_stage, "--from")
+        stop = None if to_stage is None else run_stage(to_stage, "--to")
+        outcome = run_or_resume(
+            directory, services_for_run(directory), from_stage=start, to_stage=stop
+        )
+    except RunPausedError as paused:
+        typer.echo(f"Run paused: {paused}.")
+        typer.echo(
+            f"Answer it with: utux approve {directory} {paused.approval_id} "
+            "approve|reject|edit [--feedback TEXT]"
+        )
+        typer.echo(_spend(directory))
+        raise typer.Exit(code=PAUSED_EXIT_STATUS) from None
+    except RunRejectedError as error:
+        raise _fail(
+            error, f"Start a new run with: utux run {directory} --from methodology"
+        ) from error
+    except UtuxError as error:
+        raise _fail(error) from error
+    if outcome.finished:
+        records = _count(len(outcome.results), "result record")
+        typer.echo(f"Run {outcome.run_id} finished, with {records}.")
+    else:
+        typer.echo(
+            f"Run {outcome.run_id} stopped after {to_stage}, as --to asked; "
+            f"utux run {directory} continues it."
+        )
+    typer.echo(_spend(directory))
+
+
+def _approve_arguments(arguments: list[str]) -> tuple[Path, str, Decision]:
+    if len(arguments) == 2:
+        directory, (approval_id, decision) = Path(), arguments
+    elif len(arguments) == 3:
+        directory, approval_id, decision = Path(arguments[0]), arguments[1], arguments[2]
+    else:
+        raise typer.BadParameter(
+            "give the approval id and the decision, after the project directory if it is "
+            "not the current one"
+        )
+    try:
+        return directory, approval_id, Decision(decision)
+    except ValueError:
+        raise typer.BadParameter(
+            f"{decision!r} is not a decision; give approve, reject or edit"
+        ) from None
+
+
+@app.command("approve")
+def approve(
+    arguments: Annotated[
+        list[str],
+        typer.Argument(
+            metavar="[DIR] APPROVAL_ID approve|reject|edit",
+            help="The project directory (default: the current one), the request and the decision.",
+            show_default=False,
+        ),
+    ],
+    feedback: Annotated[
+        str | None, typer.Option("--feedback", help="Your remarks; required for reject.")
+    ] = None,
+    by: Annotated[
+        str | None,
+        typer.Option("--by", help="Your id, recorded as human:<id>. Default: your login name."),
+    ] = None,
+) -> None:
+    """Answer an approval request: approve, reject (with feedback) or edit.
+
+    For edit, save your change to the file first; the answer names the saved
+    file as the next version, which the run takes when it resumes.
+    """
+    directory, approval_id, decision = _approve_arguments(arguments)
+    try:
+        require_valid(directory, "approve")
+        person = by
+        if person is None:
+            try:
+                person = getpass.getuser()
+            except (OSError, KeyError) as error:
+                raise ApprovalAnswerError(
+                    "your login name cannot be read; give your id with --by"
+                ) from error
+        answer = answer_approval(directory, approval_id, decision, person=person, feedback=feedback)
+    except UtuxError as error:
+        raise _fail(error) from error
+    response = answer.response
+    typer.echo(f"Wrote {answer.path}: {response.decision.value} by {response.answered_by}.")
+    typer.echo(
+        f"Recorded you as {response.answered_by}. This id stays in the project and is shared "
+        "through git; set it with --by."
+    )
+    if response.edited_artifact_id is not None:
+        typer.echo(
+            f"It names your saved file as {response.edited_artifact_id} "
+            f"({response.edited_content_hash})."
+        )
+    typer.echo(f"utux run {directory} takes the answer and continues the run.")
+
+
+def _limits(limits: ExecutionLimits) -> str:
+    def limit(name: str, value: float | None, unit: str = "") -> str:
+        return f"{name} not set" if value is None else f"{name} {value:g}{unit}"
+
+    return ", ".join(
+        [
+            limit("cpus", limits.cpus),
+            limit("memory", limits.memory_mb, " MB"),
+            limit("gpus", limits.gpus),
+            limit("disk", limits.disk_mb, " MB"),
+            limit("processes", limits.max_processes),
+            limit("output", limits.output_mb, " MB"),
+            limit("timeout", limits.timeout_seconds, " s"),
+        ]
+    )
+
+
+_STATE_TEXT = {
+    RunState.RUNNING: "running",
+    RunState.PAUSED: "paused at {waiting}, waiting for an answer",
+    RunState.ANSWERED: "paused at {waiting}, which is answered; utux run continues",
+    RunState.STOPPED: (
+        "stopped: {waiting} was rejected; start a new run with utux run --from methodology"
+    ),
+    RunState.UNFINISHED: "not finished; utux run continues it",
+    RunState.FINISHED: "finished",
+}
+
+
+def _lock_line(lock: LockState) -> str:
+    holder = lock.holder
+    if not lock.exists:
+        return "Lock: not held"
+    if holder is None:
+        return f"Lock: {LOCK_FILE} exists but cannot be read"
+    if lock.running is None:
+        return f"Lock: held by {holder.describe()}; that host cannot be checked from here"
+    if not lock.running:
+        return (
+            f"Lock: left by {holder.describe()}, which is no longer running; check the "
+            "project with utux validate, then remove the lock with utux unlock"
+        )
+    if holder.command == "run":
+        return f"Lock: held by the run, {holder.describe()}"
+    return f"Lock: held by {holder.describe()}"
+
+
+def _status_lines(status: ProjectStatus) -> list[str]:
+    run = status.run
+    if run is None:
+        lines = ["No run yet."]
+    else:
+        commits = "on" if run.commits else "off"
+        state = _STATE_TEXT[run.state].format(waiting=run.waiting_for)
+        if run.last_error is not None:
+            state += f" (its last event is an error: {run.last_error})"
+        lines = [f"Run {run.run_id} ({run.mode} mode, commits {commits}): {state}"]
+        if run.node is None or run.stage is None:
+            lines.append("Stage: none started")
+        else:
+            ended = "finished" if run.node_finished else "started, not finished"
+            lines.append(f"Stage: {run.stage.value} (node {run.node}, {ended})")
+    lines.append("Pending approvals:" if status.pending else "Pending approvals: none")
+    for pending in status.pending:
+        request = pending.request
+        answered = " (answered; taken when the run resumes)" if pending.answered else ""
+        if request.kind is ApprovalKind.ARTIFACT:
+            assert request.gate is not None
+            lines.append(
+                f"  {pending.approval_id}: {request.gate.value} gate, {request.path} "
+                f"({request.artifact_id}, {request.content_hash}){answered}"
+            )
+        else:
+            stage = request.stage.value if request.stage is not None else "none"
+            lines.append(
+                f"  {pending.approval_id}: {request.kind.value}, stage {stage}, refused event "
+                f"{request.refused_event_id}{answered}"
+            )
+        if request.execution is not None:
+            execution = request.execution
+            lines += [
+                f"    command: {' '.join(execution.command)}",
+                f"    image: {execution.image_digest}",
+                f"    read-only paths: {', '.join(execution.read_only_paths) or 'none'}",
+                f"    limits: {_limits(execution.limits)}",
+            ]
+    last = status.last_execution
+    if last is not None:
+        ended = "no exit status" if last.exit_status is None else f"exit status {last.exit_status}"
+        stopped = "" if last.stopped_by is None else f", stopped by {last.stopped_by.value}"
+        lines.append(f"Last execution: {last.run_id}, {ended}{stopped}")
+        note = last.note()
+        if note is not None:
+            lines.append(f"  Note: {note}.")
+    lines.append(_cost_lines(status.cost)[0])
+    lines.append(_lock_line(status.lock))
+    return lines
+
+
+@app.command("status")
+def status(
+    directory: Annotated[
+        Path, typer.Argument(help="The project directory. Default: the current directory.")
+    ] = Path(),
+) -> None:
+    """Show the last run, pending approvals, spend against budget and the lock."""
+    try:
+        require_valid(directory, "status")
+        report = project_status(directory)
+    except UtuxError as error:
+        raise _fail(error) from error
+    for line in _status_lines(report):
+        typer.echo(line)
+
+
+@app.command("unlock")
+def unlock(
+    directory: Annotated[
+        Path, typer.Argument(help="The project directory. Default: the current directory.")
+    ] = Path(),
+) -> None:
+    """Remove a project lock left by a process on this host that is no longer running."""
+    try:
+        require_valid(directory, "unlock")
+        event = unlock_project(directory)
+    except UtuxError as error:
+        raise _fail(error) from error
+    data = event.data
+    typer.echo(
+        f"Removed {LOCK_FILE}, left by process {data['pid']} on {data['host']} "
+        f"({data['command']}, since {data['started_at']}); recorded as {event.event_id}."
+    )
