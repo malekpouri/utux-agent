@@ -25,6 +25,7 @@ builds the graph.
 import itertools
 import os
 import platform
+import shutil
 import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
@@ -102,6 +103,9 @@ class WorkflowServices:
         rootless: Whether the executor runs rootless Docker.
         before_stage: Called with a node's name before it starts; tests use
             it to look at the log or to stop a run.
+        inside_stage: Called with a node's name and `staged` once its outputs
+            are in the staging area, and `moved` once they are in place; tests
+            use it to stop a node halfway.
     """
 
     provider: ModelProvider
@@ -110,6 +114,7 @@ class WorkflowServices:
     locked_packages: Callable[[str], dict[str, str]]
     rootless: bool
     before_stage: Callable[[str], None] | None = None
+    inside_stage: Callable[[str, str], None] | None = None
 
 
 @dataclass(frozen=True)
@@ -179,15 +184,71 @@ def current_artifact(project: Path, path: str) -> ArtifactMetadata | None:
     return max(versions, key=lambda s: _version(s.artifact_id)) if versions else None
 
 
+STAGING_DIRECTORY = ".utux/staging"
+"""Where a node writes its outputs and sidecars before it completes."""
+
+
+class _Staging:
+    """The staging area of one node: the project's paths below its own root.
+
+    A node writes here; only when it completes are the files moved into the
+    project, sidecars last (specification, section 7, "A stage stops
+    halfway"). A node that starts again starts from an empty area.
+    """
+
+    def __init__(self, project: Path, node: str) -> None:
+        self.project = project
+        self.relative = f"{STAGING_DIRECTORY}/{node}"
+        self.root = project / self.relative
+
+    def clean(self) -> None:
+        if self.root.exists():
+            shutil.rmtree(self.root)
+
+    def path(self, relative: str) -> Path:
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def move_into_project(self) -> None:
+        files = sorted(p for p in self.root.rglob("*") if p.is_file())
+        sidecars = [p for p in files if p.relative_to(self.root).parts[:2] == (".utux", "meta")]
+        for path in [p for p in files if p not in sidecars] + sidecars:
+            target = self.project / path.relative_to(self.root)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(path, target)
+        shutil.rmtree(self.root)
+        staging = self.project / STAGING_DIRECTORY
+        if staging.is_dir() and not any(staging.iterdir()):
+            staging.rmdir()
+
+
 def _record_artifact(
     project: Path,
+    staging: _Staging | None,
     name: str,
     path: str,
     stage: Stage,
     created_by: str,
     inputs: tuple[str, ...],
 ) -> str:
-    """Write the sidecar of a new version of an artifact and return its id."""
+    """Record a version of an artifact and return its id.
+
+    The content is read from the staging area if the node wrote it there.
+    If the current version of the path already has this content, these
+    inputs and this maker, it is that version: a node run again after a
+    crash makes no second, identical version.
+    """
+    root = project if staging is None else staging.root
+    content_hash = hash_file(root / path)
+    current = current_artifact(project, path)
+    if (
+        current is not None
+        and current.content_hash == content_hash
+        and current.input_artifacts == inputs
+        and current.created_by == created_by
+    ):
+        return current.artifact_id
     taken = [
         _version(s.artifact_id) for s in _sidecars(project) if s.artifact_id.startswith(name + "-v")
     ]
@@ -200,10 +261,12 @@ def _record_artifact(
         created_by=created_by,
         created_at=_timestamp(),
         input_artifacts=inputs,
-        content_hash=hash_file(project / path),
+        content_hash=content_hash,
         state=ArtifactState.VALID,
     )
-    atomic_write_text(project / ".utux" / "meta" / f"{artifact_id}.json", sidecar.to_json())
+    target = root / ".utux" / "meta" / f"{artifact_id}.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(target, sidecar.to_json())
     return artifact_id
 
 
@@ -271,31 +334,35 @@ def _ask(context: _Context, node: str, prompt: str) -> str:
     return response.content
 
 
-def _methodology(context: _Context, state: RunState) -> tuple[StageRecord, RunState]:
+def _methodology(
+    context: _Context, state: RunState, staging: _Staging
+) -> tuple[StageRecord, RunState]:
     project = context.project
     inputs = {p: hash_file(project / p) for p in _question_files(project)}
     question = "\n\n".join((project / p).read_text(encoding="utf-8") for p in inputs)
     method = _ask(context, "methodology", "Write the method for this question.\n\n" + question)
-    atomic_write_text(project / "method.md", method)
+    atomic_write_text(staging.path("method.md"), method)
     artifact = _record_artifact(
-        project, "method", "method.md", Stage.METHODOLOGY, _AGENTS["methodology"], ()
+        project, staging, "method", "method.md", Stage.METHODOLOGY, _AGENTS["methodology"], ()
     )
     return {
         "inputs": inputs,
-        "outputs": {"method.md": hash_file(project / "method.md")},
+        "outputs": {"method.md": hash_file(staging.path("method.md"))},
         "artifacts": [artifact],
     }, {}
 
 
-def _implementation(context: _Context, state: RunState) -> tuple[StageRecord, RunState]:
+def _implementation(
+    context: _Context, state: RunState, staging: _Staging
+) -> tuple[StageRecord, RunState]:
     project = context.project
     inputs = {"method.md": hash_file(project / "method.md")}
     method = (project / "method.md").read_text(encoding="utf-8")
     code = _ask(context, "implementation", "Write the code for this method.\n\n" + method)
-    (project / "code").mkdir(exist_ok=True)
-    atomic_write_text(project / "code" / "main.py", code)
+    atomic_write_text(staging.path("code/main.py"), code)
     artifact = _record_artifact(
         project,
+        staging,
         "code",
         "code/main.py",
         Stage.IMPLEMENTATION,
@@ -304,7 +371,7 @@ def _implementation(context: _Context, state: RunState) -> tuple[StageRecord, Ru
     )
     return {
         "inputs": inputs,
-        "outputs": {"code/main.py": hash_file(project / "code/main.py")},
+        "outputs": {"code/main.py": hash_file(staging.path("code/main.py"))},
         "artifacts": [artifact],
     }, {}
 
@@ -333,7 +400,9 @@ def _hardware() -> Hardware:
     )
 
 
-def _experiment(context: _Context, state: RunState) -> tuple[StageRecord, RunState]:
+def _experiment(
+    context: _Context, state: RunState, staging: _Staging
+) -> tuple[StageRecord, RunState]:
     project = context.project
     services = context.services
     inputs = {"code/main.py": hash_file(project / "code/main.py")}
@@ -344,7 +413,9 @@ def _experiment(context: _Context, state: RunState) -> tuple[StageRecord, RunSta
         command=("python", "code/main.py"),
         image_digest=services.image_digest,
         read_only_paths=("code", "inputs"),
-        output_directory=f"runs/{run}/outputs",
+        # The container writes into the staging area; the outputs are moved
+        # to runs/<run>/outputs when the node completes.
+        output_directory=f"{staging.relative}/runs/{run}/outputs",
         limits=ResourceLimits(
             cpus=resources.cpus,
             memory_mb=resources.memory_mb,
@@ -357,6 +428,7 @@ def _experiment(context: _Context, state: RunState) -> tuple[StageRecord, RunSta
         environment={},
     )
     result = services.executor.run(step)
+    final = step.model_copy(update={"output_directory": f"runs/{run}/outputs"})
     commit, dirty = head_commit(project)
     manifest = RunManifest(
         schema_version=RunManifest.SCHEMA_VERSION,
@@ -375,21 +447,23 @@ def _experiment(context: _Context, state: RunState) -> tuple[StageRecord, RunSta
         hardware=_hardware(),
         models=(),
         external_services=(),
-        outputs=manifest_outputs(step, result),
+        outputs=manifest_outputs(final, result),
         started_at=result.started_at,
         ended_at=result.ended_at,
         exit_status=result.exit_status,
         stopped_by=result.stopped_by,
     )
-    recording = record_run(project, step, result, manifest)
-    outputs = {f"runs/{run}/manifest.json": hash_file(project / "runs" / run / "manifest.json")}
+    recording = record_run(project, final, result, manifest, root=staging.root)
+    manifest_path = f"runs/{run}/manifest.json"
+    outputs = {manifest_path: hash_file(staging.path(manifest_path))}
     outputs |= {ref.path: ref.hash for ref in manifest.outputs}
     artifacts: list[str] = []
-    metrics = f"{step.output_directory}/{METRICS_FILE}"
+    metrics = f"{final.output_directory}/{METRICS_FILE}"
     if metrics in outputs:
         artifacts.append(
             _record_artifact(
                 project,
+                staging,
                 "metrics",
                 metrics,
                 Stage.EXPERIMENT,
@@ -408,7 +482,9 @@ def _read_records(project: Path, ids: list[str]) -> list[ResultRecord]:
     return [record for record in records if record.id in wanted]
 
 
-def _analysis(context: _Context, state: RunState) -> tuple[StageRecord, RunState]:
+def _analysis(
+    context: _Context, state: RunState, staging: _Staging
+) -> tuple[StageRecord, RunState]:
     project = context.project
     run = state.get("experiment_run", "")
     manifest = f"runs/{run}/manifest.json"
@@ -426,10 +502,11 @@ def _analysis(context: _Context, state: RunState) -> tuple[StageRecord, RunState
         where = r.dataset + (f" ({r.split})" if r.split else "")
         model = f", model {r.model}" if r.model else ""
         lines.append(f"- {r.metric} on {where}{model}: {r.value!r} {r.unit} [{r.id}]")
-    atomic_write_text(project / "results.md", "\n".join(lines) + "\n")
+    atomic_write_text(staging.path("results.md"), "\n".join(lines) + "\n")
     metrics = f"runs/{run}/outputs/{METRICS_FILE}"
     artifact = _record_artifact(
         project,
+        staging,
         "results",
         "results.md",
         Stage.EXPERIMENT,
@@ -438,12 +515,12 @@ def _analysis(context: _Context, state: RunState) -> tuple[StageRecord, RunState
     )
     return {
         "inputs": inputs,
-        "outputs": {"results.md": hash_file(project / "results.md")},
+        "outputs": {"results.md": hash_file(staging.path("results.md"))},
         "artifacts": [artifact],
     }, {}
 
 
-_BODIES: dict[str, Callable[[_Context, RunState], tuple[StageRecord, RunState]]] = {
+_BODIES: dict[str, Callable[[_Context, RunState, _Staging], tuple[StageRecord, RunState]]] = {
     "methodology": _methodology,
     "implementation": _implementation,
     "experiment": _experiment,
@@ -466,7 +543,15 @@ def _node(context: _Context, node: str) -> Callable[[RunState], RunState]:
                 data={"node": node},
             )
         )
-        record, updates = _BODIES[node](context, state)
+        staging = _Staging(context.project, node)
+        # A node that runs again after a crash starts from an empty area.
+        staging.clean()
+        record, updates = _BODIES[node](context, state, staging)
+        if context.services.inside_stage is not None:
+            context.services.inside_stage(node, "staged")
+        staging.move_into_project()
+        if context.services.inside_stage is not None:
+            context.services.inside_stage(node, "moved")
         context.log.append(
             NewEvent(
                 actor=SYSTEM_ACTOR,
@@ -677,7 +762,9 @@ def _record_edits(project: Path, state: RunState) -> None:
             if actual == recorded:
                 continue
             name = current.artifact_id.rsplit("-v", 1)[0]
-            _record_artifact(project, name, path, current.stage, EDITED_BY, (current.artifact_id,))
+            _record_artifact(
+                project, None, name, path, current.stage, EDITED_BY, (current.artifact_id,)
+            )
 
 
 def _restart_point(

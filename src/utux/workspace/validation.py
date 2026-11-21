@@ -60,6 +60,9 @@ RUNS_DIRECTORY = "runs"
 APPROVALS_DIRECTORY = "approvals"
 MANIFEST_FILE = "manifest.json"
 
+EDITED_OUTSIDE_UTUX = "human:unknown"
+"""The maker of a version that changed outside utux, by a person not known by name."""
+
 _FRAGMENT_NAME = re.compile(re.escape(EVENT_LOG_FILE + FRAGMENT_SUFFIX) + r"[^/\\]+")
 _APPROVAL_FILE = re.compile(r"^(?P<id>.+)\.(?P<kind>request|response)\.json$")
 
@@ -425,6 +428,8 @@ class _Validator:
                         f"the file is named {path.name} but describes {sidecar.artifact_id}",
                     )
         for file, sidecar in valid:
+            if sidecar.created_by == EDITED_OUTSIDE_UTUX:
+                self.check_edit(file, sidecar)
             for position, entry in enumerate(sidecar.input_artifacts):
                 if entry not in first_use:
                     self.add(
@@ -435,6 +440,23 @@ class _Validator:
                         f"{entry} has no sidecar in {META_DIRECTORY}/",
                     )
         self.current_versions(valid)
+
+    def check_edit(self, file: str, sidecar: ArtifactMetadata) -> None:
+        """`human:unknown` makes only a version edited outside utux from the one before."""
+        name, version = sidecar.artifact_id.rsplit("-v", 1)
+        inputs = sidecar.input_artifacts
+        if len(inputs) == 1 and "-v" in inputs[0]:
+            input_name, input_version = inputs[0].rsplit("-v", 1)
+            if input_name == name and int(input_version) < int(version):
+                return
+        self.add(
+            file,
+            None,
+            "created_by",
+            "edit_actor_misused",
+            f"{EDITED_OUTSIDE_UTUX} makes only a version edited outside utux, built from one "
+            f"earlier version of {name}",
+        )
 
     def current_versions(self, sidecars: list[tuple[str, ArtifactMetadata]]) -> None:
         """Check the current version of each path against the file it describes."""
