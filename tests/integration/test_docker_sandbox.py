@@ -287,7 +287,7 @@ with open("{OUTPUT}/big.bin", "wb") as stream:
     # Checked about once a second, so the run may write past the limit by
     # what it writes within one interval, not much more.
     written = (project / OUTPUT / "big.bin").stat().st_size
-    assert 4 * 1000 * 1000 < written < 40 * 1024 * 1024
+    assert 4 * 1024 * 1024 < written < 40 * 1024 * 1024
 
 
 def test_attached_docker_run_delivers_output_without_a_log_driver(digest: str) -> None:

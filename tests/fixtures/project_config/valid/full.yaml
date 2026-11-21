@@ -32,6 +32,7 @@ resources:
   wall_clock_seconds: 3600
   disk_mb: 20480
   max_processes: 256
+  output_mb: 2048
 models:
   tiers:
     light: example/light-model
