@@ -219,3 +219,7 @@ class ResultRecordingError(UtuxError):
     the run wrote, the run is already recorded, or the metrics file changed
     after the run. Nothing was written.
     """
+
+
+class PackImageError(UtuxError):
+    """A pack's image cannot be built, or its recorded digest cannot be read."""

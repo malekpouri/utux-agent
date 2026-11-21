@@ -10,6 +10,7 @@ import typer
 from utux import __version__
 from utux.budget.accounting import CostReport, CostTotals, project_cost_report, remaining, usd
 from utux.errors import SchemaExportError, UtuxError
+from utux.executors.image import DIGEST_FILE, build_image
 from utux.schemas.common import Tier
 from utux.schemas.export import export_json_schemas
 from utux.schemas.project_config import DataPolicy
@@ -318,3 +319,30 @@ def schema_export(
 def main() -> None:
     """Entry point of the `utux` console script."""
     app()
+
+
+image_app = typer.Typer(help="Build the container image of a pack.")
+app.add_typer(image_app, name="image")
+
+
+@image_app.callback()
+def image_root() -> None:
+    """Build the container image of a pack."""
+
+
+@image_app.command("build")
+def image_build(
+    directory: Annotated[
+        Path,
+        typer.Argument(help="The pack's image directory. Default: packs/generic/image."),
+    ] = Path("packs/generic/image"),
+    docker: Annotated[str, typer.Option("--docker", help="The docker command.")] = "docker",
+) -> None:
+    """Build a pack's image and record its id in digest.txt beside the Dockerfile."""
+    try:
+        image_id = build_image(directory, docker=docker)
+    except UtuxError as error:
+        typer.echo(f"error: {error}", err=True)
+        raise typer.Exit(code=1) from error
+    typer.echo(f"Built {image_id}")
+    typer.echo(f"Recorded it in {directory / DIGEST_FILE}; commit that file.")
