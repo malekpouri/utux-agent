@@ -121,7 +121,7 @@ def test_an_invalid_reply_is_retried_once_with_its_problems(project: Path) -> No
     switch_gates_off(project)
     run_services = services(project, (Raw("methodologist", "not json"), METHOD, CODE))
     run_workflow(project, run_services)
-    first, second = _provider(run_services).of("methodologist")
+    _, second = _provider(run_services).of("methodologist")
     assert "not valid" in second.messages[-1].content
     calls = [
         e

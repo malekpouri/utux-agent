@@ -23,7 +23,8 @@
   "escalated_from": null,
   "data": {
     "approval_id": "a-000001",
-    "decision": "edit"
+    "decision": "reject",
+    "feedback": "Synthetic feedback."
   },
   "artifacts": []
 }

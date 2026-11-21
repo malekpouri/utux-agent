@@ -16,7 +16,11 @@ from workflow_scripts import (
     METHOD,
     METRICS,
     QUESTION,
+    RoleScriptedProvider,
     configure_models,
+    plan,
+    rendered,
+    services,
     switch_gates_off,
 )
 
@@ -29,20 +33,15 @@ from utux.core.workflow import (
 )
 from utux.errors import MethodFormatError, RunPausedError, RunRejectedError
 from utux.events.log import EventLog
-from utux.executors.scripted import ScriptedExecutor, ScriptedRun
-from utux.providers.scripted import ScriptedModelProvider, ScriptedReply
+from utux.executors.scripted import ScriptedRun
 from utux.schemas.approval import ApprovalKind, load_approval_request
 from utux.schemas.event import Event, EventStatus, EventType
 from utux.schemas.project_config import DataPolicy
 from utux.workspace.project import init_project
 from utux.workspace.validation import validate_project
 
-METHOD_NAMING_ACCURACY = (
-    "# Method\n\nSynthetic method.\n\n## Success criteria\n\n- metric: accuracy\n"
-)
-METHOD_NAMING_R2 = (
-    "# Method\n\nSynthetic method, second version.\n\n## Success criteria\n\n- metric: r2\n"
-)
+METHOD_NAMING_ACCURACY = plan("Fit a line", ("accuracy",))
+METHOD_NAMING_R2 = plan("Fit a line, second version", ("r2",))
 CODE_FIXED = "print('synthetic experiment, fixed')\n"
 
 FAILED = ScriptedRun(exit_status=1, stderr=b"synthetic failure\n")
@@ -64,21 +63,12 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def _services(
-    project: Path, replies: tuple[str, ...], runs: list[ScriptedRun]
-) -> tuple[WorkflowServices, ScriptedModelProvider]:
-    provider = ScriptedModelProvider(
-        [ScriptedReply(content=reply, cost_usd=0.0) for reply in replies],
-        name="scripted",
-        is_external=False,
-    )
-    services = WorkflowServices(
-        provider=provider,
-        executor=ScriptedExecutor(project, runs),
-        image_digest=IMAGE,
-        locked_packages=lambda digest: {"numpy": "2.5.5"},
-        rootless=False,
-    )
-    return services, provider
+    project: Path, replies: tuple[Any, ...], runs: list[ScriptedRun]
+) -> tuple[WorkflowServices, RoleScriptedProvider]:
+    run_services = services(project, replies, executions=runs)
+    provider = run_services.provider
+    assert isinstance(provider, RoleScriptedProvider)
+    return run_services, provider
 
 
 def _events(project: Path, kind: EventType) -> list[Event]:
@@ -127,7 +117,7 @@ def test_a_failed_run_routes_back_to_implementation_with_the_finding(project: Pa
         "cap": DEFAULT_RETRY_CAP,
     }
     # The finding is passed to the stage as input.
-    assert "run_failed" in provider.requests[2].messages[-1].content
+    assert "run_failed" in provider.of("implementer")[1].messages[-1].content
     assert (project / "code" / "main.py").read_text(encoding="utf-8") == CODE_FIXED
     assert [r.run_id for r in outcome.results] == ["r002"]
     assert validate_project(project).problems == ()
@@ -140,8 +130,10 @@ def test_a_missing_metric_routes_back_to_methodology(project: Path) -> None:
     outcome = run_workflow(project, services)
     (route,) = _events(project, EventType.ROUTE_BACK)
     assert (route.data["to_stage"], route.data["finding"]) == ("methodology", "metric_missing")
-    assert "metric_missing" in provider.requests[2].messages[-1].content
-    assert (project / "method.md").read_text(encoding="utf-8") == METHOD_NAMING_R2
+    assert "metric_missing" in provider.of("methodologist")[1].messages[-1].content
+    assert (project / "method.md").read_text(encoding="utf-8") == rendered(
+        "Fit a line, second version", ("r2",)
+    )
     assert [r.metric for r in outcome.results] == ["r2"]
 
 
@@ -304,10 +296,22 @@ def test_the_retry_cap_comes_from_utux_yaml(project: Path) -> None:
 def test_a_method_without_a_valid_metric_line_stops_at_the_method_gate(
     project: Path, method: str
 ) -> None:
+    # The methodologist's plan always renders valid metric lines; a person can
+    # still edit method.md by hand before the implementation starts.
     switch_gates_off(project)
-    services, _ = _services(project, (method, CODE), [PASSED])
+
+    def stop(node: str) -> None:
+        if node == "implementation":
+            raise RuntimeError("synthetic stop")
+
+    first, _ = _services(project, (METHOD, CODE), [PASSED])
+    first.before_stage = stop
+    with pytest.raises(RuntimeError):
+        run_workflow(project, first)
+    (project / "method.md").write_text(method, encoding="utf-8")
+    again, _ = _services(project, (CODE,), [PASSED])
     with pytest.raises(MethodFormatError, match="metric"):
-        run_workflow(project, services)
+        resume_workflow(project, again)
     nodes = [e.data["node"] for e in _events(project, EventType.STAGE_START)]
     assert nodes == ["methodology"]
 

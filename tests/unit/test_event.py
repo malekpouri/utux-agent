@@ -736,12 +736,22 @@ def test_approval_requested_names_the_request_its_kind_and_gate() -> None:
     assert Event.from_json(json.dumps(budget)).data["gate"] is None
 
 
-def test_approval_answered_names_the_request_and_the_decision() -> None:
+def test_approval_answered_names_the_request_the_decision_and_the_feedback() -> None:
     event = load_event(FIXTURES / "valid" / "approval_answered.json")
-    assert event.data == {"approval_id": "a-000001", "decision": "edit"}
-    assert _problems(_of("approval_answered.json", approval_id="a-000001")) == [
+    assert event.data == {
+        "approval_id": "a-000001",
+        "decision": "reject",
+        "feedback": "Synthetic feedback.",
+    }
+    approve = _of(
+        "approval_answered.json", approval_id="a-000002", decision="approve", feedback=None
+    )
+    assert Event.from_json(json.dumps(approve)).data["feedback"] is None
+    assert _problems(_of("approval_answered.json", approval_id="a-000001", feedback=None)) == [
         ("data.decision", "missing")
     ]
+    empty = _of("approval_answered.json", approval_id="a-000001", decision="reject", feedback="")
+    assert _problems(empty) == [("data.feedback", "string_type")]
 
 
 # Routing back (M1-12)

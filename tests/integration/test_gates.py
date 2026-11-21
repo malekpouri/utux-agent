@@ -13,7 +13,15 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from workflow_scripts import CODE, METHOD, QUESTION, configure_models, services, switch_gates_off
+from workflow_scripts import (
+    CODE,
+    METHOD,
+    METHOD_MD,
+    QUESTION,
+    configure_models,
+    services,
+    switch_gates_off,
+)
 
 from utux.core.workflow import mark_stale, resume_workflow, run_workflow
 from utux.errors import ApprovalMismatchError, RunPausedError, RunRejectedError
@@ -139,8 +147,8 @@ def test_check_2_the_run_continues_from_each_gate_once_it_is_answered(project: P
     assert [r.id for r in outcome.results] == ["R0001"]
     answered = _events(project, EventType.APPROVAL_ANSWERED)
     assert [e.data for e in answered] == [
-        {"approval_id": "a-000001", "decision": "approve"},
-        {"approval_id": "a-000002", "decision": "approve"},
+        {"approval_id": "a-000001", "decision": "approve", "feedback": None},
+        {"approval_id": "a-000002", "decision": "approve", "feedback": None},
     ]
     assert validate_project(project).problems == ()
 
@@ -188,22 +196,28 @@ def test_auto_mode_without_gates_does_not_pause(project: Path) -> None:
     assert _events(project, EventType.APPROVAL_REQUESTED) == []
 
 
-def test_a_rejection_stops_the_run(project: Path) -> None:
+def test_a_rejection_reruns_the_stage_and_asks_again(project: Path) -> None:
+    # M1-11 stopped the run on a rejection; M1-13 reruns the stage with the
+    # feedback (see test_agents_workflow.py for the feedback itself).
     _paused(project, (METHOD, CODE), start=True)
     answer(project, "a-000001", "reject")
-    with pytest.raises(RunRejectedError, match="a-000001"):
-        resume_workflow(project, services(project, (CODE,)))
+    again = _paused(project, (METHOD,))
+    assert again.approval_id == "a-000002"
     (answered,) = _events(project, EventType.APPROVAL_ANSWERED)
-    assert answered.data == {"approval_id": "a-000001", "decision": "reject"}
+    assert answered.data == {
+        "approval_id": "a-000001",
+        "decision": "reject",
+        "feedback": "Synthetic feedback.",
+    }
     nodes = [e.data["node"] for e in _events(project, EventType.STAGE_START)]
-    assert nodes == ["methodology"]
+    assert nodes == ["methodology", "methodology"]
 
 
 # An edit
 
 
 def _edit_method(project: Path) -> str:
-    edited = METHOD + "\nEdited at the gate.\n"
+    edited = METHOD_MD + "\nEdited at the gate.\n"
     (project / "method.md").write_text(edited, encoding="utf-8")
     return hash_file(project / "method.md")
 
@@ -318,6 +332,7 @@ def test_raising_the_budget_and_approving_repeats_the_refused_call(
         ("methodology", "ok"),
         ("implementation", "refused"),
         ("implementation", "ok"),
+        ("experiment", "ok"),
     ]
     changes = [
         e
