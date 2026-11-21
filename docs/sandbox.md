@@ -33,6 +33,13 @@ Shown by the tests marked `docker` (`uv run pytest -m docker`):
 
 A limit is named only when it is known for certain.
 
+**The memory kill is not always reported.** On some Docker setups, a
+container killed for memory exits with status 137 while Docker's
+`OOMKilled` stays false, even when asked again for about a second. The
+result then shows exit status 137 with no limit named; utux does not guess
+that the cause was memory. This happened in CI on Docker 29.4.2, and not on
+Docker 29.8.2 locally.
+
 **The output size check is periodic.** Between two measurements a run can
 write past the limit by as much as it writes in about one second. The
 directory is a bind mount on the host disk, so the check is what keeps a run
