@@ -170,6 +170,8 @@ class _Validator:
         self.event_ids: set[str] | None = None
         # The type, status and reason of every valid event, by id.
         self.event_kinds: dict[str, tuple[str, str, str | None]] = {}
+        # The number of code_execution events of each execution run.
+        self.executions: dict[str, int] = {}
 
     def add(self, file: str, line: int | None, field: str, code: str, reason: str) -> None:
         self.problems.append(ValidationProblem(file, line, field, code, reason))
@@ -269,6 +271,9 @@ class _Validator:
                 )
                 if event.type is EventType.LOG_REPAIRED:
                     self.repairs.append((number, dict(event.data)))
+                if event.type is EventType.CODE_EXECUTION:
+                    run = str(event.data["execution_run_id"])
+                    self.executions[run] = self.executions.get(run, 0) + 1
                 if event.parent_id is not None and event.parent_id not in earlier:
                     self.add(
                         EVENT_LOG_FILE,
@@ -595,6 +600,27 @@ class _Validator:
                     "name_mismatch",
                     f"the manifest is in {RUNS_DIRECTORY}/{directory.name}/ "
                     f"but describes run {manifest.run_id}",
+                )
+            if manifest is None or self.event_ids is None:
+                # An unreadable manifest or a missing log is reported on its own.
+                continue
+            count = self.executions.get(manifest.run_id, 0)
+            if count == 0:
+                self.add(
+                    file,
+                    None,
+                    "run_id",
+                    "code_execution_missing",
+                    f"no code_execution event in {EVENT_LOG_FILE} records run {manifest.run_id}",
+                )
+            elif count > 1:
+                self.add(
+                    file,
+                    None,
+                    "run_id",
+                    "code_execution_duplicate",
+                    f"{count} code_execution events in {EVENT_LOG_FILE} record run "
+                    f"{manifest.run_id}; a run has exactly one",
                 )
 
     def approvals(self) -> None:

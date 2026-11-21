@@ -59,6 +59,8 @@ from utux.errors import (
     ApprovalMismatchError,
     BudgetExhaustedError,
     CheckpointMismatchError,
+    ExecutorUnavailableError,
+    ImageMismatchError,
     MethodFormatError,
     ModelProviderConfigError,
     NoRunToResumeError,
@@ -67,7 +69,8 @@ from utux.errors import (
     RunRejectedError,
 )
 from utux.events.log import EventLog
-from utux.interfaces.executor import ExecutionStep, Executor, ResourceLimits
+from utux.executors.image import require_recorded_image
+from utux.interfaces.executor import ExecutionStep, Executor, ResourceLimits, RunResult
 from utux.interfaces.model_provider import (
     Message,
     MessageRole,
@@ -137,6 +140,8 @@ class WorkflowServices:
         locked_packages: Reads the package versions from inside an image.
         rootless: Whether the executor runs rootless Docker.
         prompts: The directory of the pack's prompts.
+        image_directory: The pack's image directory, whose recorded image
+            the step must use; None leaves the check to the executor.
         before_stage: Called with a node's name before it starts; tests use
             it to look at the log or to stop a run.
         inside_stage: Called with a node's name and `staged` once its outputs
@@ -151,6 +156,7 @@ class WorkflowServices:
     rootless: bool
     prompts: Path
     before_stage: Callable[[str], None] | None = None
+    image_directory: Path | None = None
     inside_stage: Callable[[str, str], None] | None = None
 
 
@@ -609,7 +615,27 @@ def _experiment(
         # The code writes its metrics.json here (the implementer's prompt says so).
         environment={"UTUX_OUTPUT_DIR": f"{staging.relative}/runs/{run}/outputs"},
     )
-    result = services.executor.run(step)
+    code_hash = inputs["code/main.py"]
+    try:
+        if services.image_directory is not None:
+            require_recorded_image(services.image_directory, step.image_digest)
+        result = services.executor.run(step)
+    except ExecutorUnavailableError:
+        _log_execution(context, run, step.image_digest, code_hash, None, EXECUTOR_UNAVAILABLE)
+        raise
+    except ImageMismatchError:
+        _log_execution(context, run, step.image_digest, code_hash, None, IMAGE_MISMATCH)
+        raise
+    metrics_file = staging.path(f"runs/{run}/outputs/{METRICS_FILE}")
+    _log_execution(
+        context,
+        run,
+        step.image_digest,
+        code_hash,
+        result,
+        None,
+        hash_file(metrics_file) if metrics_file.is_file() else None,
+    )
     final = step.model_copy(update={"output_directory": f"runs/{run}/outputs"})
     commit, dirty = head_commit(project)
     manifest = RunManifest(
@@ -655,6 +681,66 @@ def _experiment(
         )
     record: StageRecord = {"inputs": inputs, "outputs": outputs, "artifacts": artifacts}
     return record, {"experiment_run": run, "results": [r.id for r in recording.records]}
+
+
+EXECUTOR_UNAVAILABLE = "executor_unavailable"
+IMAGE_MISMATCH = "image_mismatch"
+NONZERO_EXIT = "nonzero_exit"
+
+
+def _milliseconds(started: str, ended: str) -> int:
+    def moment(text: str) -> datetime:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+
+    return max(0, round((moment(ended) - moment(started)).total_seconds() * 1000))
+
+
+def _log_execution(
+    context: _Context,
+    run: str,
+    image_digest: str,
+    code_hash: str,
+    result: RunResult | None,
+    refused: str | None,
+    metrics_hash: str | None = None,
+) -> None:
+    """Append the `code_execution` event of an execution run (M1-15b).
+
+    `result` is None for a run that could not start; `refused` is then its
+    reason. Otherwise the status is `ok` for exit status 0 with no limit,
+    and `error` with `limit_<kind>` or `nonzero_exit`.
+    """
+    if result is None:
+        status, reason = EventStatus.ERROR, refused
+    elif result.stopped_by is not None:
+        status, reason = EventStatus.ERROR, f"limit_{result.stopped_by.value}"
+    elif result.exit_status != 0:
+        status, reason = EventStatus.ERROR, NONZERO_EXIT
+    else:
+        status, reason = EventStatus.OK, None
+    context.log.append(
+        NewEvent(
+            actor=SYSTEM_ACTOR,
+            type=EventType.CODE_EXECUTION,
+            status=status,
+            status_reason=reason,
+            run_id=context.run_id,
+            stage=Stage.EXPERIMENT,
+            input_hash=code_hash,
+            output_hash=metrics_hash,
+            duration_ms=(
+                None if result is None else _milliseconds(result.started_at, result.ended_at)
+            ),
+            data={
+                "execution_run_id": run,
+                "image_digest": image_digest,
+                "exit_status": None if result is None else result.exit_status,
+                "stopped_by": (
+                    None if result is None or result.stopped_by is None else result.stopped_by.value
+                ),
+            },
+        )
+    )
 
 
 def _read_records(project: Path, ids: list[str]) -> list[ResultRecord]:
