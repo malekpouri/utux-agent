@@ -99,10 +99,13 @@ stage's budget was written after the request: raise the budget in
 `utux.yaml`, and the next `utux run` records the change and then repeats the
 refused call. Before that, the run stays paused. `reject` stops the run.
 
-**The experiment plan and later settings.** An approval of the experiment
-plan stops counting if a setting the experiment depends on changes after the
-request: any key under `resources`, or `domain_pack`, the pack whose image
-the experiment runs in. The run then asks again before the experiment runs.
+**What an experiment-plan approval covers.** The request records the
+execution it approves in `execution`: the image digest, the command, the
+read-only paths and the limits, the timeout included. Before the experiment
+runs, utux builds the same record again from `utux.yaml` and the pack's
+image. If anything differs, for example a rebuilt image, a changed limit or
+another pack, the approval does not cover it and the run asks again before
+anything runs.
 
 ## The check after the analysis, and routing back
 
@@ -115,12 +118,25 @@ stage events and makes no commit.
 | `run_failed` | the execution run's exit status is not zero, or a limit stopped it | `implementation` |
 | `metric_missing` | a metric that `method.md` names has no result record of the run | `methodology` |
 
-`method.md` names a metric on a line of its own: `- metric: <name>`.
+`method.md` names each metric on a line of exactly this form:
+
+```text
+- metric: <name>
+```
+
+The hyphen starts the line, there is one space on each side of `metric:`,
+and the name is letters, digits, `_`, `.` and `-`, starting with a letter or
+digit, with nothing after it. If `method.md` names no metric, or a line
+looks like a metric line but is not of this form (`- Metric: r2`,
+`-  metric: r2`, `- metric: r2 and auc`), the run stops before the
+implementation with `MethodFormatError`, naming the line; correct
+`method.md` and run again.
 
 A route back is a `route_back` event with status `ok`, naming the stages,
 the finding, the attempt and the cap; the stage runs again with the finding
 as part of its input, and the stages after it run again too. Each loop, one
-target stage, has a retry cap of 2 (`RETRY_CAP`). The route back after the
+target stage, has the retry cap `workflow.retry_cap` of `utux.yaml`,
+default 2. The route back after the
 cap is a `route_back` event with status `refused` and `status_reason`
 `retry_limit`, and the run pauses with a `retry_limit` request whose
 `refused_event_id` names that event. `approve` allows one more route back

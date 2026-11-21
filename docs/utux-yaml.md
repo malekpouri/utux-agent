@@ -43,6 +43,7 @@ These three values are required. Everything else has a default.
 | `resources.output_mb` | integer above 0 | not set | Size limit of a run's output directory, in MiB; the executor's default is 1024. See [The sandbox](sandbox.md) |
 | `models.tiers` | mapping of `light`, `standard`, `strong` to a model id | empty | Model for each tier. What is not set comes from the profile |
 | `models.roles` | mapping of role name to tier | empty | Tier for each agent role |
+| `workflow.retry_cap` | integer, 0 or more | `2` | How many times a run may be routed back to one stage before it pauses and asks; the same cap for every loop. See [How a run works](run.md) |
 
 Names (`profile`, `domain_pack`, role names) are lower-case letters, digits,
 `-` and `_`, starting with a letter.
