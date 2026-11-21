@@ -451,14 +451,25 @@ Append-only is enforced by the application, not by the file system, so the log i
 
 The core writes `approvals/<id>.request.json` and pauses. The CLI, or any future interface, writes `approvals/<id>.response.json` with `approve`, `reject` or `edit` and, for an edit, the id and content hash of the edited version the person saved. Responses are written atomically: temporary file, then rename.
 
-A run that reaches a gate with no answer writes the request and pauses: the process ends with a message naming the request, and `utux run` resumes once the response is written. The answers are taken when the run resumes; an edit is taken only if the edited file's hash matches the response, and artifacts built from the old version are marked `stale`. Until a separate experiment plan file exists, the experiment-plan gate approves the code the experiment will run.
+A run that reaches a gate with no answer writes the request and pauses: the process ends with a message naming the request, and `utux run` resumes once the response is written. The answers are taken when the run resumes; an edit is taken only if the edited file's hash matches the response, and artifacts built from the old version are marked `stale`. Until a separate experiment plan file exists, the experiment-plan gate approves the code the experiment will run, and its request records the execution it approves: image digest, command, read-only paths and limits. Before the experiment runs the record is built again, and any difference makes the run ask again.
+
+```json
+{"schema_version": 1, "approval_id": "a-000008", "kind": "artifact", "gate": "experiment_plan",
+ "artifact_id": "code-v001", "content_hash": "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41",
+ "path": "code/main.py", "stage": null, "refused_event_id": null,
+ "execution": {"image_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "command": ["python", "code/main.py"], "read_only_paths": ["code", "inputs"],
+  "limits": {"cpus": null, "memory_mb": null, "gpus": null, "disk_mb": null, "max_processes": null,
+   "output_mb": null, "timeout_seconds": 3600.0}},
+ "requested_by": "system:utux", "requested_at": "2026-11-15T10:05:00Z"}
+```
 
 A request has a `kind` (ADR-0011). Kind `artifact` is a gate's question about one artifact version, bound to its content hash. Kinds `budget_exhausted` and `retry_limit` pause the run when a budget or the retry cap is reached; they name no artifact, record the stage and the event of the refused call, and are answered with `approve` (continue, repeating that call) or `reject` (stop). Fields that do not apply to a kind are null.
 
 ```json
 {"schema_version": 1, "approval_id": "a-000009", "kind": "budget_exhausted",
  "gate": null, "artifact_id": null, "content_hash": null, "path": null,
- "stage": "implementation", "refused_event_id": "e-000042",
+ "stage": "implementation", "refused_event_id": "e-000042", "execution": null,
  "requested_by": "system:utux", "requested_at": "2026-11-16T14:00:00Z"}
 ```
 
