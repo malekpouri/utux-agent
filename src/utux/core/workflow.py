@@ -32,7 +32,7 @@ from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, NoReturn, TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -40,10 +40,14 @@ from langgraph.graph import END, START, StateGraph
 
 from utux.core.checkpoints import StrictCheckpointSerializer
 from utux.errors import (
+    ApprovalMismatchError,
+    BudgetExhaustedError,
     CheckpointMismatchError,
     ModelProviderConfigError,
     NoRunToResumeError,
+    RunPausedError,
     RunRefusedError,
+    RunRejectedError,
 )
 from utux.events.log import EventLog
 from utux.interfaces.executor import ExecutionStep, Executor, ResourceLimits
@@ -53,11 +57,20 @@ from utux.interfaces.model_provider import (
     ModelProvider,
     ModelRequest,
 )
+from utux.schemas.approval import (
+    ApprovalKind,
+    ApprovalRequest,
+    ApprovalResponse,
+    Decision,
+    check_response_matches_request,
+    load_approval_request,
+    load_approval_response,
+)
 from utux.schemas.artifact_metadata import ArtifactMetadata, ArtifactState
 from utux.schemas.common import Scalar, Stage, Tier
 from utux.schemas.event import EventStatus, EventType, NewEvent
 from utux.schemas.json_io import parse_json
-from utux.schemas.project_config import OversightMode, ProjectConfig, load_project_config
+from utux.schemas.project_config import Gate, OversightMode, ProjectConfig, load_project_config
 from utux.schemas.result_record import ResultRecord
 from utux.schemas.run_manifest import Container, GitState, Hardware, RunManifest
 from utux.workspace.atomic import atomic_write_text
@@ -320,17 +333,20 @@ def _ask(context: _Context, node: str, prompt: str) -> str:
             f"no model is configured for the tier {tier.value} of the role {role} in "
             f"{CONFIG_FILE} (models.tiers)"
         )
-    response = context.caller.call(
-        ModelRequest(
-            model=model,
-            messages=(Message(role=MessageRole.USER, content=prompt),),
-            timeout_seconds=300.0,
-        ),
-        actor=_AGENTS[node],
-        prompt_version=PROMPT_VERSION,
-        stage=STAGE_OF[node],
-        run_id=context.run_id,
-    )
+    try:
+        response = context.caller.call(
+            ModelRequest(
+                model=model,
+                messages=(Message(role=MessageRole.USER, content=prompt),),
+                timeout_seconds=300.0,
+            ),
+            actor=_AGENTS[node],
+            prompt_version=PROMPT_VERSION,
+            stage=STAGE_OF[node],
+            run_id=context.run_id,
+        )
+    except BudgetExhaustedError as error:
+        _pause_for_budget(context, node, error)
     return response.content
 
 
@@ -532,6 +548,10 @@ def _node(context: _Context, node: str) -> Callable[[RunState], RunState]:
     def run_node(state: RunState) -> RunState:
         if context.services.before_stage is not None:
             context.services.before_stage(node)
+        if node in GATE_BEFORE:
+            gate, path = GATE_BEFORE[node]
+            if context.config.oversight.gate_enabled(gate):
+                _pass_gate(context, gate, path)
         stage = STAGE_OF[node]
         context.log.append(
             NewEvent(
@@ -572,6 +592,271 @@ def _node(context: _Context, node: str) -> Callable[[RunState], RunState]:
         return result
 
     return run_node
+
+
+# Gates and pauses (M1-11, ADR-0011)
+
+GATE_BEFORE: dict[str, tuple[Gate, str]] = {
+    "implementation": (Gate.METHOD, "method.md"),
+    "experiment": (Gate.EXPERIMENT_PLAN, "code/main.py"),
+}
+"""The gate checked before a node starts, and the file it approves.
+
+The method gate approves `method.md` before the implementation. The
+experiment-plan gate approves the code the experiment will run, before it
+runs.
+"""
+
+APPROVALS_DIRECTORY = "approvals"
+
+
+def _next_approval_id(project: Path) -> str:
+    taken = [
+        int(path.name.split(".")[0][2:])
+        for path in (project / APPROVALS_DIRECTORY).glob("a-*.request.json")
+    ]
+    return f"a-{max(taken, default=0) + 1:06d}"
+
+
+def _request_path(project: Path, approval_id: str) -> Path:
+    return project / APPROVALS_DIRECTORY / f"{approval_id}.request.json"
+
+
+def _response(project: Path, approval_id: str) -> ApprovalResponse | None:
+    path = project / APPROVALS_DIRECTORY / f"{approval_id}.response.json"
+    return load_approval_response(path) if path.is_file() else None
+
+
+def _requests_of_run(context: _Context) -> list[tuple[str, ApprovalRequest]]:
+    """The requests of this run, in the order they were made."""
+    ids = [
+        str(event.data["approval_id"])
+        for event in context.log
+        if event.type is EventType.APPROVAL_REQUESTED and event.run_id == context.run_id
+    ]
+    return [(i, load_approval_request(_request_path(context.project, i))) for i in ids]
+
+
+def _answered(context: _Context) -> dict[str, str]:
+    """The decisions recorded for this run, by approval id."""
+    return {
+        str(event.data["approval_id"]): str(event.data["decision"])
+        for event in context.log
+        if event.type is EventType.APPROVAL_ANSWERED and event.run_id == context.run_id
+    }
+
+
+def _ask_for_approval(
+    context: _Context,
+    stage: Stage,
+    *,
+    kind: ApprovalKind,
+    gate: Gate | None = None,
+    artifact: ArtifactMetadata | None = None,
+    refused_event_id: str | None = None,
+) -> NoReturn:
+    """Write a request and its event, then pause the run."""
+    approval_id = _next_approval_id(context.project)
+    request = ApprovalRequest(
+        schema_version=ApprovalRequest.SCHEMA_VERSION,
+        approval_id=approval_id,
+        kind=kind,
+        gate=gate,
+        artifact_id=None if artifact is None else artifact.artifact_id,
+        content_hash=None if artifact is None else artifact.content_hash,
+        path=None if artifact is None else artifact.path,
+        stage=None if kind is ApprovalKind.ARTIFACT else stage,
+        refused_event_id=refused_event_id,
+        requested_by=SYSTEM_ACTOR,
+        requested_at=_timestamp(),
+    )
+    atomic_write_text(_request_path(context.project, approval_id), request.to_json())
+    context.log.append(
+        NewEvent(
+            actor=SYSTEM_ACTOR,
+            type=EventType.APPROVAL_REQUESTED,
+            status=EventStatus.OK,
+            run_id=context.run_id,
+            stage=stage,
+            data={
+                "approval_id": approval_id,
+                "kind": kind.value,
+                "gate": None if gate is None else gate.value,
+            },
+            artifacts=() if artifact is None else (artifact.artifact_id,),
+        )
+    )
+    raise _paused(approval_id)
+
+
+def _paused(approval_id: str, detail: str = "") -> RunPausedError:
+    path = f"{APPROVALS_DIRECTORY}/{approval_id}.request.json"
+    return RunPausedError(
+        f"the run waits for an answer to {approval_id} ({path}){detail}; answer it, then run "
+        "utux run again",
+        approval_id,
+    )
+
+
+def _pass_gate(context: _Context, gate: Gate, path: str) -> None:
+    """Continue if the current version of the file is approved, else pause."""
+    current = current_artifact(context.project, path)
+    if current is None:
+        raise RunRefusedError(f"there is no version of {path} for the {gate.value} gate")
+    answered = _answered(context)
+    for approval_id, request in reversed(_requests_of_run(context)):
+        if request.kind is not ApprovalKind.ARTIFACT or request.gate is not gate:
+            continue
+        decision = answered.get(approval_id)
+        if decision is None:
+            if request.artifact_id == current.artifact_id:
+                raise _paused(approval_id)
+            break
+        response = _response(context.project, approval_id)
+        approved = {request.artifact_id}
+        if response is not None and response.edited_artifact_id is not None:
+            approved.add(response.edited_artifact_id)
+        if current.artifact_id in approved:
+            return
+        break
+    _ask_for_approval(
+        context, current.stage, kind=ApprovalKind.ARTIFACT, gate=gate, artifact=current
+    )
+
+
+def _pause_for_budget(context: _Context, node: str, error: BudgetExhaustedError) -> NoReturn:
+    _ask_for_approval(
+        context,
+        STAGE_OF[node],
+        kind=ApprovalKind.BUDGET_EXHAUSTED,
+        refused_event_id=error.refused_event_id,
+    )
+
+
+def _budget_raised_after(context: _Context, approval_id: str, stage: Stage | None) -> bool:
+    """Whether a setting_changed event for the budget follows the request."""
+    keys = {"budget.total_usd"} | ({f"budget.per_stage_usd.{stage.value}"} if stage else set())
+    seen_request = False
+    for event in context.log:
+        if (
+            event.type is EventType.APPROVAL_REQUESTED
+            and event.data.get("approval_id") == approval_id
+        ):
+            seen_request = True
+        elif (
+            seen_request
+            and event.type is EventType.SETTING_CHANGED
+            and event.data.get("key") in keys
+        ):
+            return True
+    return False
+
+
+def mark_stale(project: Path, old_artifact_id: str) -> tuple[str, ...]:
+    """Mark every artifact built from a version, directly or not, as stale.
+
+    Returns:
+        The ids marked, sorted.
+    """
+    sidecars = {s.artifact_id: s for s in _sidecars(project)}
+    marked: set[str] = set()
+    frontier = {old_artifact_id}
+    while frontier:
+        found = {
+            sidecar.artifact_id
+            for sidecar in sidecars.values()
+            if frontier & set(sidecar.input_artifacts) and sidecar.artifact_id not in marked
+        }
+        marked |= found
+        frontier = found
+    for artifact_id in marked:
+        sidecar = sidecars[artifact_id].model_copy(update={"state": ArtifactState.STALE})
+        atomic_write_text(project / ".utux" / "meta" / f"{artifact_id}.json", sidecar.to_json())
+    return tuple(sorted(marked))
+
+
+def _take_edit(context: _Context, request: ApprovalRequest, response: ApprovalResponse) -> None:
+    """Record the version a person saved at a gate, and mark what was built before it."""
+    assert request.path is not None
+    assert request.artifact_id is not None
+    edited = context.project / request.path
+    actual = _hash_or_none(edited)
+    if actual is None or actual != response.edited_content_hash:
+        raise ApprovalMismatchError(
+            f"{request.path} has the hash {actual}, not the {response.edited_content_hash} "
+            f"that the answer to {request.approval_id} names; save the edited file and "
+            "answer again"
+        )
+    old = current_artifact(context.project, request.path)
+    assert old is not None
+    name, version = str(response.edited_artifact_id).rsplit("-v", 1)
+    if name != old.artifact_id.rsplit("-v", 1)[0] or int(version) <= _version(old.artifact_id):
+        raise ApprovalMismatchError(
+            f"the answer to {request.approval_id} names {response.edited_artifact_id}, which "
+            f"is not a later version of {old.artifact_id}"
+        )
+    sidecar = ArtifactMetadata(
+        schema_version=ArtifactMetadata.SCHEMA_VERSION,
+        artifact_id=str(response.edited_artifact_id),
+        path=request.path,
+        stage=old.stage,
+        created_by=response.answered_by,
+        created_at=response.answered_at,
+        input_artifacts=(request.artifact_id,),
+        content_hash=actual,
+        state=ArtifactState.VALID,
+    )
+    target = context.project / ".utux" / "meta" / f"{response.edited_artifact_id}.json"
+    atomic_write_text(target, sidecar.to_json())
+    mark_stale(context.project, request.artifact_id)
+
+
+def _apply_answers(context: _Context) -> None:
+    """Take the answers written since the run paused, and act on them.
+
+    Raises:
+        ApprovalMismatchError: An edit does not match its file.
+        RunPausedError: A budget pause is approved but the budget was not
+            raised after the request.
+        RunRejectedError: A request of the run was rejected.
+    """
+    answered = _answered(context)
+    for approval_id, request in _requests_of_run(context):
+        if approval_id in answered:
+            continue
+        response = _response(context.project, approval_id)
+        if response is None:
+            continue
+        check_response_matches_request(request, response, f"{approval_id}.response.json")
+        if response.decision is Decision.EDIT:
+            _take_edit(context, request, response)
+        if (
+            request.kind is ApprovalKind.BUDGET_EXHAUSTED
+            and response.decision is Decision.APPROVE
+            and not _budget_raised_after(context, approval_id, request.stage)
+        ):
+            raise _paused(
+                approval_id,
+                ": it is approved, but the budget was not raised; raise budget.total_usd "
+                "or the stage's budget in utux.yaml first",
+            )
+        context.log.append(
+            NewEvent(
+                actor=response.answered_by,
+                type=EventType.APPROVAL_ANSWERED,
+                status=EventStatus.OK,
+                run_id=context.run_id,
+                stage=request.stage,
+                data={"approval_id": approval_id, "decision": response.decision.value},
+            )
+        )
+        answered[approval_id] = response.decision.value
+    rejected = [i for i, decision in answered.items() if decision == Decision.REJECT.value]
+    if rejected:
+        raise RunRejectedError(
+            f"{rejected[-1]} was rejected, so the run stops; see its feedback in "
+            f"{APPROVALS_DIRECTORY}/{rejected[-1]}.response.json"
+        )
 
 
 # The graph and its checkpoints
@@ -726,6 +1011,9 @@ def resume_workflow(project: Path, services: WorkflowServices) -> RunOutcome:
                 )
             )
             state: RunState = snapshot.values
+            # Answers first, so that an edit at a gate is recorded as the
+            # person's version, not as an edit outside utux.
+            _apply_answers(context)
             _record_edits(project, state)
             restart = _restart_point(project, state)
             if restart is not None:

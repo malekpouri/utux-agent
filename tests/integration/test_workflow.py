@@ -19,6 +19,7 @@ from workflow_scripts import (
     QUESTION,
     configure_models,
     services,
+    switch_gates_off,
 )
 
 from utux.core.checkpoints import StrictCheckpointSerializer
@@ -59,6 +60,8 @@ def make_project(path: Path) -> Path:
     project = init_project(path, budget_usd=5, data_policy=DataPolicy.LOCAL_ONLY)
     (project / "inputs" / "question.md").write_text(QUESTION, encoding="utf-8")
     configure_models(project)
+    # The gates are M1-11's; these tests are about the run itself.
+    switch_gates_off(project)
     return project
 
 

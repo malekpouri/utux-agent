@@ -515,6 +515,8 @@ def test_types_without_defined_keys_accept_only_an_empty_object() -> None:
             EventType.STAGE_END,
             EventType.RUN_STARTED,
             EventType.RUN_RESTARTED,
+            EventType.APPROVAL_REQUESTED,
+            EventType.APPROVAL_ANSWERED,
         ):
             continue
         document = _with(type=kind.value, data={})
@@ -718,3 +720,23 @@ def test_run_restarted_names_the_changed_path_and_both_hashes() -> None:
     assert Event.from_json(json.dumps(document)).data["actual_hash"] is None
     bad = _of("run_restarted.json", changed_path="method.md", expected_hash="x", actual_hash=None)
     assert _problems(bad) == [("data.expected_hash", "string_pattern_mismatch")]
+
+
+# Approvals (M1-11)
+
+
+def test_approval_requested_names_the_request_its_kind_and_gate() -> None:
+    event = load_event(FIXTURES / "valid" / "approval_requested.json")
+    assert event.data == {"approval_id": "a-000001", "kind": "artifact", "gate": "method"}
+    budget = _of(
+        "approval_requested.json", approval_id="a-000002", kind="budget_exhausted", gate=None
+    )
+    assert Event.from_json(json.dumps(budget)).data["gate"] is None
+
+
+def test_approval_answered_names_the_request_and_the_decision() -> None:
+    event = load_event(FIXTURES / "valid" / "approval_answered.json")
+    assert event.data == {"approval_id": "a-000001", "decision": "edit"}
+    assert _problems(_of("approval_answered.json", approval_id="a-000001")) == [
+        ("data.decision", "missing")
+    ]

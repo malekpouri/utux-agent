@@ -79,6 +79,8 @@ _DATA_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.STAGE_END: ("node",),
     EventType.RUN_STARTED: ("mode", "commits", "commit_check_reason"),
     EventType.RUN_RESTARTED: ("changed_path", "expected_hash", "actual_hash"),
+    EventType.APPROVAL_REQUESTED: ("approval_id", "kind", "gate"),
+    EventType.APPROVAL_ANSWERED: ("approval_id", "decision"),
 }
 
 # Keys of `data` whose value must be non-empty text.
@@ -91,6 +93,8 @@ _TEXT_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.STAGE_END: ("node",),
     EventType.RUN_STARTED: ("mode",),
     EventType.RUN_RESTARTED: ("changed_path",),
+    EventType.APPROVAL_REQUESTED: ("approval_id", "kind"),
+    EventType.APPROVAL_ANSWERED: ("approval_id", "decision"),
 }
 
 # Keys of `data` whose value must be true or false.
@@ -112,6 +116,7 @@ _OPTIONAL_HASH_KEYS: dict[EventType, tuple[str, ...]] = {
 # Keys of `data` whose value must be a stable code, as `status_reason`, or null.
 _OPTIONAL_CODE_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.RUN_STARTED: ("commit_check_reason",),
+    EventType.APPROVAL_REQUESTED: ("gate",),
 }
 
 _CODE = re.compile(r"^[a-z][a-z0-9_]*$")

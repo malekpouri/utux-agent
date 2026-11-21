@@ -451,6 +451,8 @@ Append-only is enforced by the application, not by the file system, so the log i
 
 The core writes `approvals/<id>.request.json` and pauses. The CLI, or any future interface, writes `approvals/<id>.response.json` with `approve`, `reject` or `edit` and, for an edit, the id and content hash of the edited version the person saved. Responses are written atomically: temporary file, then rename.
 
+A run that reaches a gate with no answer writes the request and pauses: the process ends with a message naming the request, and `utux run` resumes once the response is written. The answers are taken when the run resumes; an edit is taken only if the edited file's hash matches the response, and artifacts built from the old version are marked `stale`. Until a separate experiment plan file exists, the experiment-plan gate approves the code the experiment will run.
+
 A request has a `kind` (ADR-0011). Kind `artifact` is a gate's question about one artifact version, bound to its content hash. Kinds `budget_exhausted` and `retry_limit` pause the run when a budget or the retry cap is reached; they name no artifact, record the stage and the event of the refused call, and are answered with `approve` (continue, repeating that call) or `reject` (stop). Fields that do not apply to a kind are null.
 
 ```json

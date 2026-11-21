@@ -58,6 +58,50 @@ the project's git configuration: standard input closed,
 
 The id of the `run_started` event is the run's id, for example `e-000004`.
 
+## Gates and pauses
+
+Two gates of the specification fall in stages 3 to 5:
+
+| Gate | Checked | Approves |
+| --- | --- | --- |
+| `method` | before `implementation` starts | the current version of `method.md` |
+| `experiment_plan` | before `experiment` runs anything | the current version of `code/main.py`, the code the experiment will run; M1 has no separate plan file |
+
+A gate is on as `oversight.gate_enabled` says: every gate in `guided` mode,
+and in `auto` mode only those switched on in `utux.yaml`.
+
+**Pausing.** At a gate with no answer, the run writes an `artifact` request
+`approvals/<id>.request.json`, records an `approval_requested` event, and
+stops with `RunPausedError`, whose message names the request. The lock is
+released; the checkpoint of the last finished node stays. Resuming before
+an answer pauses again on the same request.
+
+**Answers.** A person writes `approvals/<id>.response.json` (task M1-14 adds
+`utux approve`). When the run resumes, the answers are taken first, each
+recorded as an `approval_answered` event by the person:
+
+- `approve`: the run continues from the gate.
+- `reject`: the run stops with `RunRejectedError`, now and on every later
+  resume.
+- `edit`: the person has changed the file and names the version they saved.
+  It is taken only if the file's hash is the response's
+  `edited_content_hash` (otherwise `ApprovalMismatchError`, and nothing is
+  recorded). The version gets its sidecar, made by the person from the
+  requested version, and every artifact built from the requested version,
+  directly or not, is marked `stale`. The run continues with the edited
+  version.
+
+**Budget.** When a model call is refused because the budget is exhausted,
+the run writes a `budget_exhausted` request with the stage and the
+`refused_event_id` of the refused call, and pauses. `approve` lets the run
+continue only if a `setting_changed` event for `budget.total_usd` or the
+stage's budget was written after the request: raise the budget in
+`utux.yaml`, and the next `utux run` records the change and then repeats the
+refused call. Before that, the run stays paused. `reject` stops the run.
+
+The `retry_limit` pause comes with routing back to an earlier stage (task
+M1-12).
+
 ## Checkpoints
 
 After every node the graph state is written to `.utux/checkpoints.sqlite`

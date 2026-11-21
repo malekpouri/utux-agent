@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from workflow_scripts import services
+from workflow_scripts import CODE, services
 
 from utux.core.workflow import resume_workflow, run_workflow
 
@@ -30,6 +30,8 @@ def main() -> None:
     elif mode == "resume":
         # The model was asked twice before the kill; nothing more is needed.
         resume_workflow(project, services(project, replies=()))
+    elif mode == "resume-with-code":
+        resume_workflow(project, services(project, replies=(CODE,)))
     elif mode == "run":
         run_workflow(project, services(project))
     else:

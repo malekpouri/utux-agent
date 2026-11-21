@@ -78,6 +78,8 @@ Each event type defines its keys. A missing key is reported as
 | `log_repaired` | `fragment_file` (non-empty text), `fragment_hash` (content hash), `fragment_bytes` (whole number, 0 or more); all required |
 | `stage_start`, `stage_end` | `node` (non-empty text): the node of the workflow, `methodology`, `implementation`, `experiment` or `analysis`; required. The event's `stage` is the node's stage, `experiment` for the analysis; `stage_end` lists the artifacts the node made in `artifacts`. See [How a run works](run.md) |
 | `run_started` | `mode` (non-empty text, `guided` or `auto`), `commits` (true or false), `commit_check_reason` (a code such as `commit_check_failed` or `commit_check_timeout`, or null); all required. Its `event_id` is the run's id, the `run_id` of every later event of the run (ADR-0010) |
+| `approval_requested` | `approval_id` (non-empty text), `kind` (non-empty text: `artifact`, `budget_exhausted` or `retry_limit`), `gate` (a gate, or null for the other kinds); all required. `artifacts` names the version asked about |
+| `approval_answered` | `approval_id` and `decision` (`approve`, `reject` or `edit`), both non-empty text and required. The actor is the person who answered |
 | `run_resumed` | none. Written when a run continues from its checkpoint |
 | `run_restarted` | `changed_path` (non-empty text), `expected_hash` and `actual_hash` (content hash or null: null when the file is new, or gone); all required. The event's `stage` is the stage of the node the run restarts at |
 | every other type | none; `data` must be `{}` until the task that emits the type defines its keys |

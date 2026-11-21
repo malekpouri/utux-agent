@@ -161,7 +161,14 @@ class BudgetExhaustedError(ModelCallRefusedError):
 
     The known cost has reached the project budget, or the budget of the
     call's stage. The provider was never asked.
+
+    Attributes:
+        refused_event_id: The `model_call` event that records the refusal.
     """
+
+    def __init__(self, message: str, refused_event_id: str | None = None) -> None:
+        super().__init__(message)
+        self.refused_event_id = refused_event_id
 
 
 class GoldSetError(UtuxError):
@@ -243,3 +250,25 @@ class CheckpointMismatchError(UtuxError):
     No `run_started` event in the project's log matches it, so it may come
     from another project or another copy; utux does not resume from it.
     """
+
+
+class RunPausedError(UtuxError):
+    """A run paused for a person's answer to an approval request.
+
+    The process ends; `utux run` resumes once the answer is written.
+
+    Attributes:
+        approval_id: The request that waits.
+    """
+
+    def __init__(self, message: str, approval_id: str) -> None:
+        super().__init__(message)
+        self.approval_id = approval_id
+
+
+class RunRejectedError(UtuxError):
+    """A person rejected a request, so the run stops."""
+
+
+class ApprovalMismatchError(UtuxError):
+    """An answer cannot be taken: an edit does not match the edited file."""
