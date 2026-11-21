@@ -59,6 +59,7 @@ from utux.errors import (
     ApprovalMismatchError,
     BudgetExhaustedError,
     CheckpointMismatchError,
+    ExecutorError,
     ExecutorUnavailableError,
     ImageMismatchError,
     MethodFormatError,
@@ -626,6 +627,11 @@ def _experiment(
     except ImageMismatchError:
         _log_execution(context, run, step.image_digest, code_hash, None, IMAGE_MISMATCH)
         raise
+    except ExecutorError:
+        # Any other refusal or failure of the executor: a step it cannot run
+        # as asked, or a container that would not start.
+        _log_execution(context, run, step.image_digest, code_hash, None, EXECUTOR_ERROR)
+        raise
     metrics_file = staging.path(f"runs/{run}/outputs/{METRICS_FILE}")
     _log_execution(
         context,
@@ -685,6 +691,7 @@ def _experiment(
 
 EXECUTOR_UNAVAILABLE = "executor_unavailable"
 IMAGE_MISMATCH = "image_mismatch"
+EXECUTOR_ERROR = "executor_error"
 NONZERO_EXIT = "nonzero_exit"
 
 

@@ -173,3 +173,29 @@ def test_validate_reports_a_manifest_with_two_code_execution_events(project: Pat
     )
     problems = [(p.file, p.code) for p in validate_project(project).problems]
     assert problems == [("runs/r001/manifest.json", "code_execution_duplicate")]
+
+
+class _FailingExecutor:
+    """An executor whose run fails before it starts, as with a missing read-only path."""
+
+    name = "synthetic"
+
+    def run(self, step: object) -> object:
+        raise ExecutorError("synthetic: the read-only path code does not exist")
+
+
+def test_any_other_executor_error_is_recorded_as_executor_error(project: Path) -> None:
+    run_services = services(project, executions=[PASSED])
+    run_services.executor = _FailingExecutor()  # type: ignore[assignment]
+    with pytest.raises(ExecutorError, match="synthetic"):
+        run_workflow(project, run_services)
+    (event,) = _executions(project)
+    assert (event.status, event.status_reason) == (EventStatus.ERROR, "executor_error")
+    assert event.data == {
+        "execution_run_id": "r001",
+        "image_digest": IMAGE,
+        "exit_status": None,
+        "stopped_by": None,
+    }
+    assert (event.duration_ms, event.output_hash) == (None, None)
+    assert not (project / "runs" / "r001").exists()

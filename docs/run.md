@@ -217,7 +217,11 @@ that exits 0 with no limit is `ok`; any other is an `error` with the reason
 `nonzero_exit` or `limit_<limit>`. A run that could not start is recorded too,
 as `executor_unavailable` (Docker missing or unreachable) or `image_mismatch`:
 the image is not the pack's recorded one, which the node checks before the
-run, or it is not present locally. `utux validate` checks that every run
+run, or it is not present locally. Any other executor error that stops the
+run before or while it starts, such as a missing read-only path or a
+container that would not start, is `executor_error`. The Docker executor
+reports only the limits `wall_clock`, `memory` and `output_size`;
+`limit_processes` and `limit_disk` exist for other executors. `utux validate` checks that every run
 manifest has exactly one such event.
 
 ## Exit status
