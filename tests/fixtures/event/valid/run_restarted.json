@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "event_id": "e-000002",
+  "run_id": "e-000004",
+  "request_id": null,
+  "parent_id": null,
+  "ts": "2026-11-15T09:00:00.125Z",
+  "actor": "system:utux",
+  "stage": "implementation",
+  "type": "run_restarted",
+  "model": null,
+  "prompt_version": null,
+  "tool_version": null,
+  "input_hash": null,
+  "output_hash": null,
+  "tokens_in": null,
+  "tokens_out": null,
+  "cost_usd": null,
+  "duration_ms": null,
+  "status": "ok",
+  "status_reason": null,
+  "retry_reason": null,
+  "escalated_from": null,
+  "data": {
+    "changed_path": "method.md",
+    "expected_hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "actual_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  "artifacts": []
+}

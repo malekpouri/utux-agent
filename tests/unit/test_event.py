@@ -237,6 +237,9 @@ def test_event_types_are_the_ones_named_in_the_specification_and_the_plan() -> N
         "setting_changed",
         "error",
         "log_repaired",
+        "run_started",
+        "run_resumed",
+        "run_restarted",
     }
 
 
@@ -646,3 +649,68 @@ def test_budget_warning_accepts_whole_numbers_and_zero() -> None:
 def test_budget_warning_accepts_no_other_data_key() -> None:
     document = _budget_warning({"spent_usd": 1.0, "total_usd": 1.0, "stage": "methodology"})
     assert _problems(document) == [("data.stage", "unknown_key")]
+
+
+# The events of a run (M1-10)
+
+
+def _of(name: str, **data: object) -> dict[str, object]:
+    document = json.loads((FIXTURES / "valid" / name).read_text("utf-8"))
+    assert isinstance(document, dict)
+    if data:
+        document["data"] = data
+    return document
+
+
+def test_run_started_carries_mode_commits_and_the_check_reason() -> None:
+    event = load_event(FIXTURES / "valid" / "run_started.json")
+    assert event.data == {
+        "mode": "guided",
+        "commits": False,
+        "commit_check_reason": "commit_check_timeout",
+    }
+
+
+def test_the_check_reason_of_run_started_may_be_null() -> None:
+    document = _of("run_started.json", mode="auto", commits=True, commit_check_reason=None)
+    assert Event.from_json(json.dumps(document)).data["commit_check_reason"] is None
+
+
+@pytest.mark.parametrize(
+    ("data", "problem"),
+    [
+        (
+            {"mode": "guided", "commits": "yes", "commit_check_reason": None},
+            ("data.commits", "bool_type"),
+        ),
+        ({"mode": "", "commits": True, "commit_check_reason": None}, ("data.mode", "string_type")),
+        (
+            {"mode": "guided", "commits": False, "commit_check_reason": "Not A Code"},
+            ("data.commit_check_reason", "string_pattern_mismatch"),
+        ),
+        ({"mode": "guided", "commits": True}, ("data.commit_check_reason", "missing")),
+    ],
+)
+def test_run_started_data_is_checked(data: dict[str, object], problem: tuple[str, str]) -> None:
+    assert _problems(_of("run_started.json", **data)) == [problem]
+
+
+def test_stage_events_name_their_node() -> None:
+    event = load_event(FIXTURES / "valid" / "stage_end.json")
+    assert event.data == {"node": "analysis"}
+    assert _problems(_of("stage_end.json", node="")) == [("data.node", "string_type")]
+
+
+def test_run_restarted_names_the_changed_path_and_both_hashes() -> None:
+    event = load_event(FIXTURES / "valid" / "run_restarted.json")
+    assert event.data["changed_path"] == "method.md"
+    document = _of(
+        "run_restarted.json",
+        changed_path="method.md",
+        expected_hash="sha256:" + "1" * 64,
+        actual_hash=None,
+    )
+    # A file that is gone has no hash.
+    assert Event.from_json(json.dumps(document)).data["actual_hash"] is None
+    bad = _of("run_restarted.json", changed_path="method.md", expected_hash="x", actual_hash=None)
+    assert _problems(bad) == [("data.expected_hash", "string_pattern_mismatch")]
