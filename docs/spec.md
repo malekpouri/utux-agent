@@ -127,7 +127,7 @@ v1 covers computational research only: data analysis, simulation, algorithm deve
 | 5 | Experiment and analysis | Runs the full experiments in the sandbox, records manifests, analyses results | `results.md`, `figures/`, `runs/` | Approve the experiment plan before full execution |
 | 6 | Scientific writing and review | Builds the claim ledger, writes from it, runs verification and independent review | `paper/`, `review.md`, `verification.md` | Approve the final manuscript; always on |
 
-Review findings are routed back to the stage that caused them. A wrong number goes back to stage 5, not to the writer. Each loop has a retry cap and a budget cap.
+Review findings are routed back to the stage that caused them. A wrong number goes back to stage 5, not to the writer. Each loop has a retry cap and a budget cap. A route back is logged as a `route_back` event; at the cap the route back is refused with `retry_limit` and the run pauses for the user, whose approval raises that loop's cap by one. Until the reviewer exists (M3), deterministic checks after the analysis stand in for it: a failed run goes back to implementation, and a metric the method names without a result record goes back to methodology.
 
 ## 5. Architecture
 
