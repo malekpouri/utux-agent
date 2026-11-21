@@ -25,7 +25,9 @@ from workflow_scripts import (
 from utux.core.checkpoints import StrictCheckpointSerializer
 from utux.core.workflow import (
     CHECKPOINT_FILE,
+    FINDINGS,
     NODES,
+    ROUTES,
     checkpointed_state,
     resume_workflow,
     run_workflow,
@@ -187,7 +189,9 @@ def test_graph_state_holds_only_ids_paths_hashes_and_small_enums(project: Path) 
     state, _ = checkpointed_state(project, outcome.run_id)
     for key, value in _leaves(state):
         assert isinstance(value, str), (key, value)
-        assert _ID.match(value) or _HASH.match(value) or value in NODES, (key, value)
+        # The small enums: node names, routes and findings (M1-12).
+        enums = (*NODES, *ROUTES, *FINDINGS)
+        assert _ID.match(value) or _HASH.match(value) or value in enums, (key, value)
     # Neither artifact text nor model output is in the checkpoint database.
     database = (project / CHECKPOINT_FILE).read_bytes()
     assert METHOD.encode() not in database

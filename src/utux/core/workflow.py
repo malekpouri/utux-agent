@@ -25,6 +25,7 @@ builds the graph.
 import itertools
 import os
 import platform
+import re
 import shutil
 import sqlite3
 from collections.abc import Callable, Iterator
@@ -43,6 +44,7 @@ from utux.errors import (
     ApprovalMismatchError,
     BudgetExhaustedError,
     CheckpointMismatchError,
+    MethodFormatError,
     ModelProviderConfigError,
     NoRunToResumeError,
     RunPausedError,
@@ -62,6 +64,8 @@ from utux.schemas.approval import (
     ApprovalRequest,
     ApprovalResponse,
     Decision,
+    ExecutionLimits,
+    PlannedExecution,
     check_response_matches_request,
     load_approval_request,
     load_approval_response,
@@ -72,7 +76,13 @@ from utux.schemas.event import EventStatus, EventType, NewEvent
 from utux.schemas.json_io import parse_json
 from utux.schemas.project_config import Gate, OversightMode, ProjectConfig, load_project_config
 from utux.schemas.result_record import ResultRecord
-from utux.schemas.run_manifest import Container, GitState, Hardware, RunManifest
+from utux.schemas.run_manifest import (
+    Container,
+    GitState,
+    Hardware,
+    RunManifest,
+    load_run_manifest,
+)
 from utux.workspace.atomic import atomic_write_text
 from utux.workspace.commits import check_commits, commit_stage, head_commit
 from utux.workspace.hashing import hash_file
@@ -157,11 +167,18 @@ class StageRecord(TypedDict):
 
 
 class RunState(TypedDict, total=False):
-    """The graph state. Only ids, relative paths, hashes and node names."""
+    """The graph state. Only ids, relative paths, hashes and small enums.
+
+    `route_to` and `finding` are set by the check after the analysis: the
+    node to go back to (or `end`) and the finding that sends the run there
+    (or `none`).
+    """
 
     stages: dict[str, StageRecord]
     experiment_run: str
     results: list[str]
+    route_to: str
+    finding: str
 
 
 def _now() -> datetime:
@@ -324,6 +341,17 @@ class _Context:
     commits: bool
 
 
+def _with_finding(state: RunState, node: str, prompt: str) -> str:
+    """Add the finding that routed the run back to this node, if it did."""
+    if state.get("route_to") == node and state.get("finding", NO_FINDING) != NO_FINDING:
+        return (
+            prompt
+            + "\n\nThe previous attempt was sent back to this stage with the finding: "
+            + f"{state['finding']}."
+        )
+    return prompt
+
+
 def _ask(context: _Context, node: str, prompt: str) -> str:
     role = _AGENTS[node].removeprefix("agent:")
     tier = context.config.models.roles.get(role, Tier.STANDARD)
@@ -356,7 +384,10 @@ def _methodology(
     project = context.project
     inputs = {p: hash_file(project / p) for p in _question_files(project)}
     question = "\n\n".join((project / p).read_text(encoding="utf-8") for p in inputs)
-    method = _ask(context, "methodology", "Write the method for this question.\n\n" + question)
+    prompt = _with_finding(
+        state, "methodology", "Write the method for this question.\n\n" + question
+    )
+    method = _ask(context, "methodology", prompt)
     atomic_write_text(staging.path("method.md"), method)
     artifact = _record_artifact(
         project, staging, "method", "method.md", Stage.METHODOLOGY, _AGENTS["methodology"], ()
@@ -374,7 +405,8 @@ def _implementation(
     project = context.project
     inputs = {"method.md": hash_file(project / "method.md")}
     method = (project / "method.md").read_text(encoding="utf-8")
-    code = _ask(context, "implementation", "Write the code for this method.\n\n" + method)
+    prompt = _with_finding(state, "implementation", "Write the code for this method.\n\n" + method)
+    code = _ask(context, "implementation", prompt)
     atomic_write_text(staging.path("code/main.py"), code)
     artifact = _record_artifact(
         project,
@@ -416,6 +448,29 @@ def _hardware() -> Hardware:
     )
 
 
+def planned_execution(config: ProjectConfig, image_digest: str) -> PlannedExecution:
+    """The execution the experiment runs: what its approval covers.
+
+    The experiment builds its step from this record, and the experiment-plan
+    gate compares it with the record its request approved.
+    """
+    resources = config.resources
+    return PlannedExecution(
+        image_digest=image_digest,
+        command=("python", "code/main.py"),
+        read_only_paths=("code", "inputs"),
+        limits=ExecutionLimits(
+            cpus=resources.cpus,
+            memory_mb=resources.memory_mb,
+            gpus=resources.gpus,
+            disk_mb=resources.disk_mb,
+            max_processes=resources.max_processes,
+            output_mb=resources.output_mb,
+            timeout_seconds=float(resources.wall_clock_seconds or _DEFAULT_TIMEOUT_SECONDS),
+        ),
+    )
+
+
 def _experiment(
     context: _Context, state: RunState, staging: _Staging
 ) -> tuple[StageRecord, RunState]:
@@ -423,24 +478,25 @@ def _experiment(
     services = context.services
     inputs = {"code/main.py": hash_file(project / "code/main.py")}
     run = _next_run_id(project)
-    resources = context.config.resources
+    planned = planned_execution(context.config, services.image_digest)
+    limits = planned.limits
     step = ExecutionStep(
         run_id=run,
-        command=("python", "code/main.py"),
-        image_digest=services.image_digest,
-        read_only_paths=("code", "inputs"),
+        command=planned.command,
+        image_digest=planned.image_digest,
+        read_only_paths=planned.read_only_paths,
         # The container writes into the staging area; the outputs are moved
         # to runs/<run>/outputs when the node completes.
         output_directory=f"{staging.relative}/runs/{run}/outputs",
         limits=ResourceLimits(
-            cpus=resources.cpus,
-            memory_mb=resources.memory_mb,
-            gpus=resources.gpus,
-            disk_mb=resources.disk_mb,
-            max_processes=resources.max_processes,
-            output_mb=resources.output_mb,
+            cpus=limits.cpus,
+            memory_mb=limits.memory_mb,
+            gpus=limits.gpus,
+            disk_mb=limits.disk_mb,
+            max_processes=limits.max_processes,
+            output_mb=limits.output_mb,
         ),
-        timeout_seconds=float(resources.wall_clock_seconds or _DEFAULT_TIMEOUT_SECONDS),
+        timeout_seconds=limits.timeout_seconds,
         environment={},
     )
     result = services.executor.run(step)
@@ -548,6 +604,8 @@ def _node(context: _Context, node: str) -> Callable[[RunState], RunState]:
     def run_node(state: RunState) -> RunState:
         if context.services.before_stage is not None:
             context.services.before_stage(node)
+        if node == "implementation":
+            check_method((context.project / "method.md").read_text(encoding="utf-8"))
         if node in GATE_BEFORE:
             gate, path = GATE_BEFORE[node]
             if context.config.oversight.gate_enabled(gate):
@@ -592,6 +650,152 @@ def _node(context: _Context, node: str) -> Callable[[RunState], RunState]:
         return result
 
     return run_node
+
+
+# The check after the analysis, and routing back (M1-12)
+
+CHECK_NODE = "check"
+"""The deterministic check after the analysis; not a stage, so it writes no
+stage events and makes no commit."""
+
+DEFAULT_RETRY_CAP = 2
+"""The default of `workflow.retry_cap`: how many times a run may be routed
+back to one stage before it pauses."""
+
+RUN_FAILED = "run_failed"
+METRIC_MISSING = "metric_missing"
+NO_FINDING = "none"
+END_ROUTE = "end"
+FINDINGS = (RUN_FAILED, METRIC_MISSING, NO_FINDING)
+ROUTES = (*NODES, END_ROUTE)
+
+_ROUTE_FOR = {RUN_FAILED: "implementation", METRIC_MISSING: "methodology"}
+_METRIC_LINE = re.compile(r"^- metric: ([A-Za-z0-9][A-Za-z0-9_.-]*)$")
+_LOOKS_LIKE_METRIC_LINE = re.compile(r"^\s*[-*+]?\s*metric\b", flags=re.IGNORECASE)
+
+
+def named_metrics(method: str) -> set[str]:
+    """The metrics a method names.
+
+    A metric is named on a line of exactly this form: `- metric: <name>`,
+    the hyphen at the start of the line, one space on each side of
+    `metric:`, and a name of letters, digits, `_`, `.` and `-` that starts
+    with a letter or digit, with nothing after it.
+    """
+    return {
+        found.group(1)
+        for line in method.splitlines()
+        if (found := _METRIC_LINE.fullmatch(line)) is not None
+    }
+
+
+def check_method(method: str) -> None:
+    """Refuse a method that names no metric, or whose metric line is malformed.
+
+    Raises:
+        MethodFormatError: No line names a metric, or a line looks like a
+            metric line but is not of the exact form.
+    """
+    for number, line in enumerate(method.splitlines(), start=1):
+        if _LOOKS_LIKE_METRIC_LINE.match(line) and _METRIC_LINE.fullmatch(line) is None:
+            raise MethodFormatError(
+                f"method.md, line {number}: {line!r} is not a metric line of the form "
+                "'- metric: <name>'; correct method.md and run utux run again"
+            )
+    if not named_metrics(method):
+        raise MethodFormatError(
+            "method.md names no metric; add a line '- metric: <name>' for each metric "
+            "the method's success criteria use, and run utux run again"
+        )
+
+
+def _finding(context: _Context, state: RunState) -> str:
+    project = context.project
+    run = state.get("experiment_run", "")
+    manifest = load_run_manifest(project / "runs" / run / "manifest.json")
+    if manifest.exit_status != 0 or manifest.stopped_by is not None:
+        return RUN_FAILED
+    method = (project / "method.md").read_text(encoding="utf-8")
+    recorded = {record.metric for record in _read_records(project, state.get("results", []))}
+    if named_metrics(method) - recorded:
+        return METRIC_MISSING
+    return NO_FINDING
+
+
+def _routes_so_far(context: _Context, to_stage: str) -> tuple[int, int]:
+    """The route backs to a stage in this run, and the approved raises of its cap."""
+    routes = 0
+    refused: set[str] = set()
+    for event in context.log:
+        if event.type is not EventType.ROUTE_BACK or event.run_id != context.run_id:
+            continue
+        if event.data.get("to_stage") != to_stage:
+            continue
+        if event.status is EventStatus.OK:
+            routes += 1
+        else:
+            refused.add(event.event_id)
+    answered = _answered(context)
+    raises = sum(
+        1
+        for approval_id, request in _requests_of_run(context)
+        if request.kind is ApprovalKind.RETRY_LIMIT
+        and request.refused_event_id in refused
+        and answered.get(approval_id) == Decision.APPROVE.value
+    )
+    return routes, raises
+
+
+def _check(context: _Context) -> Callable[[RunState], RunState]:
+    def run_check(state: RunState) -> RunState:
+        finding = _finding(context, state)
+        if finding == NO_FINDING:
+            return {"route_to": END_ROUTE, "finding": NO_FINDING}
+        to = _ROUTE_FOR[finding]
+        to_stage = STAGE_OF[to].value
+        routes, raises = _routes_so_far(context, to_stage)
+        attempt, cap = routes + 1, context.config.workflow.retry_cap + raises
+        data: dict[str, Scalar] = {
+            "from_stage": Stage.EXPERIMENT.value,
+            "to_stage": to_stage,
+            "finding": finding,
+            "attempt": attempt,
+            "cap": cap,
+        }
+        if attempt > cap:
+            refused = context.log.append(
+                NewEvent(
+                    actor=SYSTEM_ACTOR,
+                    type=EventType.ROUTE_BACK,
+                    status=EventStatus.REFUSED,
+                    status_reason=RETRY_LIMIT,
+                    run_id=context.run_id,
+                    stage=Stage.EXPERIMENT,
+                    data=data,
+                )
+            )
+            _ask_for_approval(
+                context,
+                Stage.EXPERIMENT,
+                kind=ApprovalKind.RETRY_LIMIT,
+                refused_event_id=refused.event_id,
+            )
+        context.log.append(
+            NewEvent(
+                actor=SYSTEM_ACTOR,
+                type=EventType.ROUTE_BACK,
+                status=EventStatus.OK,
+                run_id=context.run_id,
+                stage=Stage.EXPERIMENT,
+                data=data,
+            )
+        )
+        return {"route_to": to, "finding": finding}
+
+    return run_check
+
+
+RETRY_LIMIT = "retry_limit"
 
 
 # Gates and pauses (M1-11, ADR-0011)
@@ -654,6 +858,7 @@ def _ask_for_approval(
     gate: Gate | None = None,
     artifact: ArtifactMetadata | None = None,
     refused_event_id: str | None = None,
+    execution: PlannedExecution | None = None,
 ) -> NoReturn:
     """Write a request and its event, then pause the run."""
     approval_id = _next_approval_id(context.project)
@@ -667,6 +872,7 @@ def _ask_for_approval(
         path=None if artifact is None else artifact.path,
         stage=None if kind is ApprovalKind.ARTIFACT else stage,
         refused_event_id=refused_event_id,
+        execution=execution,
         requested_by=SYSTEM_ACTOR,
         requested_at=_timestamp(),
     )
@@ -703,10 +909,19 @@ def _pass_gate(context: _Context, gate: Gate, path: str) -> None:
     current = current_artifact(context.project, path)
     if current is None:
         raise RunRefusedError(f"there is no version of {path} for the {gate.value} gate")
+    # The execution the experiment would run now; an experiment-plan
+    # approval covers only the execution its request recorded.
+    planned = (
+        planned_execution(context.config, context.services.image_digest)
+        if gate is Gate.EXPERIMENT_PLAN
+        else None
+    )
     answered = _answered(context)
     for approval_id, request in reversed(_requests_of_run(context)):
         if request.kind is not ApprovalKind.ARTIFACT or request.gate is not gate:
             continue
+        if request.execution != planned:
+            break
         decision = answered.get(approval_id)
         if decision is None:
             if request.artifact_id == current.artifact_id:
@@ -720,7 +935,12 @@ def _pass_gate(context: _Context, gate: Gate, path: str) -> None:
             return
         break
     _ask_for_approval(
-        context, current.stage, kind=ApprovalKind.ARTIFACT, gate=gate, artifact=current
+        context,
+        current.stage,
+        kind=ApprovalKind.ARTIFACT,
+        gate=gate,
+        artifact=current,
+        execution=planned,
     )
 
 
@@ -876,7 +1096,13 @@ def _graph(context: _Context, saver: SqliteSaver) -> Any:
     graph.add_edge(START, NODES[0])
     for first, second in itertools.pairwise(NODES):
         graph.add_edge(first, second)
-    graph.add_edge(NODES[-1], END)
+    graph.add_node(CHECK_NODE, _check(context))  # type: ignore[call-overload]
+    graph.add_edge(NODES[-1], CHECK_NODE)
+    graph.add_conditional_edges(
+        CHECK_NODE,
+        lambda state: state["route_to"],
+        {"implementation": "implementation", "methodology": "methodology", END_ROUTE: END},
+    )
     return graph.compile(checkpointer=saver)
 
 

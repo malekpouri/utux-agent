@@ -240,6 +240,7 @@ def test_event_types_are_the_ones_named_in_the_specification_and_the_plan() -> N
         "run_started",
         "run_resumed",
         "run_restarted",
+        "route_back",
     }
 
 
@@ -517,6 +518,7 @@ def test_types_without_defined_keys_accept_only_an_empty_object() -> None:
             EventType.RUN_RESTARTED,
             EventType.APPROVAL_REQUESTED,
             EventType.APPROVAL_ANSWERED,
+            EventType.ROUTE_BACK,
         ):
             continue
         document = _with(type=kind.value, data={})
@@ -740,3 +742,56 @@ def test_approval_answered_names_the_request_and_the_decision() -> None:
     assert _problems(_of("approval_answered.json", approval_id="a-000001")) == [
         ("data.decision", "missing")
     ]
+
+
+# Routing back (M1-12)
+
+
+def test_route_back_names_both_stages_the_finding_the_attempt_and_the_cap() -> None:
+    event = load_event(FIXTURES / "valid" / "route_back.json")
+    assert event.data == {
+        "from_stage": "experiment",
+        "to_stage": "implementation",
+        "finding": "run_failed",
+        "attempt": 3,
+        "cap": 2,
+    }
+
+
+@pytest.mark.parametrize(
+    ("data", "problem"),
+    [
+        (
+            {
+                "from_stage": "experiment",
+                "to_stage": "implementation",
+                "finding": "Run Failed",
+                "attempt": 1,
+                "cap": 2,
+            },
+            ("data.finding", "string_pattern_mismatch"),
+        ),
+        (
+            {
+                "from_stage": "experiment",
+                "to_stage": "implementation",
+                "finding": "run_failed",
+                "attempt": -1,
+                "cap": 2,
+            },
+            ("data.attempt", "int_type"),
+        ),
+        (
+            {
+                "from_stage": "",
+                "to_stage": "implementation",
+                "finding": "run_failed",
+                "attempt": 1,
+                "cap": 2,
+            },
+            ("data.from_stage", "string_type"),
+        ),
+    ],
+)
+def test_route_back_data_is_checked(data: dict[str, object], problem: tuple[str, str]) -> None:
+    assert _problems(_of("route_back.json", **data)) == [problem]

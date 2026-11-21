@@ -8,6 +8,7 @@
   "path": "method.md",
   "stage": null,
   "refused_event_id": null,
+  "execution": null,
   "requested_by": "agent:methodologist",
   "requested_at": "2026-11-15T10:05:00"
 }

@@ -8,6 +8,7 @@
   "path": "paper/main.tex",
   "stage": null,
   "refused_event_id": null,
+  "execution": null,
   "requested_by": "system:utux",
   "requested_at": "2026-11-15T10:05:00Z"
 }

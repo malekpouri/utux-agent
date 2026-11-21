@@ -13,10 +13,10 @@ from utux.core.workflow import WorkflowServices
 from utux.executors.scripted import ScriptedExecutor, ScriptedRun
 from utux.providers.scripted import ScriptedModelProvider, ScriptedReply
 
-METHOD = "# Method\n\nSynthetic method: fit a line to the synthetic data.\n"
+METHOD = "# Method\n\nSynthetic method: fit a line to the synthetic data.\n\n- metric: r2\n"
 CODE = "print('synthetic experiment')\n"
 CODE_AFTER_EDIT = "print('synthetic experiment, second version')\n"
-METHOD_AFTER_QUESTION_EDIT = "# Method\n\nSynthetic method, second version.\n"
+METHOD_AFTER_QUESTION_EDIT = "# Method\n\nSynthetic method, second version.\n\n- metric: r2\n"
 QUESTION = "Synthetic question: does a line fit the synthetic data?\n"
 IMAGE = "sha256:" + "a" * 64
 

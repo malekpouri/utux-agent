@@ -8,6 +8,7 @@
   "path": null,
   "stage": "implementation",
   "refused_event_id": "42",
+  "execution": null,
   "requested_by": "system:utux",
   "requested_at": "2026-11-16T14:00:00Z"
 }

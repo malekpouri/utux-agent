@@ -46,6 +46,7 @@ INVALID = [
     ("local_server_url_not_http.yaml", "local_server.base_url", "invalid_url"),
     ("local_server_url_with_credentials.yaml", "local_server.base_url", "credentials_in_url"),
     ("allow_unknown_cost_not_boolean.yaml", "budget.allow_unknown_cost", "bool_type"),
+    ("retry_cap_negative.yaml", "workflow.retry_cap", "greater_than_equal"),
 ]
 
 
@@ -79,6 +80,7 @@ def test_minimal_file_validates_and_fills_documented_defaults() -> None:
     assert config.models.roles == {}
     assert config.local_server.base_url == "http://localhost:11434/v1"
     assert config.budget.allow_unknown_cost is False
+    assert config.workflow.retry_cap == 2
 
 
 def test_minimal_fixture_holds_only_the_required_fields() -> None:
@@ -122,6 +124,7 @@ def test_full_file_reads_every_field() -> None:
     assert config.data_policy is DataPolicy.EXTERNAL_ALLOWED
     assert config.local_server.base_url == "http://127.0.0.1:8080/v1"
     assert config.budget.allow_unknown_cost is True
+    assert config.workflow.retry_cap == 3
     assert config.budget.per_stage_usd[Stage.EXPERIMENT] == 20.0
     assert set(config.budget.per_stage_usd) == set(Stage)
     assert config.oversight.mode is OversightMode.AUTO

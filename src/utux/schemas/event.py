@@ -53,6 +53,7 @@ class EventType(StrEnum):
     RUN_STARTED = "run_started"
     RUN_RESUMED = "run_resumed"
     RUN_RESTARTED = "run_restarted"
+    ROUTE_BACK = "route_back"
 
 
 class EventStatus(StrEnum):
@@ -81,6 +82,7 @@ _DATA_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.RUN_RESTARTED: ("changed_path", "expected_hash", "actual_hash"),
     EventType.APPROVAL_REQUESTED: ("approval_id", "kind", "gate"),
     EventType.APPROVAL_ANSWERED: ("approval_id", "decision"),
+    EventType.ROUTE_BACK: ("from_stage", "to_stage", "finding", "attempt", "cap"),
 }
 
 # Keys of `data` whose value must be non-empty text.
@@ -95,6 +97,7 @@ _TEXT_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.RUN_RESTARTED: ("changed_path",),
     EventType.APPROVAL_REQUESTED: ("approval_id", "kind"),
     EventType.APPROVAL_ANSWERED: ("approval_id", "decision"),
+    EventType.ROUTE_BACK: ("from_stage", "to_stage"),
 }
 
 # Keys of `data` whose value must be true or false.
@@ -124,6 +127,12 @@ _CODE = re.compile(r"^[a-z][a-z0-9_]*$")
 # Keys of `data` whose value must be a whole number of zero or more.
 _COUNT_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.LOG_REPAIRED: ("fragment_bytes",),
+    EventType.ROUTE_BACK: ("attempt", "cap"),
+}
+
+# Keys of `data` whose value must be a stable code: lower-case letters, digits and _.
+_CODE_KEYS: dict[EventType, tuple[str, ...]] = {
+    EventType.ROUTE_BACK: ("finding",),
 }
 
 # Keys of `data` whose value must be an amount in US dollars: a number of
@@ -196,6 +205,20 @@ def _check_data_keys(value: dict[str, Scalar], info: ValidationInfo) -> dict[str
                         "type": PydanticCustomError(
                             "string_pattern_mismatch",
                             "must be null or sha256: and 64 lower-case hexadecimal digits",
+                        ),
+                        "loc": (key,),
+                        "input": None,
+                    }
+                )
+    for key in _CODE_KEYS.get(kind, ()):
+        if key in value:
+            code = value[key]
+            if not isinstance(code, str) or not _CODE.match(code):
+                errors.append(
+                    {
+                        "type": PydanticCustomError(
+                            "string_pattern_mismatch",
+                            "must be a code of lower-case letters, digits and _",
                         ),
                         "loc": (key,),
                         "input": None,
