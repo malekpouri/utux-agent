@@ -149,6 +149,7 @@ Python 3.12 or newer and [uv](https://docs.astral.sh/uv/) are required.
 ```bash
 uv sync                      # install dependencies from uv.lock
 uv run pytest                # unit and integration tests (no network)
+uv run pytest -m docker      # sandbox tests (need Docker and a local image)
 uv run ruff check .          # lint
 uv run ruff format --check . # format check
 uv run mypy src              # type check (strict)

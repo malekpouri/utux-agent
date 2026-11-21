@@ -93,6 +93,75 @@ with it.
 Executors live in `utux.executors`. They depend only on the interfaces, the
 schemas and `utux.workspace`, never on each other.
 
+### The Docker executor
+
+`utux.executors.docker.DockerExecutor(project)` runs each step in a new
+container with `docker run`, through `subprocess`; no Docker SDK is used.
+`docker_run_arguments` builds the command, and a unit test asserts it
+argument by argument:
+
+| Flag | Why |
+| --- | --- |
+| `--user=<uid>:<gid>` of the user running utux | Never root; outputs belong to the user. utux refuses to run as root |
+| `--read-only` | The root file system cannot be written |
+| `--cap-drop=ALL`, `--security-opt=no-new-privileges` | No Linux capabilities, no privilege gain |
+| no seccomp option | Docker's default seccomp profile applies; utux refuses a daemon without seccomp |
+| `--network=none` | No network |
+| `--hostname=utux-sandbox` | The host name does not reach the container |
+| `--pids-limit`, `--memory`, `--memory-swap` (equal), `--cpus` | Limits; a step's limit, else the executor's default (256 processes, 2048 MB, 1 CPU) |
+| `--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=<disk_mb>m` | The only writable scratch space, size-limited (default 512 MB) |
+| `--mount=...,readonly` per read-only path, one writable mount for the output directory | Under `/project`, the working directory |
+| `--env=NAME=VALUE` per step variable | Nothing else of the host's environment |
+| `--gpus=<n>` | Only when the step asks for GPUs; never `--device` |
+
+Never `--privileged`, never the home directory, never the Docker socket.
+
+Before a run, utux checks, without starting anything:
+- that every read-only path exists, stays inside the project after
+  symbolic links are resolved, and is not a socket;
+- that the output directory is empty or does not exist yet;
+- that Docker is installed and its daemon answers;
+- that the image is present locally with exactly the step's digest, the
+  local image id. utux never pulls an image during a run.
+
+A missing Docker or an unreachable daemon is `ExecutorUnavailableError`;
+there is no fallback to the host.
+
+**Which limit stopped a run.** A limit is named only when it is known for
+certain:
+- the wall-clock timeout, from the executor's own timer, which then kills
+  the container: `wall_clock`, with no exit status;
+- memory, from Docker's report that the container was killed for it
+  (`State.OOMKilled`): `memory`.
+
+Anything else is not guessed. The process limit, for example, usually makes
+a fork fail inside the container rather than end the run; the result then
+shows the exit status and the captured output.
+
+The container is removed after the run. `rootless()` says whether the daemon
+runs rootless, for `container.rootless` in the run manifest. Rootless Docker
+is preferred but not required. With rootless Docker, the host user's id
+inside the container maps to a different id on the host, so the output
+directory may not be writable; this is not tested yet.
+
+The behaviour inside a real sandbox is tested by the tests marked `docker`,
+which run only on request:
+
+```bash
+uv run pytest -m docker
+```
+
+They need a Docker daemon and the local image `python:3.12-slim-bookworm`.
+They show that writing outside the output directory fails, that a network
+connection fails, that unmounted host paths cannot be read, that a fork bomb
+is contained and ends within its timeout, that memory beyond the limit ends
+the run, and that no host variable reaches the container.
+
+Docker is not a complete security boundary: a kernel or Docker flaw can
+break out of any container. The flags reduce what model-written code can
+reach; they do not make it safe to run hostile code on a machine that holds
+secrets. The sandbox document of task M1-17 covers this in full.
+
 ## Conformance
 
 `tests/conformance/executor_suite.py` holds the tests that every executor

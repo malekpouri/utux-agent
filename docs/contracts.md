@@ -55,7 +55,7 @@ have stored full text (code `stored_text_exceeds_source_version`, on
 | `parameters` | flat object | The experiment parameters |
 | `config_files` | list of `path` and `hash` | The configuration files |
 | `git` | `commit` (40 hexadecimal digits), `dirty` (boolean) | The commit, and whether the tree had uncommitted changes |
-| `container` | `image_digest` (content hash), `locked_packages` (name to version) | The image and the locked package versions |
+| `container` | `image_digest` (content hash), `locked_packages` (name to version), `rootless` (boolean) | The image, the locked package versions, and whether Docker ran rootless, which is preferred but not required |
 | `datasets` | list of `name`, `version`, `obtained_from`, `files` (list of `path` and `hash`) | Dataset version, origin and input data hashes |
 | `seeds` | object of name to integer | The random seeds |
 | `hardware` | `cpu`, `cpu_count`, `memory_mb`, `gpu`, `cuda_version`, `driver_version` | The machine. The last three are null without a GPU |
@@ -64,6 +64,81 @@ have stored full text (code `stored_text_exceeds_source_version`, on
 | `outputs` | list of `path` and `hash`; may be empty | The files the run produced |
 | `started_at`, `ended_at` | UTC timestamps | Start and end. The end is not before the start (code `ended_before_started`) |
 | `exit_status` | integer | Exit status of the command |
+
+A complete manifest:
+
+```json
+{
+  "schema_version": 1,
+  "run_id": "r012",
+  "command": [
+    "python",
+    "code/train.py",
+    "--config",
+    "code/config.yaml"
+  ],
+  "parameters": {
+    "learning_rate": 0.001,
+    "epochs": 20,
+    "scheduler": "cosine",
+    "augment": true
+  },
+  "config_files": [
+    {
+      "path": "code/config.yaml",
+      "hash": "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41"
+    }
+  ],
+  "git": {
+    "commit": "0123456789abcdef0123456789abcdef01234567",
+    "dirty": false
+  },
+  "container": {
+    "image_digest": "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41",
+    "locked_packages": {
+      "numpy": "2.1.0",
+      "scikit-learn": "1.5.2"
+    },
+    "rootless": false
+  },
+  "datasets": [
+    {
+      "name": "dataset_x",
+      "version": "1.0",
+      "obtained_from": "synthetic public archive",
+      "files": [
+        {
+          "path": "inputs/dataset_x/train.csv",
+          "hash": "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41"
+        }
+      ]
+    }
+  ],
+  "seeds": {
+    "python": 0,
+    "numpy": 0
+  },
+  "hardware": {
+    "cpu": "synthetic 8-core CPU",
+    "cpu_count": 8,
+    "memory_mb": 16384,
+    "gpu": null,
+    "cuda_version": null,
+    "driver_version": null
+  },
+  "models": [],
+  "external_services": [],
+  "outputs": [
+    {
+      "path": "runs/r012/metrics.json",
+      "hash": "sha256:abababababababababababababababababababababababababababababababab"
+    }
+  ],
+  "started_at": "2026-11-15T10:00:00Z",
+  "ended_at": "2026-11-15T10:14:30Z",
+  "exit_status": 0
+}
+```
 
 A flat object holds only strings, numbers, booleans and null. Paths are
 relative paths inside the project. With a GPU, `cuda_version` and
