@@ -38,7 +38,8 @@ A stored event states every field. A field that does not apply is `null`.
 Event types: `project_created`, `stage_start`, `stage_end`, `model_call`,
 `tool_call`, `code_execution`, `verification_result`, `approval_requested`,
 `approval_answered`, `budget_warning`, `setting_changed`, `error`,
-`log_repaired`. An event with any other type is rejected.
+`log_repaired`, `run_started`, `run_resumed`, `run_restarted`. An event with
+any other type is rejected.
 
 A `parent_id` must name an earlier event. An event that names itself has code
 `self_reference`; one that names a later event has code `parent_not_earlier`.
@@ -75,6 +76,10 @@ Each event type defines its keys. A missing key is reported as
 | `model_call` | `provider` (non-empty text), `is_external` (true or false); both required. See [logged model calls](model-calls.md) |
 | `budget_warning` | `spent_usd`, the known cost so far, and `total_usd`, the budget it was compared with (numbers, 0 or more; codes `float_type` and `greater_than_equal`); both required. The event's `stage` names the stage whose budget is exhausted, null for the project budget. See [cost and budget](cost.md) |
 | `log_repaired` | `fragment_file` (non-empty text), `fragment_hash` (content hash), `fragment_bytes` (whole number, 0 or more); all required |
+| `stage_start`, `stage_end` | `node` (non-empty text): the node of the workflow, `methodology`, `implementation`, `experiment` or `analysis`; required. The event's `stage` is the node's stage, `experiment` for the analysis; `stage_end` lists the artifacts the node made in `artifacts`. See [How a run works](workflow.md) |
+| `run_started` | `mode` (non-empty text, `guided` or `auto`), `commits` (true or false), `commit_check_reason` (a code such as `commit_check_failed` or `commit_check_timeout`, or null); all required. Its `event_id` is the run's id, the `run_id` of every later event of the run (ADR-0010) |
+| `run_resumed` | none. Written when a run continues from its checkpoint |
+| `run_restarted` | `changed_path` (non-empty text), `expected_hash` and `actual_hash` (content hash or null: null when the file is new, or gone); all required. The event's `stage` is the stage of the node the run restarts at |
 | every other type | none; `data` must be `{}` until the task that emits the type defines its keys |
 
 Message content and source text never go into `data`. An event records what
