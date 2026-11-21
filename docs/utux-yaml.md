@@ -40,6 +40,7 @@ These three values are required. Everything else has a default.
 | `resources.wall_clock_seconds` | integer above 0 | not set | Time limit per run |
 | `resources.disk_mb` | integer above 0 | not set | Disk limit per run |
 | `resources.max_processes` | integer above 0 | not set | Process-count limit per run |
+| `resources.output_mb` | integer above 0 | not set | Size limit of a run's output directory, in MiB; the executor's default is 1024. See [The sandbox](sandbox.md) |
 | `models.tiers` | mapping of `light`, `standard`, `strong` to a model id | empty | Model for each tier. What is not set comes from the profile |
 | `models.roles` | mapping of role name to tier | empty | Tier for each agent role |
 
@@ -92,6 +93,7 @@ resources:
   wall_clock_seconds: 3600
   disk_mb: 20480
   max_processes: 256
+  output_mb: 2048
 models:
   tiers:
     light: example/light-model
