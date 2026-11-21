@@ -517,6 +517,7 @@ def test_types_without_defined_keys_accept_only_an_empty_object() -> None:
             EventType.STAGE_END,
             EventType.RUN_STARTED,
             EventType.RUN_RESTARTED,
+            EventType.CODE_EXECUTION,
             EventType.LOCK_REMOVED,
             EventType.APPROVAL_REQUESTED,
             EventType.APPROVAL_ANSWERED,
@@ -834,3 +835,46 @@ def test_lock_removed_names_the_holder_of_the_removed_lock() -> None:
 )
 def test_lock_removed_data_is_checked(data: dict[str, object], problem: str) -> None:
     assert [field for field, _ in _problems(_of("lock_removed.json", **data))] == [problem]
+
+
+# data of code_execution (M1-15b)
+
+
+def test_code_execution_names_the_execution_run_its_image_and_how_it_ended() -> None:
+    event = load_event(FIXTURES / "valid" / "code_execution.json")
+    assert event.data == {
+        "execution_run_id": "r001",
+        "image_digest": "sha256:" + "3" * 64,
+        "exit_status": 0,
+        "stopped_by": None,
+    }
+
+
+_RUN = {"execution_run_id": "r001", "image_digest": "sha256:" + "3" * 64}
+
+
+@pytest.mark.parametrize(
+    ("data", "problem"),
+    [
+        (
+            {**_RUN, "execution_run_id": "e-000001", "exit_status": 0, "stopped_by": None},
+            "data.execution_run_id",
+        ),
+        (
+            {**_RUN, "image_digest": "abc", "exit_status": 0, "stopped_by": None},
+            "data.image_digest",
+        ),
+        ({**_RUN, "exit_status": "0", "stopped_by": None}, "data.exit_status"),
+        ({**_RUN, "exit_status": True, "stopped_by": None}, "data.exit_status"),
+        ({**_RUN, "exit_status": 0, "stopped_by": "cpu"}, "data.stopped_by"),
+        ({**_RUN, "exit_status": 0}, "data.stopped_by"),
+    ],
+)
+def test_code_execution_data_is_checked(data: dict[str, object], problem: str) -> None:
+    assert [field for field, _ in _problems(_of("code_execution.json", **data))] == [problem]
+
+
+def test_code_execution_accepts_a_limit_and_no_exit_status() -> None:
+    document = _of("code_execution.json", **_RUN, exit_status=None, stopped_by="wall_clock")
+    document.update(status="error", status_reason="limit_wall_clock")
+    assert Event.from_json(json.dumps(document)).data["stopped_by"] == "wall_clock"

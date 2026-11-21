@@ -14,6 +14,7 @@ import pytest
 from workflow_scripts import (
     CODE,
     CODE_AFTER_EDIT,
+    METHOD,
     METHOD_AFTER_QUESTION_EDIT,
     METHOD_AFTER_QUESTION_EDIT_MD,
     METHOD_MD,
@@ -23,6 +24,7 @@ from workflow_scripts import (
     switch_gates_off,
 )
 
+from utux.core.approvals import answer_approval
 from utux.core.checkpoints import StrictCheckpointSerializer
 from utux.core.workflow import (
     CHECKPOINT_FILE,
@@ -33,8 +35,14 @@ from utux.core.workflow import (
     resume_workflow,
     run_workflow,
 )
-from utux.errors import CheckpointMismatchError, NoRunToResumeError, RunRefusedError
+from utux.errors import (
+    CheckpointMismatchError,
+    NoRunToResumeError,
+    RunPausedError,
+    RunRefusedError,
+)
 from utux.events.log import EventLog
+from utux.schemas.approval import Decision
 from utux.schemas.artifact_metadata import load_artifact_metadata
 from utux.schemas.event import Event, EventStatus, EventType
 from utux.schemas.project_config import DataPolicy
@@ -214,6 +222,29 @@ def test_events_are_readable_while_the_run_is_in_progress(project: Path) -> None
     assert seen["implementation"] == ["methodology"]
     assert seen["experiment"] == ["methodology", "implementation"]
     assert seen["analysis"] == ["methodology", "implementation", "experiment"]
+
+
+def test_check_4_model_calls_executions_and_approvals_are_in_the_log_during_the_run(
+    tmp_path: Path, git_config: Path
+) -> None:
+    # Gates on: the run pauses at each gate, is answered, and resumes.
+    project = init_project(tmp_path / "gated", budget_usd=5, data_policy=DataPolicy.LOCAL_ONLY)
+    (project / "inputs" / "question.md").write_text(QUESTION, encoding="utf-8")
+    configure_models(project)
+    seen: dict[str, set[str]] = {}
+
+    def look(node: str) -> None:
+        seen[node] = {e.type.value for e in EventLog(project / "events.jsonl")}
+
+    for approval_id in ("a-000001", "a-000002"):
+        with pytest.raises(RunPausedError):
+            (run_workflow if approval_id == "a-000001" else resume_workflow)(
+                project, services(project, (METHOD, CODE), before_stage=look)
+            )
+        answer_approval(project, approval_id, Decision.APPROVE, person="alex")
+    resume_workflow(project, services(project, (CODE,), before_stage=look))
+    assert {"model_call", "approval_requested", "approval_answered"} <= seen["implementation"]
+    assert {"model_call", "code_execution", "approval_answered"} <= seen["analysis"]
 
 
 # The commit check of ADR-0010
