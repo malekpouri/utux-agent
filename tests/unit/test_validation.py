@@ -738,6 +738,7 @@ _UNBOUND_REQUEST = {
     "path": None,
     "stage": "implementation",
     "refused_event_id": "e-000001",
+    "execution": None,
     "requested_by": "system:utux",
     "requested_at": "2026-11-16T14:00:00Z",
 }

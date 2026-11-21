@@ -154,8 +154,11 @@ def test_every_request_field_is_required() -> None:
 
 
 def test_request_gate_is_one_of_the_four_gates() -> None:
+    plan = read_valid(REQUEST, "experiment_plan_gate.json")["execution"]
     for gate in Gate:
-        assert _request(gate=gate.value).gate is gate
+        # Only an experiment-plan request records an execution.
+        execution = plan if gate is Gate.EXPERIMENT_PLAN else None
+        assert _request(gate=gate.value, execution=execution).gate is gate
 
 
 # Response
