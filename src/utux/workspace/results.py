@@ -7,9 +7,12 @@ the run's id, and the metrics file as source. Both files are written with
 the atomic writer. The caller holds the project lock.
 
 Numbers never come from model text: only the file the step's code wrote is
-read, and only if it is still the file the run reported.
+read, and only if it is still the file the run reported. A run that a limit
+stopped gets its manifest but no records, even if it wrote `metrics.json`:
+a file that may be cut off mid-write cannot become a published number.
 """
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from utux.errors import ResultRecordingError
@@ -26,6 +29,27 @@ METRICS_FILE = "metrics.json"
 """The name of the metrics file in a step's output directory."""
 
 _ID_DIGITS = 4
+
+STOPPED_BY_LIMIT = "stopped_by_limit"
+"""Reason: a limit stopped the run, so its metrics are not recorded."""
+
+NO_METRICS_FILE = "no_metrics_file"
+"""Reason: the run wrote no metrics file."""
+
+
+@dataclass(frozen=True)
+class RunRecording:
+    """What `record_run` recorded.
+
+    Attributes:
+        records: The new result records, in the order of the metrics file.
+        not_recorded: Why there are none, as a stable code
+            (`stopped_by_limit` or `no_metrics_file`), or None when the
+            metrics file was recorded, even with no entries.
+    """
+
+    records: tuple[ResultRecord, ...]
+    not_recorded: str | None
 
 
 def manifest_outputs(step: ExecutionStep, result: RunResult) -> tuple[FileRef, ...]:
@@ -57,16 +81,17 @@ def _next_ids(records: list[ResultRecord], count: int) -> list[str]:
 
 def record_run(
     project: Path, step: ExecutionStep, result: RunResult, manifest: RunManifest
-) -> tuple[ResultRecord, ...]:
+) -> RunRecording:
     """Write the manifest of an ended run, then its result records.
 
     Returns:
-        The new records, in the order of the metrics file. Empty if the run
-        wrote no `metrics.json`.
+        The new records, or the reason there are none: the run was stopped
+        by a limit, or it wrote no `metrics.json`. Neither is an error.
 
     Raises:
-        ResultRecordingError: The manifest is of another run, its outputs
-            differ from the run's, the run already has a manifest, or the
+        ResultRecordingError: The manifest is of another run, it states
+            another exit status or limit than the run's, its outputs differ
+            from the run's, the run already has a manifest, or the
             metrics file changed after the run. Nothing is written.
         ContractValidationError: The metrics file, or a line of
             `results.jsonl`, is invalid; the problems are those of the schema.
@@ -77,6 +102,12 @@ def record_run(
             f"the manifest is of run {manifest.run_id}, the step and result of run "
             f"{step.run_id} and {result.run_id}"
         )
+    if (manifest.exit_status, manifest.stopped_by) != (result.exit_status, result.stopped_by):
+        raise ResultRecordingError(
+            "the manifest states another way the run ended than its result: exit status "
+            f"{manifest.exit_status} and limit {manifest.stopped_by}, not "
+            f"{result.exit_status} and {result.stopped_by}"
+        )
     if manifest.outputs != manifest_outputs(step, result):
         raise ResultRecordingError("the manifest's outputs differ from the files the run wrote")
     manifest_path = project / "runs" / step.run_id / "manifest.json"
@@ -85,15 +116,21 @@ def record_run(
     reported = {file.path: file.content_hash for file in result.output_files}
     metrics_path = project / step.output_directory / METRICS_FILE
     source = f"{step.output_directory}/{METRICS_FILE}"
-    if METRICS_FILE in reported and hash_file(metrics_path) != reported[METRICS_FILE]:
+    if (
+        result.stopped_by is None
+        and METRICS_FILE in reported
+        and hash_file(metrics_path) != reported[METRICS_FILE]
+    ):
         raise ResultRecordingError(
             f"{source} changed after the run; only the file the run wrote is recorded"
         )
 
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_text(manifest_path, manifest.to_json())
+    if result.stopped_by is not None:
+        return RunRecording((), STOPPED_BY_LIMIT)
     if METRICS_FILE not in reported:
-        return ()
+        return RunRecording((), NO_METRICS_FILE)
 
     metrics = MetricsFile.validate_document(
         parse_json(metrics_path.read_text(encoding="utf-8"), source), source
@@ -122,4 +159,4 @@ def record_run(
         atomic_write_text(
             project / RESULTS_FILE, prefix + "".join(r.to_json_line() for r in records)
         )
-    return records
+    return RunRecording(records, None)
