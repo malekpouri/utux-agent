@@ -76,7 +76,7 @@ def test_specification_example_validates_unchanged() -> None:
     assert record.model == "model_a"
     assert record.split == "test"
     assert record.run_id == "r012"
-    assert record.source == "runs/r012/metrics.json"
+    assert record.source == "runs/r012/outputs/metrics.json"
     assert record.tolerance == 0.005
 
 
