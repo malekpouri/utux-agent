@@ -313,6 +313,8 @@ models:
     light: example/light-model
   roles:
     planner: light
+workflow:
+  retry_cap: 2
 ```
 
 The project lock `.utux/lock`:
