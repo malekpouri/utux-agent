@@ -50,6 +50,7 @@ takes priority over feature work.
 uv sync                      # install dependencies from uv.lock
 uv run pytest                # unit and integration tests (no network)
 uv run pytest -m live        # live tests; needs API keys; never run in CI by default
+uv run pytest -m docker      # sandbox tests; need a Docker daemon and a local image
 uv run ruff check .          # lint
 uv run ruff format .         # format
 uv run mypy src              # type check (strict)
