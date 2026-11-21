@@ -81,13 +81,15 @@ def _metrics_bytes(document: dict[str, Any] = METRICS) -> bytes:
 def _manifest(project: Path, result: RunResult, **changes: Any) -> RunManifest:
     document = json.loads((project / "runs" / "r012" / "manifest.json").read_text("utf-8"))
     document.update(
-        run_id=result.run_id,
-        outputs=[o.model_dump(mode="json") for o in manifest_outputs(_step(), result)],
-        started_at=result.started_at,
-        ended_at=result.ended_at,
-        exit_status=result.exit_status,
-        **changes,
+        {
+            "run_id": result.run_id,
+            "outputs": [o.model_dump(mode="json") for o in manifest_outputs(_step(), result)],
+            "started_at": result.started_at,
+            "ended_at": result.ended_at,
+            "exit_status": result.exit_status,
+        }
     )
+    document.update(changes)
     return RunManifest.from_json(json.dumps(document))
 
 
@@ -121,7 +123,9 @@ def test_the_manifest_is_written_and_the_project_stays_valid(project: Path) -> N
     result = _run(project, {METRICS_FILE: _metrics_bytes()})
     manifest = _manifest(project, result)
     record_run(project, _step(), result, manifest)
-    written = RunManifest.from_json((project / "runs" / "r013" / "manifest.json").read_text("utf-8"))
+    written = RunManifest.from_json(
+        (project / "runs" / "r013" / "manifest.json").read_text("utf-8")
+    )
     assert written == manifest
     report = validate_project(project)
     assert report.problems == ()
@@ -143,9 +147,7 @@ def test_an_invalid_metrics_file_fails_with_its_problems_and_writes_no_record(
     result = _run(project, {METRICS_FILE: _metrics_bytes(bad)})
     with pytest.raises(ContractValidationError) as caught:
         record_run(project, _step(), result, _manifest(project, result))
-    assert [(p.field, p.code) for p in caught.value.problems] == [
-        ("entries.0.value", "float_type")
-    ]
+    assert [(p.field, p.code) for p in caught.value.problems] == [("entries.0.value", "float_type")]
     assert caught.value.source == f"{OUTPUT}/{METRICS_FILE}"
     assert (project / "results.jsonl").read_bytes() == before
     # The run ended, so its manifest is still written.
