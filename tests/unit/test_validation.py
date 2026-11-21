@@ -752,8 +752,88 @@ def _with_unbound_request(tmp_path: Path, **changes: object) -> Path:
     return project
 
 
+def _append_event(project: Path, **fields: object) -> str:
+    from utux.events.log import EventLog
+    from utux.schemas.event import NewEvent
+
+    event = EventLog(project / "events.jsonl").append(NewEvent(**fields))  # type: ignore[arg-type]
+    return event.event_id
+
+
+def _refused_call(project: Path, reason: str = "budget_exhausted") -> str:
+    return _append_event(
+        project,
+        actor="system:utux",
+        type="model_call",
+        status="refused",
+        status_reason=reason,
+        model="synthetic/model",
+        data={"provider": "scripted", "is_external": False},
+    )
+
+
+def _refused_route(project: Path, reason: str = "retry_limit") -> str:
+    return _append_event(
+        project,
+        actor="system:utux",
+        type="route_back",
+        status="refused",
+        status_reason=reason,
+        stage="experiment",
+        data={
+            "from_stage": "experiment",
+            "to_stage": "implementation",
+            "finding": "run_failed",
+            "attempt": 3,
+            "cap": 2,
+        },
+    )
+
+
 def test_an_unbound_request_whose_refused_call_is_in_the_log_is_valid(tmp_path: Path) -> None:
-    assert validate_project(_with_unbound_request(tmp_path)).problems == ()
+    project = _with_unbound_request(tmp_path)
+    refused = _refused_call(project)
+    _write_request(project, refused_event_id=refused)
+    assert validate_project(project).problems == ()
+
+
+def _write_request(project: Path, **changes: object) -> None:
+    document = {**_UNBOUND_REQUEST, **changes}
+    (project / "approvals" / "a-000009.request.json").write_text(
+        json.dumps(document, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+# The type of the event a request names (M1-12)
+
+
+def test_a_budget_request_must_name_a_call_refused_for_the_budget(tmp_path: Path) -> None:
+    project = _with_unbound_request(tmp_path)
+    other = _refused_call(project, reason="data_policy_local_only")
+    _write_request(project, refused_event_id=other)
+    assert _found(validate_project(project)) == [
+        ("approvals/a-000009.request.json", None, "refused_event_id", "wrong_refused_event"),
+    ]
+
+
+def test_a_retry_request_must_name_a_route_back_refused_for_the_cap(tmp_path: Path) -> None:
+    project = _with_unbound_request(tmp_path)
+    route = _refused_route(project)
+    _write_request(project, kind="retry_limit", stage="experiment", refused_event_id=route)
+    assert validate_project(project).problems == ()
+    call = _refused_call(project)
+    _write_request(project, kind="retry_limit", stage="experiment", refused_event_id=call)
+    assert _found(validate_project(project)) == [
+        ("approvals/a-000009.request.json", None, "refused_event_id", "wrong_refused_event"),
+    ]
+
+
+def test_a_request_naming_an_event_that_was_not_refused_is_reported(tmp_path: Path) -> None:
+    project = _with_unbound_request(tmp_path)
+    # e-000001 is the project_created event.
+    assert _found(validate_project(project)) == [
+        ("approvals/a-000009.request.json", None, "refused_event_id", "wrong_refused_event"),
+    ]
 
 
 def test_an_unbound_request_must_name_an_event_of_the_log(tmp_path: Path) -> None:
@@ -765,6 +845,7 @@ def test_an_unbound_request_must_name_an_event_of_the_log(tmp_path: Path) -> Non
 
 def test_a_response_of_another_kind_than_its_request_is_reported(tmp_path: Path) -> None:
     project = _with_unbound_request(tmp_path)
+    _write_request(project, refused_event_id=_refused_call(project))
     response = {
         "schema_version": 1,
         "approval_id": "a-000009",
