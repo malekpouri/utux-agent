@@ -54,6 +54,7 @@ class EventType(StrEnum):
     RUN_RESUMED = "run_resumed"
     RUN_RESTARTED = "run_restarted"
     ROUTE_BACK = "route_back"
+    LOCK_REMOVED = "lock_removed"
 
 
 class EventStatus(StrEnum):
@@ -83,6 +84,7 @@ _DATA_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.APPROVAL_REQUESTED: ("approval_id", "kind", "gate"),
     EventType.APPROVAL_ANSWERED: ("approval_id", "decision", "feedback"),
     EventType.ROUTE_BACK: ("from_stage", "to_stage", "finding", "attempt", "cap"),
+    EventType.LOCK_REMOVED: ("pid", "host", "command", "started_at"),
 }
 
 # Keys of `data` whose value must be non-empty text.
@@ -98,6 +100,7 @@ _TEXT_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.APPROVAL_REQUESTED: ("approval_id", "kind"),
     EventType.APPROVAL_ANSWERED: ("approval_id", "decision"),
     EventType.ROUTE_BACK: ("from_stage", "to_stage"),
+    EventType.LOCK_REMOVED: ("host", "command", "started_at"),
 }
 
 # Keys of `data` whose value must be true or false.
@@ -133,6 +136,7 @@ _CODE = re.compile(r"^[a-z][a-z0-9_]*$")
 _COUNT_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.LOG_REPAIRED: ("fragment_bytes",),
     EventType.ROUTE_BACK: ("attempt", "cap"),
+    EventType.LOCK_REMOVED: ("pid",),
 }
 
 # Keys of `data` whose value must be a stable code: lower-case letters, digits and _.

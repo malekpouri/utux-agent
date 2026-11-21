@@ -290,3 +290,15 @@ class AgentOutputError(UtuxError):
 
     The stage fails and writes nothing; an `error` event records it.
     """
+
+
+class InvalidProjectError(UtuxError):
+    """The project fails `utux validate`, so a command does not act on it."""
+
+
+class ApprovalAnswerError(UtuxError):
+    """An answer to an approval request cannot be written as given."""
+
+
+class UnlockRefusedError(UtuxError):
+    """The project lock is not removed: it is absent, unreadable, or may be in use."""
