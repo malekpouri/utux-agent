@@ -141,11 +141,13 @@ class LoggedModelCaller:
         actor: str,
         prompt_version: str | None,
         stage: Stage | None = None,
+        run_id: str | None = None,
     ) -> ModelResponse:
         """Make one model call and log it as exactly one event.
 
         The answer is returned only after its event is written, so that no
-        result is used without a record.
+        result is used without a record. `run_id` names the run the call
+        belongs to, if any, in the event.
 
         Raises:
             ModelCallRefusedError: The data policy does not allow the call.
@@ -172,6 +174,7 @@ class LoggedModelCaller:
                 actor=actor,
                 type=EventType.MODEL_CALL,
                 stage=stage,
+                run_id=run_id,
                 prompt_version=prompt_version,
                 input_hash=input_hash(request),
                 data={"provider": self._provider.name, "is_external": self._provider.is_external},

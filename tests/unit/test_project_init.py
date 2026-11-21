@@ -395,6 +395,7 @@ def test_gitignore_is_the_exclude_list_without_gitkeep_plus_two_lines_and_adr_00
         "*.pyc",
         ".utux/checkpoints.sqlite*",
         ".utux/lock",
+        ".utux/staging/",
         ".*.tmp",
         "inputs/**",
         "!inputs/**/",

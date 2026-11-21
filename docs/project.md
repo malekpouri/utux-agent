@@ -108,6 +108,7 @@ __pycache__/
 *.pyc
 .utux/checkpoints.sqlite*
 .utux/lock
+.utux/staging/
 .*.tmp
 inputs/**
 !inputs/**/
@@ -118,7 +119,7 @@ runs/*/outputs/
 
 `.utux/checkpoints.sqlite*` covers the checkpoint database and the `-wal`,
 `-shm` and `-journal` files SQLite keeps beside it while it is open and
-after a crash. `.utux/lock` is the project lock (below). `.*.tmp` covers the
+after a crash. `.utux/lock` is the project lock (below), and `.utux/staging/` the staging area of a node that has not finished ([How a run works](run.md)). `.*.tmp` covers the
 temporary files of the atomic writer. The last five
 lines are those of ADR-0009: every file under `inputs/` except `*.md` files,
 and everything under `runs/<run_id>/outputs/`, stays out of git. Their

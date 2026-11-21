@@ -26,6 +26,7 @@ def _new(**changes: Any) -> NewEvent:
         "actor": "system:utux",
         "type": EventType.STAGE_START,
         "status": EventStatus.OK,
+        "data": {"node": "methodology"},
     }
     return NewEvent(**{**fields, **changes})
 

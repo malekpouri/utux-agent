@@ -74,6 +74,7 @@ GITIGNORE_LINES = (
     "*.pyc",
     ".utux/checkpoints.sqlite*",
     ".utux/lock",
+    ".utux/staging/",
     ".*.tmp",
     *ADR_0009_IGNORE_LINES,
 )
@@ -81,7 +82,8 @@ GITIGNORE_LINES = (
 
 The exclude entries without `.gitkeep`, which git must track so that empty
 directories are kept, plus the checkpoint database with SQLite's `-wal`,
-`-shm` and `-journal` files beside it, the project lock, the temporary files
+`-shm` and `-journal` files beside it, the project lock, the staging area of
+a node that has not completed, the temporary files
 of the atomic writer, and the lines of ADR-0009. `ignored_by_git` reads these
 same lines, so what `utux validate` treats as kept out of git is what
 `utux init` writes.

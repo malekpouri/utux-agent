@@ -80,9 +80,20 @@ def _next_ids(records: list[ResultRecord], count: int) -> list[str]:
 
 
 def record_run(
-    project: Path, step: ExecutionStep, result: RunResult, manifest: RunManifest
+    project: Path,
+    step: ExecutionStep,
+    result: RunResult,
+    manifest: RunManifest,
+    *,
+    root: Path | None = None,
 ) -> RunRecording:
     """Write the manifest of an ended run, then its result records.
+
+    `root` is where the run's files are and where the manifest and the new
+    `results.jsonl` are written, with the project's own paths below it; by
+    default the project itself. A node of the workflow passes its staging
+    area, and moves the files into the project when it completes. Existing
+    records and manifests are always read from the project.
 
     Returns:
         The new records, or the reason there are none: the run was stopped
@@ -113,8 +124,9 @@ def record_run(
     manifest_path = project / "runs" / step.run_id / "manifest.json"
     if manifest_path.exists():
         raise ResultRecordingError(f"run {step.run_id} already has a manifest; it is recorded once")
+    target = project if root is None else root
     reported = {file.path: file.content_hash for file in result.output_files}
-    metrics_path = project / step.output_directory / METRICS_FILE
+    metrics_path = target / step.output_directory / METRICS_FILE
     source = f"{step.output_directory}/{METRICS_FILE}"
     if (
         result.stopped_by is None
@@ -125,8 +137,9 @@ def record_run(
             f"{source} changed after the run; only the file the run wrote is recorded"
         )
 
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(manifest_path, manifest.to_json())
+    written_manifest = target / "runs" / step.run_id / "manifest.json"
+    written_manifest.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(written_manifest, manifest.to_json())
     if result.stopped_by is not None:
         return RunRecording((), STOPPED_BY_LIMIT)
     if METRICS_FILE not in reported:
@@ -157,6 +170,6 @@ def record_run(
     if records:
         prefix = text if not text or text.endswith("\n") else text + "\n"
         atomic_write_text(
-            project / RESULTS_FILE, prefix + "".join(r.to_json_line() for r in records)
+            target / RESULTS_FILE, prefix + "".join(r.to_json_line() for r in records)
         )
     return RunRecording(records, None)
