@@ -70,8 +70,14 @@ reason, and writes nothing.
   metric lines always have their exact form.
 - `results.md` is written by utux from the analyst's text: each `[R0001]`
   becomes `<value> <unit> [R0001]` from that record. The text is checked
-  before (no digit outside a reference, no unknown reference) and
-  `results.md` after: a number without its result record is refused.
+  before (no digit and no number word outside a reference, no unknown
+  reference) and `results.md` after: a number without its result record is
+  refused. The number words are zero to nineteen, the tens, hundred,
+  thousand, million, billion, percent, per cent, half, twice, double and
+  triple, as whole words in any case. The check catches digits and these
+  words; it is not a proof that no number was written ("a dozen", a number
+  in another language). Configuration numbers, such as the number of folds,
+  belong in `method.md`, and the analyst's prompt says so.
 
 ## Starting a run, and commits
 
@@ -151,7 +157,18 @@ stage events and makes no commit.
 | Finding | When | Routed back to |
 | --- | --- | --- |
 | `run_failed` | the execution run's exit status is not zero, or a limit stopped it | `implementation` |
+| `hardcoded_metric` | the value of a result record, rounded to the decimals its tolerance implies, appears as a numeric literal in `code/main.py` | `implementation` |
 | `metric_missing` | a metric that `method.md` names has no result record of the run | `methodology` |
+
+The check for a hard-coded metric parses the code, never runs it, and
+compares every int and float literal with each recorded value, both rounded
+to the decimals that the record's tolerance implies (a tolerance of 0.005
+gives two). It is a heuristic that catches only the plain case of a value
+written into the code; a value assembled from parts, or read from a file
+the code wrote, passes it. The reviewer (M3) and the negative control of
+the benchmark (M4) are the stronger checks. A literal such as `1` can match
+a metric whose value is 1.0; the run is then sent back, and the cap still
+applies.
 
 `method.md` names each metric on a line of exactly this form:
 
