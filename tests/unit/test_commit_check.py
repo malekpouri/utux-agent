@@ -62,20 +62,21 @@ def test_a_signing_program_that_waits_times_out(project: Path, tmp_path: Path) -
 
 
 def test_the_check_cannot_prompt(project: Path, tmp_path: Path) -> None:
-    # The signing program records what it sees, then fails.
+    # The signing program records what it sees, then fails. Its own standard
+    # input is the data to sign, which git pipes to it; what must be closed
+    # is git's standard input, which the program finds as its parent's.
     seen = tmp_path / "seen"
     _sign_with(
         project,
         _script(
             tmp_path / "sign",
             f'echo "prompt=$GIT_TERMINAL_PROMPT" > "{seen}"\n'
-            f'if read line; then echo "stdin=open" >> "{seen}"; '
-            f'else echo "stdin=closed" >> "{seen}"; fi\n'
+            f'echo "git_stdin=$(readlink /proc/$PPID/fd/0)" >> "{seen}"\n'
             "exit 1\n",
         ),
     )
     check_commits(project)
-    assert seen.read_text(encoding="utf-8").split() == ["prompt=0", "stdin=closed"]
+    assert seen.read_text(encoding="utf-8").split() == ["prompt=0", "git_stdin=/dev/null"]
 
 
 def test_the_check_does_not_touch_the_project(project: Path) -> None:

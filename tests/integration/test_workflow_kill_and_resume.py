@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from workflow_scripts import QUESTION
+from workflow_scripts import QUESTION, configure_models
 
 from utux.events.log import EventLog
 from utux.schemas.artifact_metadata import load_artifact_metadata
@@ -40,6 +40,7 @@ def _project(path: Path, environment: dict[str, str], monkeypatch: pytest.Monkey
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
     project = init_project(path, budget_usd=5, data_policy=DataPolicy.LOCAL_ONLY)
     (project / "inputs" / "question.md").write_text(QUESTION, encoding="utf-8")
+    configure_models(project)
     return project
 
 
@@ -94,6 +95,12 @@ def test_a_killed_run_resumes_in_a_new_process_with_the_same_results(
     assert ends == ["methodology", "implementation"]
     assert not (killed / "results.md").exists()
 
+    # The killed process left the project lock behind. Resume refuses until a
+    # person has removed it, as documented for a crash.
+    refused = _child(killed, "resume", environment)
+    assert refused.returncode != 0
+    assert "no longer running" in refused.stderr
+    (killed / ".utux" / "lock").unlink()
     resumed = _child(killed, "resume", environment)
     assert resumed.returncode == 0, resumed.stderr
     uninterrupted = _child(whole, "run", environment)

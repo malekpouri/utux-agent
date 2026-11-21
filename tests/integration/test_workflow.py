@@ -17,6 +17,7 @@ from workflow_scripts import (
     METHOD,
     METHOD_AFTER_QUESTION_EDIT,
     QUESTION,
+    configure_models,
     services,
 )
 
@@ -36,9 +37,10 @@ from utux.schemas.project_config import DataPolicy
 from utux.workspace.hashing import hash_file
 from utux.workspace.project import init_project
 from utux.workspace.validation import validate_project
+from utux.workspace.writer import record_setting_changes
 
 
-class SyntheticCrash(Exception):
+class SyntheticCrashError(Exception):
     """Stands in for a crash between two stages."""
 
 
@@ -56,6 +58,7 @@ def git_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def make_project(path: Path) -> Path:
     project = init_project(path, budget_usd=5, data_policy=DataPolicy.LOCAL_ONLY)
     (project / "inputs" / "question.md").write_text(QUESTION, encoding="utf-8")
+    configure_models(project)
     return project
 
 
@@ -77,7 +80,7 @@ def _git(project: Path, *arguments: str) -> str:
 def _crash_before(stage: str) -> object:
     def hook(node: str) -> None:
         if node == stage:
-            raise SyntheticCrash(node)
+            raise SyntheticCrashError(node)
 
     return hook
 
@@ -253,7 +256,7 @@ def test_auto_mode_refuses_to_start_when_the_check_fails(project: Path, tmp_path
 
 
 def test_a_resume_after_a_crash_continues_where_it_stopped(project: Path) -> None:
-    with pytest.raises(SyntheticCrash):
+    with pytest.raises(SyntheticCrashError):
         run_workflow(project, services(project, before_stage=_crash_before("experiment")))
     outcome = resume_workflow(project, services(project, replies=()))
     assert [r.id for r in outcome.results] == ["R0001"]
@@ -264,7 +267,7 @@ def test_a_resume_after_a_crash_continues_where_it_stopped(project: Path) -> Non
 
 
 def test_an_edited_input_restarts_the_earliest_stage_that_reads_it(project: Path) -> None:
-    with pytest.raises(SyntheticCrash):
+    with pytest.raises(SyntheticCrashError):
         run_workflow(project, services(project, before_stage=_crash_before("experiment")))
     (project / "method.md").write_text(METHOD + "\nEdited by hand.\n", encoding="utf-8")
     outcome = resume_workflow(project, services(project, replies=(CODE_AFTER_EDIT,)))
@@ -286,7 +289,7 @@ def test_an_edited_input_restarts_the_earliest_stage_that_reads_it(project: Path
 
 
 def test_an_edited_question_restarts_from_methodology(project: Path) -> None:
-    with pytest.raises(SyntheticCrash):
+    with pytest.raises(SyntheticCrashError):
         run_workflow(project, services(project, before_stage=_crash_before("experiment")))
     (project / "inputs" / "question.md").write_text(QUESTION + "Edited.\n", encoding="utf-8")
     resume_workflow(project, services(project, replies=(METHOD_AFTER_QUESTION_EDIT, CODE)))
@@ -304,10 +307,13 @@ def test_a_checkpoint_that_no_run_started_event_matches_is_refused(
     tmp_path: Path, git_config: Path
 ) -> None:
     other = make_project(tmp_path / "other")
-    with pytest.raises(SyntheticCrash):
+    with pytest.raises(SyntheticCrashError):
         run_workflow(other, services(other, before_stage=_crash_before("experiment")))
     project = make_project(tmp_path / "p")
     shutil.copyfile(other / CHECKPOINT_FILE, project / CHECKPOINT_FILE)
+    # The hand edit of the model tier is recorded first, as by any writing
+    # command (M1-05), so that only the refusal is compared.
+    record_setting_changes(project)
     before = (project / "events.jsonl").read_bytes()
     with pytest.raises(CheckpointMismatchError, match="run_started"):
         resume_workflow(project, services(project, replies=()))

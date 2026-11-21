@@ -42,6 +42,17 @@ METRICS = (
 ).encode("utf-8")
 
 
+def configure_models(project: Path) -> None:
+    """Give the project a model for the standard tier, as a user would."""
+    config = project / "utux.yaml"
+    text = config.read_text(encoding="utf-8")
+    assert text.count("  tiers: {}\n") == 1
+    config.write_text(
+        text.replace("  tiers: {}\n", "  tiers:\n    standard: scripted/standard-model\n"),
+        encoding="utf-8",
+    )
+
+
 def services(
     project: Path,
     replies: Sequence[str] = (METHOD, CODE),
