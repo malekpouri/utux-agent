@@ -50,6 +50,9 @@ class EventType(StrEnum):
     SETTING_CHANGED = "setting_changed"
     ERROR = "error"
     LOG_REPAIRED = "log_repaired"
+    RUN_STARTED = "run_started"
+    RUN_RESUMED = "run_resumed"
+    RUN_RESTARTED = "run_restarted"
 
 
 class EventStatus(StrEnum):
@@ -72,6 +75,10 @@ _DATA_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.LOG_REPAIRED: ("fragment_file", "fragment_hash", "fragment_bytes"),
     EventType.MODEL_CALL: ("provider", "is_external"),
     EventType.BUDGET_WARNING: ("spent_usd", "total_usd"),
+    EventType.STAGE_START: ("node",),
+    EventType.STAGE_END: ("node",),
+    EventType.RUN_STARTED: ("mode", "commits", "commit_check_reason"),
+    EventType.RUN_RESTARTED: ("changed_path", "expected_hash", "actual_hash"),
 }
 
 # Keys of `data` whose value must be non-empty text.
@@ -80,17 +87,35 @@ _TEXT_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.SETTING_CHANGED: ("key",),
     EventType.LOG_REPAIRED: ("fragment_file", "fragment_hash"),
     EventType.MODEL_CALL: ("provider",),
+    EventType.STAGE_START: ("node",),
+    EventType.STAGE_END: ("node",),
+    EventType.RUN_STARTED: ("mode",),
+    EventType.RUN_RESTARTED: ("changed_path", "expected_hash"),
 }
 
 # Keys of `data` whose value must be true or false.
 _BOOLEAN_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.MODEL_CALL: ("is_external",),
+    EventType.RUN_STARTED: ("commits",),
 }
 
 # Keys of `data` whose value must be a content hash.
 _HASH_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.LOG_REPAIRED: ("fragment_hash",),
+    EventType.RUN_RESTARTED: ("expected_hash",),
 }
+
+# Keys of `data` whose value must be a content hash or null.
+_OPTIONAL_HASH_KEYS: dict[EventType, tuple[str, ...]] = {
+    EventType.RUN_RESTARTED: ("actual_hash",),
+}
+
+# Keys of `data` whose value must be a stable code, as `status_reason`, or null.
+_OPTIONAL_CODE_KEYS: dict[EventType, tuple[str, ...]] = {
+    EventType.RUN_STARTED: ("commit_check_reason",),
+}
+
+_CODE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 # Keys of `data` whose value must be a whole number of zero or more.
 _COUNT_KEYS: dict[EventType, tuple[str, ...]] = {
@@ -153,6 +178,34 @@ def _check_data_keys(value: dict[str, Scalar], info: ValidationInfo) -> dict[str
                         "type": PydanticCustomError(
                             "string_pattern_mismatch",
                             "must be sha256: and 64 lower-case hexadecimal digits",
+                        ),
+                        "loc": (key,),
+                        "input": None,
+                    }
+                )
+    for key in _OPTIONAL_HASH_KEYS.get(kind, ()):
+        if key in value and value[key] is not None:
+            hashed = value[key]
+            if not isinstance(hashed, str) or not _SHA256.match(hashed):
+                errors.append(
+                    {
+                        "type": PydanticCustomError(
+                            "string_pattern_mismatch",
+                            "must be null or sha256: and 64 lower-case hexadecimal digits",
+                        ),
+                        "loc": (key,),
+                        "input": None,
+                    }
+                )
+    for key in _OPTIONAL_CODE_KEYS.get(kind, ()):
+        if key in value and value[key] is not None:
+            code = value[key]
+            if not isinstance(code, str) or not _CODE.match(code):
+                errors.append(
+                    {
+                        "type": PydanticCustomError(
+                            "string_pattern_mismatch",
+                            "must be null or a code of lower-case letters, digits and _",
                         ),
                         "loc": (key,),
                         "input": None,
