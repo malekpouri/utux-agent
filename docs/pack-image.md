@@ -51,6 +51,19 @@ the hardened sandbox like any step. A run manifest's
 The image is not part of the core; its packages run only inside the
 sandbox. All are permissive: numpy, scipy, pandas, scikit-learn, joblib,
 threadpoolctl, cloudpickle, contourpy, cycler and kiwisolver (BSD),
-matplotlib (its own BSD-style licence), fonttools, pyparsing and pytz (MIT),
-pillow (MIT-CMU), python-dateutil and packaging (Apache-2.0 or BSD), and
-tzdata (Apache-2.0).
+matplotlib (its own PSF-based licence), fonttools, pyparsing and narwhals
+(MIT), pillow (MIT-CMU), python-dateutil and packaging (Apache-2.0 or BSD),
+and tzdata (Apache-2.0).
+
+The four named packages are at the newest stable releases that have wheels
+for CPython 3.12 on x86_64 Linux at the time of pinning: numpy 2.5.5, pandas
+3.1.1, scikit-learn 1.9.1 and matplotlib 3.11.2. The others are what they
+require. cloudpickle, for example, is required by joblib, which
+scikit-learn requires. To update, change the four versions and regenerate
+the file:
+
+```bash
+uv pip compile requirements.in --python-version 3.12 \
+  --python-platform x86_64-manylinux_2_28 --generate-hashes \
+  --no-header --no-annotate -o requirements.txt
+```
