@@ -103,6 +103,8 @@ models:
     planner: strong
     writer: standard
     summariser: light
+workflow:
+  retry_cap: 3
 ```
 
 ## Errors

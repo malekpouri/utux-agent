@@ -42,6 +42,7 @@ REQUEST_FIELDS = [
     "path",
     "stage",
     "refused_event_id",
+    "execution",
     "requested_by",
     "requested_at",
 ]
@@ -83,6 +84,8 @@ INVALID_REQUESTS: list[Row] = [
     ("budget_exhausted_with_artifact_id.json", "artifact_id", "not_allowed_for_kind"),
     ("budget_exhausted_without_stage.json", "stage", "required_for_kind"),
     ("refused_event_id_malformed.json", "refused_event_id", "string_pattern_mismatch"),
+    ("experiment_plan_without_execution.json", "execution", "required_for_gate"),
+    ("method_gate_with_execution.json", "execution", "not_allowed_for_gate"),
 ]
 
 INVALID_RESPONSES: list[Row] = [
@@ -449,19 +452,43 @@ def test_the_examples_of_the_documentation_are_valid() -> None:
     blocks = _json_blocks(
         "docs/contracts.md", "## Approval request and response", "## Exporting the schemas"
     )
-    assert len(blocks) == 3
+    assert len(blocks) == 4
     artifact = ApprovalRequest.from_json(blocks[0], source="docs/contracts.md")
-    budget = ApprovalRequest.from_json(blocks[1], source="docs/contracts.md")
-    response = ApprovalResponse.from_json(blocks[2], source="docs/contracts.md")
+    plan = ApprovalRequest.from_json(blocks[1], source="docs/contracts.md")
+    budget = ApprovalRequest.from_json(blocks[2], source="docs/contracts.md")
+    response = ApprovalResponse.from_json(blocks[3], source="docs/contracts.md")
     assert artifact.kind is ApprovalKind.ARTIFACT
+    assert artifact.execution is None
+    assert plan.execution is not None
     assert budget.kind is ApprovalKind.BUDGET_EXHAUSTED
     check_response_matches_request(budget, response, "docs/contracts.md")
 
 
 def test_the_examples_of_the_specification_are_valid() -> None:
     blocks = _json_blocks("docs/spec.md", "### Approvals", "## 8.")
-    assert len(blocks) == 2
-    request = ApprovalRequest.from_json(blocks[0], source="docs/spec.md")
-    response = ApprovalResponse.from_json(blocks[1], source="docs/spec.md")
+    assert len(blocks) == 3
+    plan = ApprovalRequest.from_json(blocks[0], source="docs/spec.md")
+    request = ApprovalRequest.from_json(blocks[1], source="docs/spec.md")
+    response = ApprovalResponse.from_json(blocks[2], source="docs/spec.md")
+    assert plan.execution is not None
     assert request.kind is ApprovalKind.BUDGET_EXHAUSTED
     check_response_matches_request(request, response, "docs/spec.md")
+
+
+# The execution an experiment-plan request approves (M1-12 review)
+
+
+def test_an_experiment_plan_request_records_the_execution_it_approves() -> None:
+    request = load_approval_request(FIXTURES_ROOT / REQUEST / "valid" / "experiment_plan_gate.json")
+    assert request.execution is not None
+    assert request.execution.image_digest == "sha256:" + "a" * 64
+    assert request.execution.command == ("python", "code/main.py")
+    assert request.execution.read_only_paths == ("code", "inputs")
+    assert request.execution.limits.memory_mb == 4096
+    assert request.execution.limits.timeout_seconds == 3600.0
+
+
+def test_the_execution_record_holds_every_field() -> None:
+    document = read_valid(REQUEST, "experiment_plan_gate.json")
+    del document["execution"]["limits"]["timeout_seconds"]
+    assert problems(ApprovalRequest, document) == [("execution.limits.timeout_seconds", "missing")]
