@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "event_id": "e-000002",
+  "run_id": "e-000004",
+  "request_id": null,
+  "parent_id": null,
+  "ts": "2026-11-15T09:00:00.125Z",
+  "actor": "system:utux",
+  "stage": "methodology",
+  "type": "approval_answered",
+  "model": null,
+  "prompt_version": null,
+  "tool_version": null,
+  "input_hash": null,
+  "output_hash": null,
+  "tokens_in": null,
+  "tokens_out": null,
+  "cost_usd": null,
+  "duration_ms": null,
+  "status": "ok",
+  "status_reason": null,
+  "retry_reason": null,
+  "escalated_from": null,
+  "data": {
+    "approval_id": "a-000001",
+    "decision": "edit"
+  },
+  "artifacts": []
+}

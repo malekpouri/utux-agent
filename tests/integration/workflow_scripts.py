@@ -53,17 +53,29 @@ def configure_models(project: Path) -> None:
     )
 
 
+def switch_gates_off(project: Path) -> None:
+    """Switch the method and experiment-plan gates off, as a user can."""
+    config = project / "utux.yaml"
+    text = config.read_text(encoding="utf-8")
+    for gate in ("method", "experiment_plan"):
+        old = f"    {gate}: null\n"
+        assert text.count(old) == 1, old
+        text = text.replace(old, f"    {gate}: false\n")
+    config.write_text(text, encoding="utf-8")
+
+
 def services(
     project: Path,
     replies: Sequence[str] = (METHOD, CODE),
     *,
+    cost_usd: float = 0.0,
     runs: int = 1,
     before_stage: Callable[[str], None] | None = None,
     inside_stage: Callable[[str, str], None] | None = None,
 ) -> WorkflowServices:
     """Scripted services: one reply per model call, `runs` scripted runs."""
     provider = ScriptedModelProvider(
-        [ScriptedReply(content=reply, cost_usd=0.0) for reply in replies],
+        [ScriptedReply(content=reply, cost_usd=cost_usd) for reply in replies],
         name="scripted",
         is_external=False,
     )

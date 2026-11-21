@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from workflow_scripts import QUESTION, configure_models
+from workflow_scripts import QUESTION, configure_models, switch_gates_off
 
 from utux.events.log import EventLog
 from utux.schemas.artifact_metadata import load_artifact_metadata
@@ -41,6 +41,8 @@ def _project(path: Path, environment: dict[str, str], monkeypatch: pytest.Monkey
     project = init_project(path, budget_usd=5, data_policy=DataPolicy.LOCAL_ONLY)
     (project / "inputs" / "question.md").write_text(QUESTION, encoding="utf-8")
     configure_models(project)
+    # The gates are M1-11's; these tests are about the run itself.
+    switch_gates_off(project)
     return project
 
 
