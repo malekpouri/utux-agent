@@ -372,7 +372,15 @@ A number is never stored bare. Each computed value is a structured record in `re
 ```json
 {"schema_version": 1, "id": "R0042", "metric": "AUC", "value": 0.95, "unit": "score",
  "dataset": "dataset_x", "model": "model_a", "split": "test",
- "run_id": "r012", "source": "runs/r012/metrics.json", "tolerance": 0.005}
+ "run_id": "r012", "source": "runs/r012/outputs/metrics.json", "tolerance": 0.005}
+```
+
+Result records are made by utux, not written by a model. The code a run executes writes its values to `metrics.json` in its output directory, and when the run has ended each entry becomes one record with a new id, the run's id and the metrics file as source. An invalid metrics file fails the step with the schema's problems, and no record is written.
+
+```json
+{"schema_version": 1, "entries": [
+ {"metric": "AUC", "value": 0.95, "unit": "score", "dataset": "dataset_x",
+  "model": "model_a", "split": "test", "tolerance": 0.005}]}
 ```
 
 Every number in a manuscript has a source type, and each type is checked against its own source:
