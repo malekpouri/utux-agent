@@ -23,6 +23,7 @@ from utux.schemas.common import (
     EventId,
     FlatObject,
     Identifier,
+    LimitKind,
     NonEmptyText,
     NonNegativeUsd,
     Scalar,
@@ -85,6 +86,7 @@ _DATA_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.APPROVAL_ANSWERED: ("approval_id", "decision", "feedback"),
     EventType.ROUTE_BACK: ("from_stage", "to_stage", "finding", "attempt", "cap"),
     EventType.LOCK_REMOVED: ("pid", "host", "command", "started_at"),
+    EventType.CODE_EXECUTION: ("execution_run_id", "image_digest", "exit_status", "stopped_by"),
 }
 
 # Keys of `data` whose value must be non-empty text.
@@ -101,6 +103,7 @@ _TEXT_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.APPROVAL_ANSWERED: ("approval_id", "decision"),
     EventType.ROUTE_BACK: ("from_stage", "to_stage"),
     EventType.LOCK_REMOVED: ("host", "command", "started_at"),
+    EventType.CODE_EXECUTION: ("execution_run_id", "image_digest"),
 }
 
 # Keys of `data` whose value must be true or false.
@@ -112,6 +115,24 @@ _BOOLEAN_KEYS: dict[EventType, tuple[str, ...]] = {
 # Keys of `data` whose value must be a content hash.
 _HASH_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.LOG_REPAIRED: ("fragment_hash",),
+    EventType.CODE_EXECUTION: ("image_digest",),
+}
+
+# Keys of `data` whose value must be an execution run id, `r` and at least three digits.
+_EXECUTION_RUN_KEYS: dict[EventType, tuple[str, ...]] = {
+    EventType.CODE_EXECUTION: ("execution_run_id",),
+}
+
+_EXECUTION_RUN = re.compile(r"^r[0-9]{3,}$")
+
+# Keys of `data` whose value must be a whole number (an exit status) or null.
+_OPTIONAL_INTEGER_KEYS: dict[EventType, tuple[str, ...]] = {
+    EventType.CODE_EXECUTION: ("exit_status",),
+}
+
+# Keys of `data` whose value must be a limit that stops a run, or null.
+_OPTIONAL_LIMIT_KEYS: dict[EventType, tuple[str, ...]] = {
+    EventType.CODE_EXECUTION: ("stopped_by",),
 }
 
 # Keys of `data` whose value must be a content hash or null.
@@ -252,6 +273,42 @@ def _check_data_keys(value: dict[str, Scalar], info: ValidationInfo) -> dict[str
                         "input": None,
                     }
                 )
+    for key in _EXECUTION_RUN_KEYS.get(kind, ()):
+        run = value.get(key)
+        if isinstance(run, str) and run and not _EXECUTION_RUN.match(run):
+            errors.append(
+                {
+                    "type": PydanticCustomError(
+                        "string_pattern_mismatch", "must be r and at least three digits"
+                    ),
+                    "loc": (key,),
+                    "input": None,
+                }
+            )
+    for key in _OPTIONAL_INTEGER_KEYS.get(kind, ()):
+        number = value.get(key)
+        if number is not None and (not isinstance(number, int) or isinstance(number, bool)):
+            errors.append(
+                {
+                    "type": PydanticCustomError("int_type", "must be a whole number or null"),
+                    "loc": (key,),
+                    "input": None,
+                }
+            )
+    for key in _OPTIONAL_LIMIT_KEYS.get(kind, ()):
+        limit = value.get(key)
+        if limit is not None and limit not in {each.value for each in LimitKind}:
+            errors.append(
+                {
+                    "type": PydanticCustomError(
+                        "enum",
+                        "must be null or one of {limits}",
+                        {"limits": ", ".join(each.value for each in LimitKind)},
+                    ),
+                    "loc": (key,),
+                    "input": None,
+                }
+            )
     for key in _BOOLEAN_KEYS.get(kind, ()):
         if key in value and not isinstance(value[key], bool):
             errors.append(

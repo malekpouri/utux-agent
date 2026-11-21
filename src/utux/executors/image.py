@@ -17,7 +17,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from utux.errors import ExecutorError, PackImageError
+from utux.errors import ExecutorError, ImageMismatchError, PackImageError
 from utux.executors.docker import DockerExecutor
 from utux.interfaces.executor import ExecutionStep, ResourceLimits
 from utux.workspace.atomic import atomic_write_text
@@ -62,18 +62,18 @@ def require_recorded_image(image_directory: Path, image_digest: str) -> None:
     """Refuse a run whose image is not the pack's recorded one.
 
     Raises:
-        ExecutorError: No image is recorded yet, or the step's image differs
-            from the recorded one.
+        ImageMismatchError: No image is recorded yet, or the step's image
+            differs from the recorded one.
         PackImageError: The digest file cannot be read.
     """
     recorded = load_recorded_digest(image_directory)
     if recorded is None:
-        raise ExecutorError(
+        raise ImageMismatchError(
             f"no image is recorded in {image_directory / DIGEST_FILE}; build it with "
             "utux image build and commit the digest"
         )
     if image_digest != recorded:
-        raise ExecutorError(
+        raise ImageMismatchError(
             f"the image {image_digest} differs from the recorded {recorded}; a run uses "
             "only the pack's recorded image"
         )

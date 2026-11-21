@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "event_id": "e-000044",
+  "run_id": "e-000004",
+  "request_id": null,
+  "parent_id": null,
+  "ts": "2026-11-21T10:05:00.000Z",
+  "actor": "system:utux",
+  "stage": "experiment",
+  "type": "code_execution",
+  "model": null,
+  "prompt_version": null,
+  "tool_version": null,
+  "input_hash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "output_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "tokens_in": null,
+  "tokens_out": null,
+  "cost_usd": null,
+  "duration_ms": 1000,
+  "status": "ok",
+  "status_reason": null,
+  "retry_reason": null,
+  "escalated_from": null,
+  "data": {
+    "execution_run_id": "r001",
+    "image_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "exit_status": 0,
+    "stopped_by": null
+  },
+  "artifacts": []
+}

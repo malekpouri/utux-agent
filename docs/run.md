@@ -24,7 +24,7 @@ manifest refuses one.
 | --- | --- | --- | --- |
 | `methodology` | `methodology` | `inputs/*.md` | `method.md`, from the methodologist's plan |
 | `implementation` | `implementation` | `method.md` | `code/main.py`, from the implementer |
-| `experiment` | `experiment` | `code/main.py` | `runs/<run>/`: the run in the sandbox, its manifest and its result records ([Result records from a run](results.md)) |
+| `experiment` | `experiment` | `code/main.py` | `runs/<run>/`: the run in the sandbox, its manifest and its result records ([Result records from a run](results.md)), and a `code_execution` event |
 | `analysis` | `experiment` | the run's manifest and records | `results.md`, from the analyst's text and the result records |
 
 Each node writes its outputs with sidecars, between a `stage_start` and a
@@ -206,6 +206,19 @@ stores plain data only. The state holds only ids, relative paths, hashes and
 node names: for each finished node, its inputs and outputs by path and hash
 and the artifact versions it made, the id of the experiment's run, and the
 ids of its result records. Texts and model output stay in the files.
+
+## The code_execution event
+
+When an execution run ends, and before it is recorded, the `experiment` node
+appends one `code_execution` event: the execution run's id, the image, the
+exit status and the limit that stopped it, the hash of the executed code and
+of `metrics.json`, and the duration ([The event log](event-log.md)). A run
+that exits 0 with no limit is `ok`; any other is an `error` with the reason
+`nonzero_exit` or `limit_<limit>`. A run that could not start is recorded too,
+as `executor_unavailable` (Docker missing or unreachable) or `image_mismatch`:
+the image is not the pack's recorded one, which the node checks before the
+run, or it is not present locally. `utux validate` checks that every run
+manifest has exactly one such event.
 
 ## Exit status
 

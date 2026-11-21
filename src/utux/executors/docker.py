@@ -45,7 +45,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO
 
-from utux.errors import ExecutorError, ExecutorUnavailableError, HashingError
+from utux.errors import (
+    ExecutorError,
+    ExecutorUnavailableError,
+    HashingError,
+    ImageMismatchError,
+)
 from utux.interfaces.executor import (
     DEFAULT_OUTPUT_CAP_BYTES,
     ExecutionStep,
@@ -362,7 +367,7 @@ class DockerExecutor:
     def _check_image(self, digest: str) -> None:
         found = self._docker_command("image", "inspect", "--format", "{{.Id}}", digest)
         if found.returncode != 0 or found.stdout.strip() != digest:
-            raise ExecutorError(
+            raise ImageMismatchError(
                 f"the image {digest} is not present locally; utux does not pull images during a run"
             )
 

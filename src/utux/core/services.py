@@ -62,4 +62,5 @@ def services_for_run(project: Path) -> WorkflowServices:
         locked_packages=image_packages,
         rootless=executor.rootless(),
         prompts=prompts,
+        image_directory=pack / "image",
     )

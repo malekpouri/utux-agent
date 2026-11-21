@@ -34,7 +34,9 @@ sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 
 `utux.executors.image.require_recorded_image(directory, digest)` refuses a
 run whose image differs from the recorded one, and one for which no image is
-recorded yet. The id is the local image id, so it differs between machines
+recorded yet, with `ImageMismatchError`. The `experiment` node calls it before
+each run, and records the refusal as a `code_execution` event with the
+reason `image_mismatch`. The id is the local image id, so it differs between machines
 that build the image separately ([The sandbox](sandbox.md)): to reproduce a
 run elsewhere, use the same image, not a rebuild.
 

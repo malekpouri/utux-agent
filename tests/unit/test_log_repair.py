@@ -76,7 +76,8 @@ def test_repair_is_recorded_as_the_next_event(tmp_path: Path) -> None:
     project, _, fragment = _damaged(tmp_path)
     (repair,) = repair_log(project / "events.jsonl", clock=_clock)
     events = list(EventLog(project / "events.jsonl"))
-    assert [event.event_id for event in events] == ["e-000001", "e-000002", "e-000003"]
+    # The fixture log has three events; the repair is the fourth.
+    assert [event.event_id for event in events] == ["e-000001", "e-000002", "e-000003", "e-000004"]
     last = events[-1]
     assert last == repair.event
     assert last.type is EventType.LOG_REPAIRED
@@ -118,7 +119,7 @@ def test_the_log_can_be_appended_to_after_the_repair(tmp_path: Path) -> None:
             data={"node": "methodology"},
         )
     )
-    assert stored.event_id == "e-000004"
+    assert stored.event_id == "e-000005"
 
 
 def test_fragment_that_is_only_a_newline_short_is_still_a_fragment(tmp_path: Path) -> None:

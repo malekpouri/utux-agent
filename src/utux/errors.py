@@ -212,6 +212,10 @@ class ExecutorError(UtuxError):
     """An executor could not run a step."""
 
 
+class ImageMismatchError(ExecutorError):
+    """The step's image is not the pack's recorded one, or is not present locally."""
+
+
 class ExecutorUnavailableError(ExecutorError):
     """The sandbox of an executor cannot be used, for example Docker is missing.
 
