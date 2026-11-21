@@ -43,22 +43,30 @@ once a run has ended; it takes the run's `RunResult`, which exists only then.
 The caller holds the project lock. In this order:
 
 1. It checks that the manifest, the step and the result are of one run, that
-   the manifest's `outputs` are exactly the files the run wrote (by project
+   the manifest states the run's exit status and `stopped_by` as the result
+   does, that the manifest's `outputs` are exactly the files the run wrote (by project
    path and hash, as `manifest_outputs` lists them), that the run has no
    manifest yet, and that `metrics.json`, if the run wrote one, still has the
    hash the run reported. Otherwise it raises `ResultRecordingError` and
    writes nothing.
 2. It writes `runs/<run_id>/manifest.json` with the atomic writer.
-3. If the run wrote a `metrics.json`, it validates it. An invalid file raises
+3. If a limit stopped the run (`stopped_by` is set, with or without an exit
+   status), it stops here: no record is made, even if `metrics.json` exists,
+   because a file that may be cut off mid-write cannot become a published
+   number. The reason is `stopped_by_limit`.
+4. If the run wrote a `metrics.json`, it validates it. An invalid file raises
    `ContractValidationError` with the schema's problems, named on the
    metrics file; no record is written. The manifest stays, since the run
    ended.
-4. Each entry becomes one record with the next free result id (`R0001`,
+5. Each entry becomes one record with the next free result id (`R0001`,
    `R0002`, and so on, at least four digits, continuing after the highest id
    in the file), the run's `run_id`, and the metrics file as `source`.
    `results.jsonl` is rewritten with the atomic writer: the existing lines
    unchanged, the new ones after them. If a line of `results.jsonl` is
    invalid, nothing is added to it.
 
-A run that wrote no `metrics.json` has no records; whether a metric that the
-method asked for is missing is checked later (task M1-12).
+`record_run` returns a `RunRecording`: the new `records`, and
+`not_recorded`, the reason there are none, `stopped_by_limit` or
+`no_metrics_file`, which are reasons and not errors. A run that wrote no
+`metrics.json` has no records; whether a metric that the method asked for is
+missing is checked later (task M1-12).
