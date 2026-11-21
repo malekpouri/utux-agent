@@ -14,13 +14,34 @@ from typing import Any
 import pytest
 
 from utux.errors import ContractValidationError, ResultRecordingError
+from utux.events.log import EventLog
 from utux.executors.scripted import ScriptedExecutor, ScriptedRun
 from utux.interfaces.executor import ExecutionStep, LimitKind, ResourceLimits, RunResult
+from utux.schemas.event import EventStatus, EventType, NewEvent
 from utux.schemas.result_record import ResultRecord
 from utux.schemas.run_manifest import RunManifest
 from utux.workspace import results as results_module
 from utux.workspace.results import METRICS_FILE, manifest_outputs, record_run
 from utux.workspace.validation import validate_project
+
+
+def _log_execution(project: Path, result: RunResult) -> None:
+    """Append the code_execution event the workflow writes before record_run (M1-15b)."""
+    EventLog(project / "events.jsonl").append(
+        NewEvent(
+            actor="system:utux",
+            type=EventType.CODE_EXECUTION,
+            status=EventStatus.ERROR,
+            status_reason="synthetic",
+            data={
+                "execution_run_id": result.run_id,
+                "image_digest": "sha256:" + "a" * 64,
+                "exit_status": result.exit_status,
+                "stopped_by": None if result.stopped_by is None else result.stopped_by.value,
+            },
+        )
+    )
+
 
 VALID = Path(__file__).resolve().parents[1] / "fixtures" / "projects" / "valid_full"
 OUTPUT = "runs/r013/outputs"
@@ -125,6 +146,7 @@ def test_each_entry_becomes_one_record_with_a_new_id(project: Path) -> None:
 def test_the_manifest_is_written_and_the_project_stays_valid(project: Path) -> None:
     result = _run(project, {METRICS_FILE: _metrics_bytes()})
     manifest = _manifest(project, result)
+    _log_execution(project, result)
     record_run(project, _step(), result, manifest)
     written = RunManifest.from_json(
         (project / "runs" / "r013" / "manifest.json").read_text("utf-8")
@@ -248,6 +270,7 @@ def test_a_run_stopped_by_a_limit_gets_a_manifest_but_no_records(
         project, {METRICS_FILE: _metrics_bytes()}, stopped_by=stopped_by, exit_status=exit_status
     )
     manifest = _manifest(project, result)
+    _log_execution(project, result)
     recording = record_run(project, _step(), result, manifest)
     # A file that may be cut off mid-write never becomes a published number.
     assert recording.records == ()

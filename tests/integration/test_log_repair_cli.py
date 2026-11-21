@@ -35,7 +35,7 @@ def test_repair_then_validate(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "events.jsonl.fragment-" in result.output
     assert f"{len(FRAGMENT)} bytes" in result.output
-    assert "e-000003" in result.output
+    assert "e-000004" in result.output
     assert runner.invoke(app, ["validate", str(project)]).exit_code == 0
 
 

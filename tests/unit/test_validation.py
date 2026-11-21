@@ -25,7 +25,7 @@ CORRUPTED: list[tuple[str, str, int | None, str, str]] = [
     ("config_unknown_key", "utux.yaml", None, "colour", "unknown_key"),
     ("config_newer_schema_version", "utux.yaml", None, "schema_version", "schema_version_newer"),
     ("event_unknown_type", "events.jsonl", 2, "type", "enum"),
-    ("event_log_incomplete_last_line", "events.jsonl", 2, "<document>", "incomplete_line"),
+    ("event_log_incomplete_last_line", "events.jsonl", 3, "<document>", "incomplete_line"),
     ("event_ids_not_increasing", "events.jsonl", 2, "event_id", "event_id_not_increasing"),
     (
         "event_first_not_project_created",
@@ -432,7 +432,7 @@ def _with_repair_event(tmp_path: Path, **data: object) -> Path:
     lines = (project / "events.jsonl").read_text(encoding="utf-8")
     event = json.loads(lines.split("\n")[1])
     event.update(
-        event_id="e-000003",
+        event_id="e-000004",
         type="log_repaired",
         actor="system:utux",
         data={
@@ -457,7 +457,7 @@ def test_fragment_of_another_length_is_reported_on_the_event(tmp_path: Path) -> 
     (problem,) = validate_project(project).problems
     assert (problem.file, problem.line, problem.field, problem.code) == (
         "events.jsonl",
-        3,
+        4,
         "data.fragment_bytes",
         "fragment_mismatch",
     )
@@ -467,7 +467,7 @@ def test_fragment_of_another_length_is_reported_on_the_event(tmp_path: Path) -> 
 def test_fragment_with_another_hash_is_reported_on_the_event(tmp_path: Path) -> None:
     project = _with_repair_event(tmp_path, fragment_hash="sha256:" + "0" * 64)
     assert _found(validate_project(project)) == [
-        ("events.jsonl", 3, "data.fragment_hash", "fragment_mismatch")
+        ("events.jsonl", 4, "data.fragment_hash", "fragment_mismatch")
     ]
 
 
@@ -479,7 +479,7 @@ def test_fragment_file_must_be_a_fragment_name_beside_the_log(tmp_path: Path, na
     (tmp_path / "outside").write_bytes(FRAGMENT)
     project = _with_repair_event(tmp_path, fragment_file=name)
     found = _found(validate_project(project))
-    assert ("events.jsonl", 3, "data.fragment_file", "invalid_fragment_file") in found
+    assert ("events.jsonl", 4, "data.fragment_file", "invalid_fragment_file") in found
 
 
 def test_every_side_file_and_every_event_is_checked(tmp_path: Path) -> None:
