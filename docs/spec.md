@@ -555,7 +555,7 @@ Docker alone is not a complete security boundary, so the sandbox is hardened in 
 
 - Model-written code runs only inside the sandbox. There is no host-execution option in v1.
 - The container runs as a non-root user, with rootless Docker where available.
-- Each run has CPU, memory, wall-clock, disk and process-count limits, configurable in `utux.yaml`.
+- Each run has CPU, memory, wall-clock, disk, process-count and output-size limits, configurable in `utux.yaml`. A limit is reported as the reason a run stopped only when that is known for certain: the timeout and the output size, which utux measures, and memory, which Docker reports. Docker keeps no copy of a run's output on the host.
 - The root filesystem is read-only. Only the run's output directory is writable, and input data is mounted read-only.
 - No privileged mode, no host devices, all Linux capabilities dropped, `no-new-privileges` set, and a seccomp profile enabled. GPU passthrough is the only device exception.
 - Only the needed project subdirectories are mounted. The home directory and the Docker socket are never mounted.
