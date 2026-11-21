@@ -8,6 +8,7 @@ Every program run here is written in this file; none comes from a model.
 import json
 import os
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -259,6 +260,96 @@ def test_rootless_mode_is_detected_as_docker_reports_it(project: Path) -> None:
     )
     expected = any("name=rootless" in option for option in json.loads(info.stdout))
     assert DockerExecutor(project).rootless() is expected
+
+
+def test_writing_past_the_output_limit_stops_the_run(project: Path, digest: str) -> None:
+    # 1 MiB every 0.1 s against a 4 MB limit, for at most 60 s.
+    script = f"""
+import time
+with open("{OUTPUT}/big.bin", "wb") as stream:
+    for _ in range(600):
+        stream.write(b"x" * (1024 * 1024))
+        stream.flush()
+        time.sleep(0.1)
+"""
+    started = time.monotonic()
+    result = _run(
+        project,
+        digest,
+        script,
+        limits=ResourceLimits(memory_mb=256, max_processes=32, cpus=1.0, disk_mb=64, output_mb=4),
+        timeout_seconds=60.0,
+    )
+    assert result.stopped_by is LimitKind.OUTPUT_SIZE
+    assert result.exit_status is None
+    # Stopped by the measurement, long before the 60 s the script would take.
+    assert time.monotonic() - started < 30.0
+    # Checked about once a second, so the run may write past the limit by
+    # what it writes within one interval, not much more.
+    written = (project / OUTPUT / "big.bin").stat().st_size
+    assert 4 * 1000 * 1000 < written < 40 * 1024 * 1024
+
+
+def test_attached_docker_run_delivers_output_without_a_log_driver(digest: str) -> None:
+    """The finding behind --log-driver=none: an attached `docker run` still
+    streams both standard output and standard error."""
+    result = subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--log-driver=none",
+            "--network=none",
+            digest,
+            "python",
+            "-c",
+            "import sys; print('to stdout'); print('to stderr', file=sys.stderr)",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "to stdout\n"
+    assert "to stderr" in result.stderr
+
+
+def test_docker_keeps_no_copy_of_the_output(project: Path, digest: str) -> None:
+    step = ExecutionStep(
+        run_id="r001",
+        command=("python", "-c", "import time; print('synthetic', flush=True); time.sleep(30)"),
+        image_digest=digest,
+        read_only_paths=(),
+        output_directory=OUTPUT,
+        limits=ResourceLimits(),
+        timeout_seconds=8.0,
+        environment={},
+    )
+    results: list[RunResult] = []
+    worker = threading.Thread(target=lambda: results.append(DockerExecutor(project).run(step)))
+    worker.start()
+    log_driver = ""
+    deadline = time.monotonic() + 6.0
+    while not log_driver and time.monotonic() < deadline:
+        names = subprocess.run(
+            ["docker", "ps", "--filter", "name=utux-r001-", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split()
+        if names:
+            log_driver = subprocess.run(
+                ["docker", "inspect", "--format", "{{.HostConfig.LogConfig.Type}}", names[0]],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+        time.sleep(0.2)
+    worker.join()
+    # Docker stores no copy of the output, yet the executor still received it.
+    assert log_driver == "none"
+    assert results[0].stdout.content == b"synthetic\n"
 
 
 def test_no_container_is_left_behind(project: Path, digest: str) -> None:

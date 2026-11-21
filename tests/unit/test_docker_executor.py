@@ -18,6 +18,7 @@ from utux.executors.docker import (
     CONTAINER_PROJECT,
     DEFAULT_LIMITS,
     DockerExecutor,
+    directory_size,
     docker_run_arguments,
 )
 from utux.interfaces.executor import ExecutionStep, ResourceLimits
@@ -64,6 +65,7 @@ def test_the_arguments_are_exactly_these(tmp_path: Path) -> None:
         "--security-opt=no-new-privileges",
         "--network=none",
         "--hostname=utux-sandbox",
+        "--log-driver=none",
         "--pids-limit=64",
         "--memory=1024m",
         "--memory-swap=1024m",
@@ -90,6 +92,7 @@ def test_limits_that_are_not_set_take_the_defaults(tmp_path: Path) -> None:
     assert f"--memory-swap={DEFAULT_LIMITS.memory_mb}m" in arguments
     assert f"--cpus={DEFAULT_LIMITS.cpus}" in arguments
     assert any(a.endswith(f"size={DEFAULT_LIMITS.disk_mb}m") for a in arguments)
+    assert DEFAULT_LIMITS.output_mb == 1024
 
 
 def test_nothing_widens_the_sandbox(tmp_path: Path) -> None:
@@ -195,6 +198,52 @@ def test_utux_refuses_to_run_a_container_as_root(
     monkeypatch.setattr(os, "getuid", lambda: 0)
     with pytest.raises(ExecutorError, match="root"):
         _missing_docker(_project(tmp_path)).run(_step())
+
+
+def test_an_output_directory_whose_parent_leads_outside_is_refused(tmp_path: Path) -> None:
+    project = _project(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (project / "runs").symlink_to(outside)
+    with pytest.raises(ExecutorError, match="outside the project"):
+        _missing_docker(project).run(_step())
+    # Nothing was created through the link.
+    assert list(outside.iterdir()) == []
+
+
+def test_the_output_directory_is_checked_again_after_it_is_created(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Simulates a parent that is swapped for a symbolic link between the first
+    # check and the creation of the directory.
+    project = _project(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    executor = DockerExecutor(project)
+    monkeypatch.setattr(executor, "rootless", lambda: False)
+    monkeypatch.setattr(executor, "_check_image", lambda digest: None)
+    original_mkdir = Path.mkdir
+
+    def mkdir_through_a_link(self: Path, *args: Any, **kwargs: Any) -> None:
+        if self == project / "runs" / "r012" / "outputs":
+            (project / "runs").symlink_to(outside)
+            original_mkdir(outside / "r012" / "outputs", parents=True)
+            return
+        original_mkdir(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", mkdir_through_a_link)
+    with pytest.raises(ExecutorError, match="outside the project"):
+        executor.run(_step())
+
+
+def test_the_size_of_a_directory_counts_every_file_below_it(tmp_path: Path) -> None:
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "a").write_bytes(b"x" * 10)
+    (tmp_path / "sub" / "b").write_bytes(b"x" * 5)
+    (tmp_path / "link").symlink_to(tmp_path / "a")
+    # A symbolic link counts as itself, not as what it points to.
+    assert directory_size(tmp_path) == 15 + (tmp_path / "link").lstat().st_size
+    assert directory_size(tmp_path / "missing") == 0
 
 
 def test_the_executor_is_named_docker(tmp_path: Path) -> None:
