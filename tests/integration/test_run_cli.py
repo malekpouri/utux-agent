@@ -111,7 +111,8 @@ def test_run_pauses_at_a_gate_and_says_how_to_answer(
 ) -> None:
     _script(monkeypatch)
     code, output = _utux("run", str(project))
-    assert code == 0, output
+    # Exit status 3: paused for an approval (PR #38 review).
+    assert code == 3, output
     assert "a-000001" in output
     assert f"utux approve {project} a-000001 approve|reject|edit" in output
 
@@ -120,10 +121,10 @@ def test_check_2_through_the_cli_run_approve_run_approve_run(
     project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _script(monkeypatch)
-    assert _utux("run", str(project))[0] == 0
+    assert _utux("run", str(project))[0] == 3
     assert _approve(project, "a-000001", "approve")[0] == 0
     code, output = _utux("run", str(project))
-    assert code == 0, output
+    assert code == 3, output
     assert "a-000002" in output
     assert _approve(project, "a-000002", "approve")[0] == 0
     code, output = _utux("run", str(project))
@@ -552,3 +553,104 @@ def test_a_file_edited_since_its_version_is_acted_on_and_validate_still_reports_
     assert code == 0, output
     code, output = _approve(project, "a-000001", "edit")
     assert code == 0, output
+
+
+# Exit status of utux run (PR #38 review): 0 completed, 1 error, 3 paused
+
+
+def test_run_exits_0_when_the_run_completes(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    switch_gates_off(project)
+    _script(monkeypatch)
+    assert _utux("run", str(project))[0] == 0
+
+
+def test_run_exits_1_on_an_error(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _script(monkeypatch)
+    code, output = _utux("run", str(project), "--from", "implementation")
+    assert code == 1
+    assert output.startswith("error:")
+
+
+def test_run_exits_3_when_it_pauses_for_an_approval(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _script(monkeypatch)
+    code, output = _utux("run", str(project))
+    assert code == 3
+    assert "Run paused" in output
+
+
+# The id utux approve records (PR #38 review)
+
+
+def test_approve_prints_the_person_id_it_recorded(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _script(monkeypatch)
+    _utux("run", str(project))
+    code, output = _approve(project, "a-000001", "approve")
+    assert code == 0, output
+    assert "Recorded you as human:alex" in output
+    assert "--by" in output
+
+
+# Recovery after a crash through utux log repair (PR #38 review)
+
+
+def _cut_last_line(project: Path) -> None:
+    log = project / "events.jsonl"
+    log.write_bytes(log.read_bytes() + b'{"schema_version": 1, "event_id": "e-0')
+
+
+def test_one_log_repair_recovers_a_stale_lock_and_an_incomplete_last_line(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _script(monkeypatch)
+    _utux("run", str(project))
+    pid = _dead_pid()
+    _write_lock(project, pid, socket.gethostname(), "run")
+    _cut_last_line(project)
+    code, output = _utux("log", "repair", str(project))
+    assert code == 0, output
+    assert not (project / ".utux" / "lock").exists()
+    *_, removed, repaired = _events(project)
+    assert removed.type is EventType.LOCK_REMOVED
+    assert removed.data == {
+        "pid": pid,
+        "host": socket.gethostname(),
+        "command": "run",
+        "started_at": "2026-11-21T09:00:00Z",
+    }
+    assert repaired.type is EventType.LOG_REPAIRED
+    assert removed.event_id in output
+    assert _utux("validate", str(project))[0] == 0
+    # The project is usable again.
+    assert _utux("status", str(project))[0] == 0
+
+
+def test_log_repair_removes_a_stale_lock_when_the_log_is_complete(project: Path) -> None:
+    _write_lock(project, _dead_pid(), socket.gethostname(), "run")
+    code, output = _utux("log", "repair", str(project))
+    assert code == 0, output
+    assert not (project / ".utux" / "lock").exists()
+    assert [e.type for e in _events(project)][-1] is EventType.LOCK_REMOVED
+
+
+@pytest.mark.parametrize(
+    "holder",
+    [
+        lambda: (os.getpid(), socket.gethostname(), "run"),
+        lambda: (1, "synthetic-other-host", "run"),
+    ],
+)
+def test_log_repair_refuses_a_lock_that_is_held_or_cannot_be_checked(
+    project: Path, holder: Callable[[], tuple[int, str, str]]
+) -> None:
+    _write_lock(project, *holder())
+    _cut_last_line(project)
+    before = (project / "events.jsonl").read_bytes()
+    code, output = _utux("log", "repair", str(project))
+    assert code == 1
+    assert "locked" in output
+    assert (project / ".utux" / "lock").exists()
+    assert (project / "events.jsonl").read_bytes() == before
