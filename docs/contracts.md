@@ -202,7 +202,33 @@ A request at the method gate:
   "path": "method.md",
   "stage": null,
   "refused_event_id": null,
+  "execution": null,
   "requested_by": "agent:methodologist",
+  "requested_at": "2026-11-15T10:05:00Z"
+}
+```
+
+A request at the experiment-plan gate records the execution it approves (`execution`, given exactly for that gate: codes `required_for_gate` and `not_allowed_for_gate`). Before the experiment runs, utux builds the record again; any difference, such as a rebuilt image, other limits or another command, makes the approval no longer valid, and the run asks again:
+
+```json
+{
+  "schema_version": 1,
+  "approval_id": "a-000008",
+  "kind": "artifact",
+  "gate": "experiment_plan",
+  "artifact_id": "code-v001",
+  "content_hash": "sha256:3ee9b44b3924f2b73b8a8dddf4500a0982b82c237fc5235036252fe2a641eb41",
+  "path": "code/main.py",
+  "stage": null,
+  "refused_event_id": null,
+  "execution": {
+    "image_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "command": ["python", "code/main.py"],
+    "read_only_paths": ["code", "inputs"],
+    "limits": {"cpus": 2.0, "memory_mb": 4096, "gpus": null, "disk_mb": 512,
+               "max_processes": 256, "output_mb": 1024, "timeout_seconds": 3600.0}
+  },
+  "requested_by": "system:utux",
   "requested_at": "2026-11-15T10:05:00Z"
 }
 ```
@@ -220,6 +246,7 @@ A request after the budget was reached:
   "path": null,
   "stage": "implementation",
   "refused_event_id": "e-000042",
+  "execution": null,
   "requested_by": "system:utux",
   "requested_at": "2026-11-16T14:00:00Z"
 }
