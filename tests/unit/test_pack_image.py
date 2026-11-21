@@ -176,3 +176,17 @@ def test_the_cli_reports_a_failed_build(tmp_path: Path) -> None:
     assert result.exit_code == 1
     assert "docker build failed" in result.output
     assert "Traceback" not in result.output
+
+
+@pytest.mark.parametrize(
+    ("document", "start"),
+    [("docs/pack-image.md", "## The recorded digest"), ("docs/spec.md", "### Domain packs")],
+)
+def test_the_digest_examples_of_the_documents_are_valid(
+    tmp_path: Path, document: str, start: str
+) -> None:
+    section = (REPO_ROOT / document).read_text(encoding="utf-8").split(start, 1)[1]
+    found = re.search(r"```text\n(.*?)```", section, flags=re.DOTALL)
+    assert found is not None
+    (tmp_path / DIGEST_FILE).write_text(found.group(1), encoding="utf-8")
+    assert load_recorded_digest(tmp_path) == found.group(1).strip()
