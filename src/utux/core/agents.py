@@ -11,9 +11,11 @@ more with the problems if it fails (ADR-0007, RFC-001 section 2).
   metric lines always have their exact form.
 - The implementer returns the code of the step.
 - The analyst returns a text that refers to every number by its result id,
-  `[R0001]`, and contains no other digit; `render_results` puts each
-  record's value and unit before its reference, and `check_results` checks
-  the finished `results.md` again.
+  `[R0001]`, and contains no other digit and no number word (`NUMBER_WORDS`,
+  and `per cent`); `render_results` puts each record's value and unit before
+  its reference, and `check_results` checks the finished `results.md` again.
+  The check catches digits and these words; it is not a proof that no number
+  was written, for example as "a dozen" or in another language.
 """
 
 import re
@@ -33,6 +35,57 @@ PROMPTS_DIRECTORY = "packs/generic/prompts"
 _PROMPT_FILE = re.compile(r"^(?P<role>[a-z]+)@(?P<version>[1-9][0-9]*)\.md$")
 _REFERENCE = re.compile(r"\[(R[0-9]{3,})\]")
 _DIGIT = re.compile(r"[0-9]")
+
+NUMBER_WORDS = (
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
+    "twenty",
+    "thirty",
+    "forty",
+    "fifty",
+    "sixty",
+    "seventy",
+    "eighty",
+    "ninety",
+    "hundred",
+    "thousand",
+    "million",
+    "billion",
+    "percent",
+    "half",
+    "twice",
+    "double",
+    "triple",
+)
+"""Common English number words, refused outside references as digits are."""
+
+_NUMBER_WORD = re.compile(
+    r"\b(?:" + "|".join(NUMBER_WORDS) + r"|per\s+cent)\b", flags=re.IGNORECASE
+)
+
+
+def _number_in(text: str) -> str | None:
+    """The first digit or number word of a text, or None."""
+    found = _DIGIT.search(text) or _NUMBER_WORD.search(text)
+    return None if found is None else found.group(0)
 
 
 @dataclass(frozen=True)
@@ -141,9 +194,11 @@ def check_analysis_text(text: str, record_ids: set[str]) -> None:
         raise AgentOutputError(
             f"the analysis refers to {', '.join(unknown)}, not a record of the run"
         )
-    if _DIGIT.search(_REFERENCE.sub("", text)):
+    number = _number_in(_REFERENCE.sub("", text))
+    if number is not None:
         raise AgentOutputError(
-            "the analysis writes a number out; every number must be a reference such as [R0001]"
+            f"the analysis writes a number out ({number!r}); every number must be a "
+            "reference such as [R0001]"
         )
 
 
@@ -171,8 +226,9 @@ def check_results(text: str, records: list[ResultRecord]) -> None:
     rest = text
     for record in records:
         rest = rest.replace(_value(record), "")
-    if _DIGIT.search(rest):
+    number = _number_in(rest)
+    if number is not None:
         raise AgentOutputError(
-            "results.md holds a number without its result record; every number must be "
-            "a record's value followed by its id"
+            f"results.md holds a number without its result record ({number!r}); every "
+            "number must be a record's value followed by its id"
         )

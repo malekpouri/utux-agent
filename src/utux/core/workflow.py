@@ -22,7 +22,9 @@ LangGraph is used only in `utux.core`; this module is the one place that
 builds the graph.
 """
 
+import ast
 import itertools
+import math
 import os
 import platform
 import re
@@ -782,11 +784,16 @@ RUN_FAILED = "run_failed"
 METRIC_MISSING = "metric_missing"
 NO_FINDING = "none"
 REJECTED_AT_GATE = "rejected_at_gate"
+HARDCODED_METRIC = "hardcoded_metric"
 END_ROUTE = "end"
-FINDINGS = (RUN_FAILED, METRIC_MISSING, REJECTED_AT_GATE, NO_FINDING)
+FINDINGS = (RUN_FAILED, HARDCODED_METRIC, METRIC_MISSING, REJECTED_AT_GATE, NO_FINDING)
 ROUTES = (*NODES, END_ROUTE)
 
-_ROUTE_FOR = {RUN_FAILED: "implementation", METRIC_MISSING: "methodology"}
+_ROUTE_FOR = {
+    RUN_FAILED: "implementation",
+    HARDCODED_METRIC: "implementation",
+    METRIC_MISSING: "methodology",
+}
 _METRIC_LINE = re.compile(r"^- metric: ([A-Za-z0-9][A-Za-z0-9_.-]*)$")
 _LOOKS_LIKE_METRIC_LINE = re.compile(r"^\s*[-*+]?\s*metric\b", flags=re.IGNORECASE)
 
@@ -832,11 +839,57 @@ def _finding(context: _Context, state: RunState) -> str:
     manifest = load_run_manifest(project / "runs" / run / "manifest.json")
     if manifest.exit_status != 0 or manifest.stopped_by is not None:
         return RUN_FAILED
+    records = _read_records(project, state.get("results", []))
+    code = (project / "code" / "main.py").read_text(encoding="utf-8")
+    if any(hard_coded(code, record.value, record.tolerance) for record in records):
+        return HARDCODED_METRIC
     method = (project / "method.md").read_text(encoding="utf-8")
-    recorded = {record.metric for record in _read_records(project, state.get("results", []))}
-    if named_metrics(method) - recorded:
+    if named_metrics(method) - {record.metric for record in records}:
         return METRIC_MISSING
     return NO_FINDING
+
+
+def _decimals(tolerance: float) -> int | None:
+    """The decimals a tolerance implies.
+
+    Rounding to them errs by at most the tolerance. None for a tolerance of
+    zero, which asks for the exact value.
+    """
+    if tolerance <= 0:
+        return None
+    return max(0, math.ceil(-math.log10(2 * tolerance) - 1e-9))
+
+
+def hard_coded(code: str, value: float, tolerance: float) -> bool:
+    """Whether a metric's value appears as a numeric literal in the code.
+
+    The value and every int or float literal are rounded to the decimals the
+    tolerance implies before they are compared. The code is parsed, never
+    run; code that does not parse has no literals to compare. This is a
+    heuristic that catches only the plain case of a value written into the
+    code; the reviewer (M3) and the negative control (M4) are the stronger
+    checks.
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return False
+    decimals = _decimals(tolerance)
+
+    def rounded(number: float) -> float:
+        return number if decimals is None else round(number, decimals)
+
+    target = rounded(value)
+    for node in ast.walk(tree):
+        literal = node.value if isinstance(node, ast.Constant) else None
+        # bool is an int, but True and False are not numbers written into code.
+        if (
+            isinstance(literal, int | float)
+            and not isinstance(literal, bool)
+            and rounded(float(literal)) == target
+        ):
+            return True
+    return False
 
 
 def _routes_so_far(context: _Context, to_stage: str) -> tuple[int, int]:
