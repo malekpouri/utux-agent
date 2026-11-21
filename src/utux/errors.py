@@ -223,3 +223,23 @@ class ResultRecordingError(UtuxError):
 
 class PackImageError(UtuxError):
     """A pack's image cannot be built, or its recorded digest cannot be read."""
+
+
+class CommitError(UtuxError):
+    """A stage commit could not be made."""
+
+
+class RunRefusedError(UtuxError):
+    """A run did not start, for example because commits fail in `auto` mode."""
+
+
+class NoRunToResumeError(UtuxError):
+    """There is no checkpointed run to resume."""
+
+
+class CheckpointMismatchError(UtuxError):
+    """The checkpoint database is not one of this project's runs.
+
+    No `run_started` event in the project's log matches it, so it may come
+    from another project or another copy; utux does not resume from it.
+    """

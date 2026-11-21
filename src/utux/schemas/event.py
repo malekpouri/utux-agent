@@ -90,7 +90,7 @@ _TEXT_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.STAGE_START: ("node",),
     EventType.STAGE_END: ("node",),
     EventType.RUN_STARTED: ("mode",),
-    EventType.RUN_RESTARTED: ("changed_path", "expected_hash"),
+    EventType.RUN_RESTARTED: ("changed_path",),
 }
 
 # Keys of `data` whose value must be true or false.
@@ -102,12 +102,11 @@ _BOOLEAN_KEYS: dict[EventType, tuple[str, ...]] = {
 # Keys of `data` whose value must be a content hash.
 _HASH_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.LOG_REPAIRED: ("fragment_hash",),
-    EventType.RUN_RESTARTED: ("expected_hash",),
 }
 
 # Keys of `data` whose value must be a content hash or null.
 _OPTIONAL_HASH_KEYS: dict[EventType, tuple[str, ...]] = {
-    EventType.RUN_RESTARTED: ("actual_hash",),
+    EventType.RUN_RESTARTED: ("expected_hash", "actual_hash"),
 }
 
 # Keys of `data` whose value must be a stable code, as `status_reason`, or null.
