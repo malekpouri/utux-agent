@@ -180,6 +180,14 @@ rubric: ./review_rubric.md
 template: ./latex/
 ```
 
+A pack's image is built with `utux image build`, which records the local image id in the pack's `image/digest.txt`, one line:
+
+```text
+sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+```
+
+A run refuses any other image, and the locked package versions of its manifest are read from inside the image.
+
 v1 ships three packs. `generic` is the baseline and `ml` is the team's main test domain. `bio-pilot` is a deliberately thin slice that validates the general core on a specialised field from the start:
 
 - PubMed and NCBI access through BioMCP.
