@@ -26,7 +26,7 @@ Shown by the tests marked `docker` (`uv run pytest -m docker`):
 | --- | --- | --- |
 | Wall clock | utux's own timer, which kills the container | `wall_clock` |
 | Output directory size (`output_mb`, default 1024 MiB) | utux, measuring the directory about once a second and killing the container when it is exceeded | `output_size` |
-| Memory (`memory_mb`, swap equal) | Docker; the container is killed | `memory`, from Docker's own report (`OOMKilled`) |
+| Memory (`memory_mb`, swap equal) | Docker; the container is killed | `memory`, from Docker's own report (`OOMKilled`), asked again for about a second after exit status 137, since the report can come a moment late |
 | Processes (`max_processes`) | Docker; new processes fail | not named: the result shows the exit status and output |
 | `/tmp` size (`disk_mb`) | Docker's tmpfs; writes fail | not named |
 | CPUs | Docker; the run is slowed, not stopped | not named |

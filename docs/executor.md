@@ -140,7 +140,9 @@ certain:
   MiB): `output_size`, with no exit status. The check is periodic, so a run
   can exceed the limit by what it writes within one interval;
 - memory, from Docker's report that the container was killed for it
-  (`State.OOMKilled`): `memory`.
+  (`State.OOMKilled`): `memory`. Docker can record the kill a moment after
+  the container exits, so after an exit status of 137 the executor asks again,
+  five times over about a second, before it names no limit.
 
 Anything else is not guessed. The process limit, for example, usually makes
 a fork fail inside the container rather than end the run; the result then

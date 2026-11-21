@@ -20,8 +20,9 @@ A limit is named in the result only when it is known for certain: the
 wall-clock timeout from this executor's own timer; the size of the output
 directory, which this executor measures about once a second and stops the
 run when it exceeds `output_mb`; and memory from Docker's report that the
-container was killed for it. Anything else shows as the exit status and the
-captured output.
+container was killed for it. Docker can make that report a moment after the
+container exits, so after an exit status of 137 it is asked again over about
+a second. Anything else shows as the exit status and the captured output.
 
 Docker keeps no copy of the output (`--log-driver=none`): otherwise it
 would store its own full copy of everything the run prints, uncapped, on
@@ -64,6 +65,15 @@ DEFAULT_LIMITS = ResourceLimits(
 """The limits of a step that sets none."""
 
 _COMMAND_TIMEOUT_SECONDS = 60.0
+_KILLED = 137
+_OOM_RETRIES = 5
+_OOM_RETRY_SECONDS = 0.2
+
+
+class _NoContainerError(Exception):
+    """`docker inspect` found no container of that name."""
+
+
 _READ_BYTES = 64 * 1024
 
 
@@ -409,13 +419,13 @@ class DockerExecutor:
         if stopped_by is not None:
             exit_status = None
         else:
-            state = self._docker_command("inspect", "--format", "{{.State.OOMKilled}}", name)
-            if state.returncode != 0:
+            try:
+                if self._oom_killed(name, status):
+                    stopped_by = LimitKind.MEMORY
+            except _NoContainerError as error:
                 # The container was never created; docker run said why.
                 detail = stderr.result().content.decode("utf-8", errors="replace").strip()
-                raise ExecutorError(f"Docker could not start the container: {detail}")
-            if state.stdout.strip() == "true":
-                stopped_by = LimitKind.MEMORY
+                raise ExecutorError(f"Docker could not start the container: {detail}") from error
             exit_status = status
         try:
             files = collect_output_files(output)
@@ -431,6 +441,28 @@ class DockerExecutor:
             output_files=files,
             stopped_by=stopped_by,
         )
+
+    def _oom_killed(self, name: str, status: int) -> bool:
+        """Whether Docker reports that the container was killed for memory.
+
+        Docker can record the kill a moment after the container has exited.
+        So when the exit status is 137, the status of a SIGKILL, and the
+        report is not yet there, it is asked again a few times over about a
+        second. A limit is still named only when Docker reports it.
+
+        Raises:
+            _NoContainerError: The container does not exist.
+        """
+        attempts = 1 + (_OOM_RETRIES if status == _KILLED else 0)
+        for attempt in range(attempts):
+            if attempt:
+                time.sleep(_OOM_RETRY_SECONDS)
+            state = self._docker_command("inspect", "--format", "{{.State.OOMKilled}}", name)
+            if state.returncode != 0:
+                raise _NoContainerError(name)
+            if state.stdout.strip() == "true":
+                return True
+        return False
 
     def _remove(self, name: str) -> None:
         removed = self._docker_command("rm", "--force", name)
