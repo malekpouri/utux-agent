@@ -65,9 +65,10 @@ def test_nothing_in_the_image_needs_the_network_at_run_time() -> None:
     assert not re.search(r"^CMD .*(pip|curl|wget)", dockerfile, flags=re.MULTILINE)
 
 
-def test_the_recorded_digest_file_is_left_empty_for_the_maintainer() -> None:
-    assert (PACK_IMAGE / DIGEST_FILE).read_text(encoding="utf-8") == ""
-    assert load_recorded_digest(PACK_IMAGE) is None
+def test_the_recorded_digest_file_is_empty_or_holds_one_image_id() -> None:
+    # Empty until the maintainer builds the image and commits its id.
+    recorded = load_recorded_digest(PACK_IMAGE)
+    assert recorded is None or re.fullmatch(r"sha256:[0-9a-f]{64}", recorded)
 
 
 # The recorded digest
