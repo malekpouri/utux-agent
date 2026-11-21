@@ -436,7 +436,7 @@ A complete manifest, on one line:
  "data": {"provider": "openrouter", "is_external": true}, "artifacts": ["method-v003"]}
 ```
 
-Event types include stage start and end, model call, tool call, code execution, verification result, approval requested, approval answered, budget warning, setting changed and error. `retry_reason` and `escalated_from` record why a call was repeated or moved to a stronger tier.
+Event types include stage start and end, model call, tool call, code execution, verification result, approval requested, approval answered, budget warning, setting changed and error, and run started, resumed and restarted. The id of a run's `run_started` event is the run's id; the checkpoints of the run use it, so a checkpoint that no `run_started` event of the log matches is not resumed. On resume the files win: the run restarts at the earliest stage whose inputs changed since the checkpoint, and an event records it. `retry_reason` and `escalated_from` record why a call was repeated or moved to a stronger tier.
 
 `status` is `ok`, `error` or `refused`. A refused action is one that utux itself declined, for example a call to an external provider under `local_only` or a call after the budget is exhausted. `status_reason` is a stable machine code that explains any status other than `ok`, such as `model_timeout` or `budget_exhausted`; it is null exactly when the status is `ok`. Free-text error messages are not stored.
 
