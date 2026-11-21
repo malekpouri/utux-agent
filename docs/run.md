@@ -22,10 +22,10 @@ manifest refuses one.
 
 | Node | Stage | Reads | Writes |
 | --- | --- | --- | --- |
-| `methodology` | `methodology` | `inputs/*.md` | `method.md`, from a model |
-| `implementation` | `implementation` | `method.md` | `code/main.py`, from a model |
+| `methodology` | `methodology` | `inputs/*.md` | `method.md`, from the methodologist's plan |
+| `implementation` | `implementation` | `method.md` | `code/main.py`, from the implementer |
 | `experiment` | `experiment` | `code/main.py` | `runs/<run>/`: the run in the sandbox, its manifest and its result records ([Result records from a run](results.md)) |
-| `analysis` | `experiment` | the run's manifest and records | `results.md`, built from the result records, not by a model |
+| `analysis` | `experiment` | the run's manifest and records | `results.md`, from the analyst's text and the result records |
 
 Each node writes its outputs with sidecars, between a `stage_start` and a
 `stage_end` event that name it in `data.node`.
@@ -40,8 +40,38 @@ staging area. If a crash comes after the files were moved, the node runs
 again and finds that the current version of each output already has the
 same content, inputs and maker; it is that version, and no second one is
 made. The model calls are logged
-with the run's id. In M1 the prompts are placeholders (`skeleton@1`); real
-agents and prompts are task M1-13.
+with the run's id.
+
+## The roles
+
+Three roles answer the model calls of the run, each with its prompt and the
+tier `models.roles` gives it (default `standard`; there is no escalation in
+M1).
+
+| Role | Node | Reads | Answers |
+| --- | --- | --- | --- |
+| methodologist | `methodology` | the files `inputs/*.md`: the question and the data description | numbered steps, each with a title, a description, a success criterion and the metrics it produces |
+| implementer | `implementation` | `method.md` | the code of the step, which writes `metrics.json` into the directory in the environment variable `UTUX_OUTPUT_DIR` |
+| analyst | `analysis` | the run's result records: id, metric, dataset, split, model, value and unit | a text that refers to every number by its result id, `[R0001]`, and has no other digit |
+
+**Prompts** are versioned files of the pack, `packs/generic/prompts/<role>@<n>.md`,
+whose first line is `# Role: <role>`; the highest version is used, and its
+name, such as `methodologist@1`, is the `prompt_version` of every model call.
+The prompt is the call's system message; the inputs are its user message.
+
+**Answers are JSON**, validated against the role's schema
+(`utux.core.agents`). An answer that is not valid is asked for once more,
+with the problems in the request and `retry_reason`
+`invalid_structured_output` on the call's event. A second invalid answer
+fails the stage with `AgentOutputError`, records an `error` event with that
+reason, and writes nothing.
+
+- `method.md` is written by utux from the methodologist's steps, so its
+  metric lines always have their exact form.
+- `results.md` is written by utux from the analyst's text: each `[R0001]`
+  becomes `<value> <unit> [R0001]` from that record. The text is checked
+  before (no digit outside a reference, no unknown reference) and
+  `results.md` after: a number without its result record is refused.
 
 ## Starting a run, and commits
 
@@ -81,8 +111,13 @@ an answer pauses again on the same request.
 recorded as an `approval_answered` event by the person:
 
 - `approve`: the run continues from the gate.
-- `reject`: the run stops with `RunRejectedError`, now and on every later
-  resume.
+- `reject`, with the person's feedback: the stage that made the file runs
+  again with the feedback in its input (`methodology` for the method,
+  `implementation` for the experiment plan), and the gate then asks again.
+  This is a route back with the finding `rejected_at_gate`, counted against
+  the retry cap of that stage like any other; beyond the cap the run pauses
+  with a `retry_limit` request. The feedback is in the response and in the
+  `approval_answered` event.
 - `edit`: the person has changed the file and names the version they saved.
   It is taken only if the file's hash is the response's
   `edited_content_hash` (otherwise `ApprovalMismatchError`, and nothing is
