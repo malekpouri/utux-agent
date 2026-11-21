@@ -633,7 +633,10 @@ def test_log_repair_removes_a_stale_lock_when_the_log_is_complete(project: Path)
     code, output = _utux("log", "repair", str(project))
     assert code == 0, output
     assert not (project / ".utux" / "lock").exists()
-    assert [e.type for e in _events(project)][-1] is EventType.LOCK_REMOVED
+    # The fixture edited utux.yaml, so setting changes are recorded after it.
+    kinds = [e.type for e in _events(project)]
+    assert kinds.count(EventType.LOCK_REMOVED) == 1
+    assert EventType.LOG_REPAIRED not in kinds
 
 
 @pytest.mark.parametrize(
