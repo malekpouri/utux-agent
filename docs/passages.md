@@ -38,12 +38,19 @@ quote, or the end of the text. Not:
 The rules are simple on purpose and make mistakes on hard text, for
 example a sentence that ends with an abbreviation, or an author's initial
 ("J. Smith") read as a sentence end. The mistakes are deterministic and
-shared by the reference and the system.
+shared by the reference and the system. **A quote that crosses such a
+boundary fails the quote check of S2**, since every quote must lie within
+one passage (RFC-001, S2). The report of a dev run counts the passage
+boundaries that follow a single capital letter, so the dev split shows how
+often this happens (M2-18).
 
 ## Versions
 
 The rules have a version, `SPLITTER_VERSION` (`passages@1`). Changing a rule
-changes passage ids, so it is a new version. Every annotation batch records
+changes passage ids, so it is a new version. **`passages@1` is frozen for
+gold set v0**: any change to the splitter is `passages@2` and needs a
+migration of the gold set, and a test fails if the output of `passages@1`
+changes for its fixtures (`tests/fixtures/passages/passages_v1.json`). Every annotation batch records
 the version its passages came from (`splitter`), and a frozen gold release
 names it in its changelog; a release is never split again.
 
