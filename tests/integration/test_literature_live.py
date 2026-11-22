@@ -6,10 +6,10 @@ used here only to check that the services answer as the sources expect.
 """
 
 import pytest
-from utux.sources.arxiv import ArxivSource
-from utux.sources.openalex import OpenAlexSource
 
 from utux.schemas.claim_ledger import CheckedText
+from utux.sources.arxiv import ArxivSource
+from utux.sources.openalex import OpenAlexSource
 
 pytestmark = pytest.mark.live
 

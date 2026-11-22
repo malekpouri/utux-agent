@@ -3,10 +3,10 @@
 from pathlib import Path
 
 from literature_source_suite import Failure, LiteratureSourceConformance
-from utux.sources.arxiv import ArxivSource
-from utux.sources.http import HttpResponse, RecordedTransport
 
 from utux.interfaces.literature_source import LiteratureSource
+from utux.sources.arxiv import ArxivSource
+from utux.sources.http import HttpResponse, RecordedTransport
 
 RECORDED = Path(__file__).resolve().parents[1] / "fixtures" / "literature" / "arxiv"
 BASE = "https://export.arxiv.org/api/query"

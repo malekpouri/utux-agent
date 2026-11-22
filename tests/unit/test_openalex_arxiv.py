@@ -7,9 +7,6 @@ import json
 from pathlib import Path
 
 import pytest
-from utux.sources.arxiv import ArxivSource
-from utux.sources.http import HttpClient, HttpRequest, HttpResponse, RecordedTransport
-from utux.sources.openalex import OpenAlexSource, rebuild_abstract
 
 from utux import __version__
 from utux.errors import (
@@ -19,6 +16,9 @@ from utux.errors import (
 )
 from utux.schemas.claim_ledger import CheckedText
 from utux.schemas.source_record import SourceVersion
+from utux.sources.arxiv import ArxivSource
+from utux.sources.http import HttpClient, HttpRequest, HttpResponse, RecordedTransport
+from utux.sources.openalex import OpenAlexSource, rebuild_abstract
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "literature"
 OPENALEX = "https://api.openalex.org/works"

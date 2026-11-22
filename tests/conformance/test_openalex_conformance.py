@@ -3,10 +3,10 @@
 from pathlib import Path
 
 from literature_source_suite import KNOWN, Failure, LiteratureSourceConformance
-from utux.sources.http import HttpResponse, RecordedTransport
-from utux.sources.openalex import OpenAlexSource
 
 from utux.interfaces.literature_source import LiteratureSource
+from utux.sources.http import HttpResponse, RecordedTransport
+from utux.sources.openalex import OpenAlexSource
 
 RECORDED = Path(__file__).resolve().parents[1] / "fixtures" / "literature" / "openalex"
 BASE = "https://api.openalex.org/works"
