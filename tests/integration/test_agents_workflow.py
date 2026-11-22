@@ -76,7 +76,7 @@ def test_every_model_call_logs_its_prompt_version(project: Path) -> None:
     assert [e.prompt_version for e in calls] == [
         "methodologist@3",
         "implementer@3",
-        "analyst@4",
+        "analyst@5",
     ]
 
 
@@ -157,7 +157,9 @@ def test_results_md_holds_numbers_only_with_their_result_ids(project: Path) -> N
     outcome = run_workflow(project, services(project))
     (record,) = outcome.results
     text = (project / "results.md").read_text(encoding="utf-8")
-    assert f"0.97 score [{record.id}]" in text
+    # Finding 9 of M1-16: no dimensionless unit, the value to its tolerance.
+    assert f"0.97 [{record.id}]" in text
+    assert record.value == 0.97
     assert validate_project(project).problems == ()
 
 
