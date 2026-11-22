@@ -312,6 +312,9 @@ def annotation_agreement(
     flags: dict[str, list[LabelPair]] = {flag.value: [] for flag in ScopeFlag}
     overlaps: list[SpanOverlap] = []
     for item in items:
+        if item.annotation is None:
+            # A public item has no utux annotators to compare (RFC-002, section 5).
+            continue
         first, second = item.annotation.annotators
         lists = item.annotation.claim_extraction.raw
         a_spans = [(claim.span, claim.citations) for claim in lists[first]]

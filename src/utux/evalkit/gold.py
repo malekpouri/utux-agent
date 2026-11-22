@@ -76,6 +76,33 @@ class Origin(StrEnum):
     NATURAL = "natural"
     PERTURBED = "perturbed"
     SYSTEM_GENERATED = "system_generated"
+    PUBLIC = "public"
+
+
+class PublicDataset(StrEnum):
+    """The public datasets a `public` item may come from (RFC-002, section 2)."""
+
+    SCIFACT = "scifact"
+    SCICLAIMEVAL = "sciclaimeval"
+
+
+class NotScored(StrEnum):
+    """A verification step whose metrics leave an item out (RFC-002, section 7)."""
+
+    S2 = "S2"
+    S4 = "S4"
+
+
+class Confirmation(StrEnum):
+    """How a perturbed item's label was confirmed (RFC-002, section 2).
+
+    `deterministic`: a rule checked the change; `model_check`: a model raised
+    no disagreement; `audit`: a person confirmed it, named in `confirmed_by`.
+    """
+
+    DETERMINISTIC = "deterministic"
+    MODEL_CHECK = "model_check"
+    AUDIT = "audit"
 
 
 class HardCase(StrEnum):
@@ -261,10 +288,10 @@ class GoldClaim(ContractPart):
     claim_id: GoldClaimId
     text: NonEmptyText
     span: tuple[Count, Count]
-    kind: ClaimKind
+    kind: ClaimKind | None
     pairs: tuple[GoldPair, ...]
     status: GoldStatus
-    expert_would_review: StrictBool
+    expert_would_review: StrictBool | None
     raw: dict[str, ClaimRaw]
     adjudicated: StrictBool
     adjudication_reason: NonEmptyText | None
@@ -362,7 +389,7 @@ def _citations(claim: ExtractedClaim | GoldClaim) -> frozenset[str]:
 
 def _claim_set(
     claims: Sequence[ExtractedClaim | GoldClaim],
-) -> frozenset[tuple[object, str, ClaimKind, frozenset[str]]]:
+) -> frozenset[tuple[object, str, ClaimKind | None, frozenset[str]]]:
     """What is compared between claim lists: span, text, kind and citations as a set.
 
     A reference claim's citations are the sources of its pairs.
@@ -468,13 +495,59 @@ class PerturbationRecord(ContractPart):
     target_error: Identifier
     secondary_errors: tuple[Identifier, ...]
     error_class: ErrorClass
-    confirmed_by: AnnotatorId
+    confirmation: Confirmation
+    confirmed_by: AnnotatorId | None
     source_item: ItemId
 
     @field_validator("secondary_errors")
     @classmethod
     def _errors_are_distinct(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         return _distinct(value, "duplicate_error", "error")
+
+    @model_validator(mode="after")
+    def _confirmer_fits(self) -> Self:
+        # Only an audit has a person to name.
+        errors: list[InitErrorDetails] = []
+        if self.confirmation is Confirmation.AUDIT and self.confirmed_by is None:
+            errors.append(
+                field_problem(
+                    "confirmed_by_required", "an audit names who confirmed it", "confirmed_by"
+                )
+            )
+        if self.confirmation is not Confirmation.AUDIT and self.confirmed_by is not None:
+            errors.append(
+                field_problem(
+                    "confirmed_by_not_allowed",
+                    f"must be null when the confirmation is {self.confirmation.value}",
+                    "confirmed_by",
+                )
+            )
+        raise_field_problems("PerturbationRecord", errors)
+        return self
+
+
+class Provenance(ContractPart):
+    """Where a public item's labels come from: a dataset's expert annotators.
+
+    It stands in for `annotation` (RFC-002, section 4, option (a)).
+    `text_redistributable` is false where the licence does not allow the
+    source texts to be released; `not_scored` names the steps whose metrics
+    leave the item out.
+    """
+
+    dataset: PublicDataset
+    dataset_split: Annotated[str, Field(pattern=r"^(train|dev)$", strict=True)]
+    original_id: NonEmptyText
+    licence: NonEmptyText
+    text_redistributable: StrictBool
+    evidence_modified: StrictBool
+    not_scored: tuple[NotScored, ...]
+
+    @field_validator("not_scored")
+    @classmethod
+    def _steps_are_distinct(cls, value: tuple[NotScored, ...]) -> tuple[NotScored, ...]:
+        _distinct(tuple(step.value for step in value), "duplicate_step", "step")
+        return value
 
 
 class GenerationRecord(ContractPart):
@@ -513,8 +586,9 @@ class GoldItem(ContractDocument):
     hard_case: HardCase | None
     text_unit: NonEmptyText
     claims: tuple[GoldClaim, ...]
-    annotation: Annotation
+    annotation: Annotation | None
     hidden: PerturbationRecord | GenerationRecord | None = None
+    provenance: Provenance | None = None
 
     @field_validator("claims")
     @classmethod
@@ -530,9 +604,10 @@ class GoldItem(ContractDocument):
         if origin is None:
             # The origin is invalid and is reported on its own field.
             return None
-        if origin is Origin.NATURAL:
+        if origin in (Origin.NATURAL, Origin.PUBLIC):
             raise PydanticCustomError(
-                "hidden_not_allowed", "a natural item has no hidden record; leave the key out"
+                "hidden_not_allowed",
+                f"a {origin.value} item has no hidden record; leave the key out",
             )
         if value is None or isinstance(value, PerturbationRecord | GenerationRecord):
             return value
@@ -543,7 +618,7 @@ class GoldItem(ContractDocument):
     def _parts_agree(self) -> Self:
         # One problem per offending value, on the field to change.
         errors: list[InitErrorDetails] = []
-        if self.origin is not Origin.NATURAL and self.hidden is None:
+        if self.origin not in (Origin.NATURAL, Origin.PUBLIC) and self.hidden is None:
             errors.append(
                 field_problem(
                     "hidden_required",
@@ -558,9 +633,89 @@ class GoldItem(ContractDocument):
                 )
             )
         errors += self._claim_problems()
-        errors += self._raw_problems()
+        if self.provenance is None:
+            errors += self._annotated_problems()
+        else:
+            errors += self._provenance_problems()
         raise_field_problems("GoldItem", errors)
         return self
+
+    def _annotated_problems(self) -> list[InitErrorDetails]:
+        """An item labelled by utux annotators: its annotation, kinds and raw entries."""
+        errors: list[InitErrorDetails] = []
+        if self.origin is Origin.PUBLIC:
+            return [
+                field_problem(
+                    "provenance_required", "a public item states its provenance", "provenance"
+                )
+            ]
+        if self.annotation is None:
+            return [
+                field_problem(
+                    "annotation_required",
+                    "an item without provenance has its annotators",
+                    "annotation",
+                )
+            ]
+        for index, claim in enumerate(self.claims):
+            if claim.kind is None:
+                errors.append(
+                    field_problem(
+                        "kind_required", "an annotated claim has its kind", "claims", index, "kind"
+                    )
+                )
+            if claim.expert_would_review is None:
+                errors.append(
+                    field_problem(
+                        "review_flag_required",
+                        "an annotated claim has its review flag",
+                        "claims",
+                        index,
+                        "expert_would_review",
+                    )
+                )
+        return errors + self._raw_problems(self.annotation)
+
+    def _provenance_problems(self) -> list[InitErrorDetails]:
+        """A public item, or one perturbed from it: no annotators, raw entries or adjudication."""
+        errors: list[InitErrorDetails] = []
+        if self.origin not in (Origin.PUBLIC, Origin.PERTURBED):
+            return [
+                field_problem(
+                    "provenance_not_allowed",
+                    f"an item of origin {self.origin.value} has annotators, not provenance",
+                    "provenance",
+                )
+            ]
+        if self.annotation is not None:
+            errors.append(
+                field_problem(
+                    "annotation_not_allowed",
+                    "an item with provenance has no utux annotators; set annotation to null",
+                    "annotation",
+                )
+            )
+        levels: list[tuple[GoldClaim | GoldPair, tuple[str | int, ...]]] = []
+        for i, claim in enumerate(self.claims):
+            levels.append((claim, ("claims", i)))
+            levels += [(pair, ("claims", i, "pairs", j)) for j, pair in enumerate(claim.pairs)]
+        for level, loc in levels:
+            if level.raw:
+                errors.append(
+                    field_problem(
+                        "raw_not_allowed", "an item with provenance has no raw entries", *loc, "raw"
+                    )
+                )
+            if level.adjudicated:
+                errors.append(
+                    field_problem(
+                        "adjudication_not_allowed",
+                        "an item with provenance is not adjudicated",
+                        *loc,
+                        "adjudicated",
+                    )
+                )
+        return errors
 
     def _claim_problems(self) -> list[InitErrorDetails]:
         errors: list[InitErrorDetails] = []
@@ -590,7 +745,10 @@ class GoldItem(ContractDocument):
             seen.add(claim.claim_id)
             if claim.span[1] > length:
                 errors.append(_out_of_range(claim.span[1], length, "claims", index, "span"))
-        for annotator, extracted in self.annotation.claim_extraction.raw.items():
+        # An item with provenance reports its annotation once, as not allowed.
+        annotated = self.annotation is not None and self.provenance is None
+        extraction = self.annotation.claim_extraction.raw if annotated and self.annotation else {}
+        for annotator, extracted in extraction.items():
             for index, listed in enumerate(extracted):
                 if listed.span[1] > length:
                     errors.append(
@@ -607,7 +765,7 @@ class GoldItem(ContractDocument):
                     )
         return errors
 
-    def _raw_problems(self) -> list[InitErrorDetails]:
+    def _raw_problems(self, annotation: Annotation) -> list[InitErrorDetails]:
         """Check the raw entries, the adjudication and the reference values.
 
         Raw entries are one per annotator. Where they differ, the level is
@@ -615,14 +773,16 @@ class GoldItem(ContractDocument):
         reference values are theirs.
         """
         errors: list[InitErrorDetails] = []
-        annotators = self.annotation.annotators
-        extraction = self.annotation.claim_extraction
+        annotators = annotation.annotators
+        extraction = annotation.claim_extraction
         lists = [extraction.raw[a] for a in annotators if a in extraction.raw]
         if (
             len(lists) == 2
             and not extraction.adjudicated
             and _claim_set(lists[0]) == _claim_set(lists[1])
             and _claim_set(self.claims) != _claim_set(lists[0])
+            # A missing kind is reported on its own field.
+            and all(claim.kind is not None for claim in self.claims)
         ):
             errors.append(_differs("claim list", "claims"))
         adjudicated = extraction.adjudicated
@@ -637,12 +797,13 @@ class GoldItem(ContractDocument):
                 if first.key() == second.key() and not claim.adjudicated:
                     if claim.status is not first.status:
                         errors.append(_differs("status", "claims", i, "status"))
-                    if claim.expert_would_review is not first.expert_would_review:
+                    review = claim.expert_would_review
+                    if review is not None and review is not first.expert_would_review:
                         errors.append(_differs("review flag", "claims", i, "expert_would_review"))
             for j, pair in enumerate(claim.pairs):
                 adjudicated = adjudicated or pair.adjudicated
                 errors += _pair_raw_problems(pair, annotators, "claims", i, "pairs", j)
-        if adjudicated and self.annotation.adjudicator is None:
+        if adjudicated and annotation.adjudicator is None:
             errors.append(
                 field_problem(
                     "adjudicator_required",
@@ -651,7 +812,7 @@ class GoldItem(ContractDocument):
                     "adjudicator",
                 )
             )
-        if not adjudicated and self.annotation.adjudicator is not None:
+        if not adjudicated and annotation.adjudicator is not None:
             errors.append(
                 field_problem(
                     "adjudicator_not_allowed",
@@ -679,6 +840,8 @@ class GoldItem(ContractDocument):
         document = self.model_dump(mode="json")
         if self.hidden is None:
             del document["hidden"]
+        if self.provenance is None:
+            del document["provenance"]
         return json.dumps(document, ensure_ascii=False) + "\n"
 
     def pairs(self) -> list[tuple[int, int, GoldPair]]:
