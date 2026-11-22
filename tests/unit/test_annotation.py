@@ -24,14 +24,17 @@ from utux.evalkit.annotation import (
     Phase,
     ReferenceClaims,
     export_batch,
+    extraction_agreement,
+    labelling_agreement,
     merge_extraction,
     merge_labelling,
     page_text,
     read_work,
+    release_text,
     with_splits,
     write_annotation_page,
 )
-from utux.evalkit.gold import GoldSplit, check_release
+from utux.evalkit.gold import GoldItem, GoldSplit, check_release
 
 TEXT = "Method A outperforms method B on dataset X [1]. Method A is fast."
 SOURCE_TEXT = "We compare A and B. A beats B on dataset X. A is slow."
@@ -438,10 +441,11 @@ def test_the_two_works_must_be_of_two_annotators_and_one_batch() -> None:
 def test_agreeing_labels_become_a_valid_gold_item() -> None:
     pool = _pool()
     references, work_a, work_b = _labelled(pool)
-    merged = merge_labelling(pool, references, work_a, work_b, {"G0001": GoldSplit.DEV})
+    merged = merge_labelling(pool, references, work_a, work_b)
     assert merged.disagreements == ()
     (item,) = merged.items
-    assert item.split is GoldSplit.DEV
+    # The split is set only when the release is frozen (PR #48 review).
+    assert item.split is None
     claim = item.claims[0]
     assert (claim.status.value, claim.adjudicated) == ("verified", False)
     assert set(claim.raw) == {"a03", "a07"}
@@ -452,7 +456,8 @@ def test_agreeing_labels_become_a_valid_gold_item() -> None:
         "entails",
     )
     assert item.annotation.adjudicator is None
-    assert check_release(merged.items).problems == ()
+    assert [p.code for p in check_release(merged.items).problems] == ["split_not_set"]
+    assert check_release(with_splits(merged.items, {"G0001": GoldSplit.DEV})).problems == ()
 
 
 def test_a_differing_label_goes_to_the_adjudicator_and_no_item_is_made() -> None:
@@ -460,7 +465,7 @@ def test_a_differing_label_goes_to_the_adjudicator_and_no_item_is_made() -> None
     references, work_a, work_b = _labelled(
         pool, b={"status": "partially_supported", "pair": {"agreement_label": "partial"}}
     )
-    merged = merge_labelling(pool, references, work_a, work_b, {"G0001": GoldSplit.DEV})
+    merged = merge_labelling(pool, references, work_a, work_b)
     assert merged.items == ()
     levels = {(d.level, d.target) for d in merged.disagreements}
     assert levels == {("claim", "G0001-c1"), ("pair", "G0001-c1-s1")}
@@ -492,9 +497,7 @@ def test_the_adjudicators_decisions_complete_the_item() -> None:
         ],
         ambiguous=["G0001-c2"],
     )
-    merged = merge_labelling(
-        pool, references, work_a, work_b, {"G0001": GoldSplit.TEST}, adjudication
-    )
+    merged = merge_labelling(pool, references, work_a, work_b, adjudication)
     assert merged.disagreements == ()
     (item,) = merged.items
     claim, other = item.claims
@@ -513,23 +516,27 @@ def test_the_adjudicators_decisions_complete_the_item() -> None:
 def test_the_hidden_record_and_origin_come_from_the_pool() -> None:
     pool = _perturbed_pool()
     references, work_a, work_b = _labelled(pool)
-    (item,) = merge_labelling(pool, references, work_a, work_b, {"G0001": GoldSplit.DEV}).items
+    (item,) = merge_labelling(pool, references, work_a, work_b).items
     assert item.origin.value == "perturbed"
     assert item.hard_case is not None
     assert item.hidden is not None
 
 
-def test_every_merged_item_needs_its_split() -> None:
+def test_a_merged_item_written_as_a_release_line_reads_back() -> None:
     pool = _pool()
     references, work_a, work_b = _labelled(pool)
-    with pytest.raises(GoldSetError, match="split"):
-        merge_labelling(pool, references, work_a, work_b, {})
+    (item,) = merge_labelling(pool, references, work_a, work_b).items
+    line = release_text([item])
+    assert line.count("\n") == 1
+    # A natural item has no hidden key at all, as the gold item requires.
+    assert '"hidden"' not in line
+    assert GoldItem.validate_document(json.loads(line), "line") == item
 
 
 def test_with_splits_sets_the_split_chosen_for_each_item() -> None:
     pool = _pool()
     references, work_a, work_b = _labelled(pool)
-    items = merge_labelling(pool, references, work_a, work_b, {"G0001": GoldSplit.DEV}).items
+    items = merge_labelling(pool, references, work_a, work_b).items
     (moved,) = with_splits(items, {"G0001": GoldSplit.TEST})
     assert moved.split is GoldSplit.TEST
     assert moved.claims == items[0].claims
@@ -673,3 +680,66 @@ def test_the_documented_adjudication_example_is_valid() -> None:
     assert (
         Adjudication.validate_document(document, "docs/annotation-tooling.md").adjudicator == "a01"
     )
+
+
+def test_with_splits_needs_a_split_for_every_item() -> None:
+    pool = _pool()
+    references, work_a, work_b = _labelled(pool)
+    with pytest.raises(GoldSetError, match="split"):
+        with_splits(merge_labelling(pool, references, work_a, work_b).items, {})
+
+
+# Each annotator's kind is kept (PR #48 review)
+
+
+def test_each_annotators_kind_is_kept_in_the_raw_claim_lists() -> None:
+    (item,) = _references(_pool()).references.items
+    kinds = {claim.kind.value for claim in item.claim_extraction.raw["a03"]}
+    assert kinds == {"finding", "method"}
+
+
+# Agreement before adjudication (PR #48 review)
+
+
+def _extraction_works(b: list[Any]) -> tuple[Any, Any]:
+    pool = _pool()
+    batch_a = export_batch(pool, Phase.CLAIM_EXTRACTION, "a03", "b01")
+    batch_b = export_batch(pool, Phase.CLAIM_EXTRACTION, "a07", "b01")
+    return (
+        read_work(batch_a, _extraction_work(batch_a, [CLAIM_1, CLAIM_2])),
+        read_work(batch_b, _extraction_work(batch_b, b)),
+    )
+
+
+def test_claim_extraction_agreement_is_computed_from_the_two_works() -> None:
+    # a03 lists two claims, a07 one of them: 2 * 1 / (2 + 1) = 2/3.
+    first, second = _extraction_works([CLAIM_1])
+    agreement = extraction_agreement(first, second)
+    assert (agreement.first, agreement.second, agreement.matched) == (2, 1, 1)
+    assert agreement.share == pytest.approx(2 / 3)
+
+
+def test_an_item_flagged_by_either_annotator_is_left_out_of_agreement() -> None:
+    first, second = _extraction_works([])
+    flagged = second.model_copy(
+        update={"items": (second.items[0].model_copy(update={"flag": "Broken."}),)}
+    )
+    agreement = extraction_agreement(first, flagged)
+    assert (agreement.first, agreement.second, agreement.matched) == (0, 0, 0)
+
+
+def test_label_agreement_is_computed_from_the_two_works_before_adjudication() -> None:
+    pool = _pool()
+    references, work_a, work_b = _labelled(
+        pool, b={"status": "partially_supported", "pair": {"agreement_label": "partial"}}
+    )
+    report = labelling_agreement(pool, references, work_a, work_b)
+    # Status: G0001-c1 verified against partially_supported, G0001-c2 the same: 1 of 2.
+    assert report.status.raw_agreement == pytest.approx(0.5)
+    # The one pair: entails against partial.
+    assert report.agreement_label.raw_agreement == pytest.approx(0.0)
+    # The same passage marked by both: F1 1.
+    assert report.evidence_spans is not None
+    assert report.evidence_spans.mean_f1 == pytest.approx(1.0)
+    # Claim extraction from the raw lists of the reference claims: both listed the same two.
+    assert (report.claim_extraction.first, report.claim_extraction.matched) == (2, 2)

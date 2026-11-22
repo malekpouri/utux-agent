@@ -134,3 +134,10 @@ def test_report_lines_show_the_counts_and_no_item_text() -> None:
 def test_report_of_an_empty_release_is_refused() -> None:
     with pytest.raises(GoldSetError, match="no items"):
         split_report(())
+
+
+def test_the_report_needs_the_split_of_every_item() -> None:
+    items = read_gold_release(FIXTURE)
+    unset = [items[0].model_copy(update={"split": None}), *items[1:]]
+    with pytest.raises(GoldSetError, match="split"):
+        split_report(unset)

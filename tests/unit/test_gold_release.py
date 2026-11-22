@@ -306,3 +306,8 @@ def test_guideline_status_rules(labels: list[str], flags: list[list[str]], expec
 
 def test_guideline_status_of_a_claim_without_sources() -> None:
     assert guideline_status([], []) == "insufficient_evidence"  # rule 1
+
+
+def test_an_item_without_a_split_is_not_frozen() -> None:
+    items = _changed(_items(), "G9000", {"split": None})
+    assert ("G9000.split", "split_not_set") in _problems(items)
