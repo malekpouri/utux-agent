@@ -11,8 +11,10 @@ from utux.sources.http import HttpResponse, RecordedTransport
 RECORDED = Path(__file__).resolve().parents[1] / "fixtures" / "literature" / "arxiv"
 BASE = "https://export.arxiv.org/api/query"
 SEARCH = (
-    BASE + "?search_query=all%3Asynthetic+AND+all%3Amethod+AND+all%3Acomparison"
-    "&start=0&max_results={limit}"
+    BASE + "?search_query=ti%3A%22synthetic+method+comparison%22"
+    "+OR+all%3A%22synthetic+method+comparison%22"
+    "+OR+%28all%3Asynthetic+AND+all%3Amethod+AND+all%3Acomparison%29"
+    "&sortBy=relevance&sortOrder=descending&start=0&max_results={limit}"
 )
 
 

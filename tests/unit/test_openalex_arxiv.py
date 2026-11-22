@@ -287,3 +287,46 @@ def test_the_contact_email_is_never_sent_to_openalex_or_arxiv() -> None:
     for request in _every_request({}):
         assert "example.org" not in request.url
         assert "mailto" not in request.url
+
+
+# A natural title query (PR #54 review: the live search for this title found nothing)
+
+
+def _search_query(transport: RecordedTransport) -> str:
+    from urllib.parse import parse_qs, urlsplit
+
+    (request,) = transport.requests
+    params = parse_qs(urlsplit(request.url).query)
+    assert params["sortBy"] == ["relevance"]
+    assert params["sortOrder"] == ["descending"]
+    (query,) = params["search_query"]
+    return query
+
+
+def test_a_natural_title_query_searches_the_phrase_and_its_content_words() -> None:
+    # arXiv API user manual, section 5.1: quotes group words into a phrase,
+    # OR and parentheses combine clauses, and "all" is a field prefix.
+    transport = RecordedTransport({}, default=_ok("arxiv/search_attention.xml"))
+    found = ArxivSource(transport, sleep=lambda s: None).search("Attention is all you need", 3)
+    assert _search_query(transport) == (
+        'ti:"attention is all you need" OR all:"attention is all you need"'
+        " OR (all:attention AND all:need)"
+    )
+    assert [work.title for work in found] == ["Attention Is All You Need"]
+    assert found[0].identifier == "arxiv:0000.00004"
+
+
+def test_query_words_are_never_taken_as_operators_or_field_prefixes() -> None:
+    transport = RecordedTransport({}, default=_ok("arxiv/empty.xml"))
+    ArxivSource(transport, sleep=lambda s: None).search("Cats AND dogs OR ti: ANDNOT mice", 3)
+    query = _search_query(transport)
+    assert query == (
+        'ti:"cats and dogs or ti andnot mice" OR all:"cats and dogs or ti andnot mice"'
+        " OR (all:cats AND all:dogs AND all:mice)"
+    )
+
+
+def test_a_query_of_stop_words_only_searches_the_phrase() -> None:
+    transport = RecordedTransport({}, default=_ok("arxiv/empty.xml"))
+    ArxivSource(transport, sleep=lambda s: None).search("all of the", 3)
+    assert _search_query(transport) == 'ti:"all of the" OR all:"all of the"'
