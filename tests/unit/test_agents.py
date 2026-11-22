@@ -28,19 +28,26 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PROMPTS = REPO_ROOT / PROMPTS_DIRECTORY
 
 
-def _record(record_id: str, value: float, metric: str = "r2") -> ResultRecord:
+def _record(
+    record_id: str,
+    value: float,
+    metric: str = "r2",
+    *,
+    unit: str = "score",
+    tolerance: float = 0.005,
+) -> ResultRecord:
     return ResultRecord(
         schema_version=1,
         id=record_id,
         metric=metric,
         value=value,
-        unit="score",
+        unit=unit,
         dataset="synthetic_line",
         model="linear",
         split="test",
         run_id="r001",
         source="runs/r001/outputs/metrics.json",
-        tolerance=0.005,
+        tolerance=tolerance,
     )
 
 
@@ -49,7 +56,7 @@ def _record(record_id: str, value: float, metric: str = "r2") -> ResultRecord:
 
 @pytest.mark.parametrize(
     ("role", "version"),
-    [("methodologist", 3), ("implementer", 3), ("analyst", 4)],
+    [("methodologist", 3), ("implementer", 3), ("analyst", 5)],
 )
 def test_each_role_has_a_versioned_prompt_in_the_pack(role: str, version: int) -> None:
     prompt = load_prompt(PROMPTS, role)
@@ -174,7 +181,8 @@ def test_a_number_without_a_result_id_is_rejected(text: str) -> None:
 def test_results_are_rendered_with_each_records_value_and_unit() -> None:
     output = AnalysisOutput.model_validate({"text": "The line fits well: [R0001]."})
     rendered = render_results(output, [_record("R0001", 0.97)])
-    assert rendered == "# Results\n\nThe line fits well: 0.97 score [R0001].\n"
+    # Finding 9 of M1-16: a dimensionless unit such as score is not shown.
+    assert rendered == "# Results\n\nThe line fits well: 0.97 [R0001].\n"
     check_results(rendered, [_record("R0001", 0.97)])
 
 
@@ -182,9 +190,10 @@ def test_results_are_rendered_with_each_records_value_and_unit() -> None:
     "results",
     [
         "# Results\n\nThe fit is 0.97.\n",
-        "# Results\n\nThe fit is 0.95 score [R0001].\n",
-        "# Results\n\nThe fit is 0.97 score [R0009].\n",
-        "# Results\n\nIn 2 of the runs: 0.97 score [R0001].\n",
+        "# Results\n\nThe fit is 0.95 [R0001].\n",
+        "# Results\n\nThe fit is 0.97 [R0009].\n",
+        "# Results\n\nIn 2 of the runs: 0.97 [R0001].\n",
+        "# Results\n\nThe fit is 0.97 score [R0001].\n",
     ],
 )
 def test_a_results_md_with_a_number_without_its_result_record_is_rejected(results: str) -> None:
@@ -267,9 +276,7 @@ def test_words_that_only_contain_a_number_word_are_allowed() -> None:
 
 def test_a_results_md_with_a_number_word_is_rejected() -> None:
     with pytest.raises(AgentOutputError):
-        check_results(
-            "# Results\n\nTwelve folds gave 0.97 score [R0001].\n", [_record("R0001", 0.97)]
-        )
+        check_results("# Results\n\nTwelve folds gave 0.97 [R0001].\n", [_record("R0001", 0.97)])
 
 
 def test_a_number_word_as_the_unit_of_a_reference_is_allowed() -> None:
@@ -353,3 +360,41 @@ def test_the_implementer_prompt_names_none_tolerance_split_and_random_state() ->
     assert "cv5" in text
     assert "never train" in text
     assert "random_state" in text
+
+
+# Finding 9 of M1-16: values rounded to their tolerance, no dimensionless unit
+
+
+@pytest.mark.parametrize(
+    ("value", "unit", "tolerance", "shown"),
+    [
+        (0.956140350877193, "score", 0.0001, "0.9561 [R0001]"),
+        (0.956140350877193, "score", 0.005, "0.96 [R0001]"),
+        (95.6140350877193, "percent", 0.01, "95.61 percent [R0001]"),
+        (12.3456, "seconds", 0.5, "12 seconds [R0001]"),
+        (0.956140350877193, "score", 0.0, "0.956140350877193 [R0001]"),
+        (-0.04512, "score", 0.0005, "-0.045 [R0001]"),
+    ],
+)
+def test_a_value_is_shown_to_the_decimals_its_tolerance_implies(
+    value: float, unit: str, tolerance: float, shown: str
+) -> None:
+    record = _record("R0001", value, unit=unit, tolerance=tolerance)
+    output = AnalysisOutput.model_validate({"text": "The fit: [R0001]."})
+    rendered = render_results(output, [record])
+    assert rendered == f"# Results\n\nThe fit: {shown}.\n"
+    check_results(rendered, [record])
+    # The record keeps the full value.
+    assert record.value == value
+
+
+def test_the_full_value_is_not_what_results_md_shows() -> None:
+    record = _record("R0001", 0.956140350877193, tolerance=0.0001)
+    with pytest.raises(AgentOutputError):
+        check_results("# Results\n\nThe fit: 0.956140350877193 [R0001].\n", [record])
+
+
+def test_the_analyst_prompt_says_not_to_write_unit_words() -> None:
+    text = " ".join(load_prompt(PROMPTS, "analyst").text.split())
+    assert "Do not write unit words" in text
+    assert "utux adds" in text
