@@ -275,8 +275,6 @@ def test_import_reports_every_problem_of_a_work_file(tmp_path: Path) -> None:
 
 
 def test_import_public_writes_items_and_prints_counts_only(tmp_path: Path) -> None:
-    from utux.evalkit.public import read_public_items
-
     data = tmp_path / "sciclaimeval" / "data"
     (data / "tables_json" / "dev").mkdir(parents=True)
     sample = {
@@ -287,6 +285,7 @@ def test_import_public_writes_items_and_prints_counts_only(tmp_path: Path) -> No
         "use_context": "no",
         "context": "",
         "domain": "ml",
+        "paper_id": "synthetic-paper",
         "license_name": "CC BY 4.0",
     }
     figure = dict(sample, claim_id="val_fig_0002", evi_type="figure")
@@ -299,12 +298,13 @@ def test_import_public_writes_items_and_prints_counts_only(tmp_path: Path) -> No
             "table_content_values": [["Alpha", "2"], ["Beta", "1"]],
         },
     )
-    out = tmp_path / "items" / "sciclaimeval.jsonl"
+    out = tmp_path / "items" / "sciclaimeval"
     code, output = _gold(
         "import-public", "sciclaimeval", str(tmp_path / "sciclaimeval"), "--out", str(out)
     )
     assert code == 0, output
-    assert len(read_public_items(out)) == 1
+    assert len(read_gold_release(out / "items.jsonl")) == 1
+    assert len(list((out / "sources").iterdir())) == 1
     counts = json.loads(output[output.index("{") :])
     assert counts["items"] == 1
     assert counts["dropped"] == {"dev": {"evidence_figure": 1}}
@@ -321,7 +321,7 @@ def test_import_public_refuses_an_output_inside_a_git_work_tree(tmp_path: Path) 
         "sciclaimeval",
         str(tmp_path / "sciclaimeval"),
         "--out",
-        str(tmp_path / "repo" / "items.jsonl"),
+        str(tmp_path / "repo" / "out"),
     )
     assert code == 1
     assert "git work tree" in output

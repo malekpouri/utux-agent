@@ -3,6 +3,11 @@
 Every dataset file here is synthetic: written by hand in the shape of the
 SciFact and SciClaimEval releases, with made-up claims, abstracts and
 tables. No real dataset item is used.
+
+The items are gold items of origin `public` with a provenance block
+(RFC-002, section 4, option (a)); the maintainer's decisions of the review
+of pull request #55 set the licences, the drop of NC and SA samples, the
+steps not scored and the source groups.
 """
 
 import hashlib
@@ -12,19 +17,26 @@ from pathlib import Path
 
 import pytest
 
-from utux.errors import ContractValidationError, GoldSetError
-from utux.evalkit.gold import Domain, GoldStatus
+from utux.errors import GoldSetError
+from utux.evalkit.gold import (
+    Domain,
+    GoldItem,
+    GoldStatus,
+    NotScored,
+    Origin,
+    PublicDataset,
+    read_gold_release,
+)
 from utux.evalkit.public import (
     DropReason,
-    PublicDataset,
-    PublicItem,
+    PublicImport,
+    check_public_item,
     import_public,
-    read_public_items,
     render_table,
     summarize,
-    write_public_items,
+    write_public_import,
 )
-from utux.schemas.claim_ledger import CheckedText, SourceLabel
+from utux.schemas.claim_ledger import CheckedText, ExtractionQuality, SourceLabel
 from utux.sources.passages import split_passages
 
 # Synthetic SciFact ------------------------------------------------------------
@@ -51,6 +63,14 @@ def _corpus() -> list[object]:
     ]
 
 
+def _support(*sentences: int) -> dict[str, object]:
+    return {"sentences": list(sentences), "label": "SUPPORT"}
+
+
+def _contradict(*sentences: int) -> dict[str, object]:
+    return {"sentences": list(sentences), "label": "CONTRADICT"}
+
+
 def _claim(
     claim_id: int, evidence: dict[str, object], cited: list[int], text: str = ""
 ) -> dict[str, object]:
@@ -72,46 +92,57 @@ def _scifact(tmp_path: Path, train: list[object], dev: list[object] | None = Non
     return root
 
 
-def _one(directory: Path, dataset: PublicDataset) -> PublicItem:
+def _one(directory: Path, dataset: PublicDataset) -> tuple[GoldItem, PublicImport]:
     result = import_public(dataset, directory)
     assert len(result.items) == 1, result.dropped
-    return result.items[0]
+    return result.items[0], result
 
 
-def test_scifact_support_maps_to_entails_and_verified_with_the_rationale_passage(
-    tmp_path: Path,
-) -> None:
-    root = _scifact(
-        tmp_path,
-        [_claim(1, {"101": [{"sentences": [1], "label": "SUPPORT"}]}, [101], "Drug A works.")],
-    )
-    item = _one(root, PublicDataset.SCIFACT)
+def _hash(text: str) -> str:
+    return "sha256:" + hashlib.sha256(text.encode()).hexdigest()
+
+
+def test_scifact_support_is_a_public_gold_item_with_entails_and_verified(tmp_path: Path) -> None:
+    root = _scifact(tmp_path, [_claim(1, {"101": [_support(1)]}, [101], "Drug A works.")])
+    item, result = _one(root, PublicDataset.SCIFACT)
     text = " ".join(ABSTRACT_1)
-    assert item.item_id == "scifact-train-1"
-    assert (item.dataset, item.dataset_split, item.original_id) == (
-        PublicDataset.SCIFACT,
-        "train",
-        "1",
-    )
+    assert item.item_id == "G10000001"
+    assert (item.gold_version, item.split, item.origin) == ("0.1", None, Origin.PUBLIC)
     assert item.domain is Domain.BIOMEDICINE
+    assert item.hard_case is None
+    assert item.annotation is None
     assert item.text_unit == "Drug A works."
-    assert item.claim.span == (0, len("Drug A works."))
-    assert item.claim.status is GoldStatus.VERIFIED
-    (source,) = item.sources
-    assert source.source_id == "scifact-doc-101"
-    assert source.text == text
-    assert source.text_hash == "sha256:" + hashlib.sha256(text.encode()).hexdigest()
-    assert source.checked_text is CheckedText.ABSTRACT
-    (pair,) = item.claim.pairs
+    (claim,) = item.claims
+    assert claim.claim_id == "G10000001-c1"
+    assert claim.span == (0, len("Drug A works."))
+    assert (claim.kind, claim.expert_would_review, claim.raw) == (None, None, {})
+    assert claim.status is GoldStatus.VERIFIED
+    (pair,) = claim.pairs
+    assert pair.pair_id == "G10000001-c1-s1"
+    assert pair.source_id == "scifact-doc-101"
+    # Claims that share an abstract share its group (maintainer decision 14).
+    assert pair.source_group == "scifact-doc-101"
+    assert pair.text_hash == _hash(text)
+    assert pair.checked_text is CheckedText.ABSTRACT
+    assert pair.extraction_quality is ExtractionQuality.CLEAN
     assert pair.agreement_label is SourceLabel.ENTAILS
+    assert pair.scope_flags == ()
     start = text.index(ABSTRACT_1[1])
     passage = next(p for p in split_passages(text, CheckedText.ABSTRACT) if p.offsets[0] == start)
     assert [(s.passage_id, s.offsets) for s in pair.evidence_spans] == [
         (passage.passage_id, (start, start + len(ABSTRACT_1[1])))
     ]
-    assert item.evidence_modified is False
-    assert item.splitter_version == "passages@1"
-    assert summarize(import_public(PublicDataset.SCIFACT, root))["rationale_sentences_cut"] == 0
+    provenance = item.provenance
+    assert provenance is not None
+    assert provenance.dataset is PublicDataset.SCIFACT
+    assert (provenance.dataset_split, provenance.original_id) == ("train", "1")
+    # The most restrictive statement until AllenAI clarifies (decision 1).
+    assert provenance.licence == "CC BY-NC 2.0"
+    assert provenance.text_redistributable is False
+    assert provenance.evidence_modified is False
+    assert provenance.not_scored == (NotScored.S4,)
+    assert result.texts == {_hash(text): text}
+    assert summarize(result)["rationale_sentences_cut"] == 0
 
 
 def test_a_rationale_sentence_the_splitter_cuts_gives_one_span_per_passage(
@@ -119,17 +150,14 @@ def test_a_rationale_sentence_the_splitter_cuts_gives_one_span_per_passage(
 ) -> None:
     # passages@1 ends a sentence after an initial ("J. Doe"), unlike SciFact.
     abstract = ["Work by J. Doe used synthetic drug C.", "It failed."]
-    root = _scifact(
-        tmp_path, [_claim(12, {"104": [{"sentences": [0], "label": "SUPPORT"}]}, [104])]
-    )
+    root = _scifact(tmp_path, [_claim(12, {"104": [_support(0)]}, [104])])
     _jsonl(
         root / "data" / "corpus.jsonl",
         [{"doc_id": 104, "title": "Synthetic D", "abstract": abstract, "structured": False}],
     )
     result = import_public(PublicDataset.SCIFACT, root)
-    (pair,) = result.items[0].claim.pairs
-    text = " ".join(abstract)
-    passages = split_passages(text, CheckedText.ABSTRACT)
+    (pair,) = result.items[0].claims[0].pairs
+    passages = split_passages(" ".join(abstract), CheckedText.ABSTRACT)
     assert [(s.passage_id, s.offsets) for s in pair.evidence_spans] == [
         (p.passage_id, p.offsets) for p in passages[:2]
     ]
@@ -137,19 +165,17 @@ def test_a_rationale_sentence_the_splitter_cuts_gives_one_span_per_passage(
 
 
 def test_scifact_contradict_maps_to_contradicts_and_contradicted(tmp_path: Path) -> None:
-    root = _scifact(
-        tmp_path, [_claim(2, {"102": [{"sentences": [1], "label": "CONTRADICT"}]}, [102])]
-    )
-    item = _one(root, PublicDataset.SCIFACT)
-    assert item.claim.status is GoldStatus.CONTRADICTED
-    assert [p.agreement_label for p in item.claim.pairs] == [SourceLabel.CONTRADICTS]
+    root = _scifact(tmp_path, [_claim(2, {"102": [_contradict(1)]}, [102])])
+    item, _ = _one(root, PublicDataset.SCIFACT)
+    assert item.claims[0].status is GoldStatus.CONTRADICTED
+    assert [p.agreement_label for p in item.claims[0].pairs] == [SourceLabel.CONTRADICTS]
 
 
 def test_scifact_noinfo_maps_to_neutral_and_insufficient_evidence(tmp_path: Path) -> None:
     root = _scifact(tmp_path, [_claim(3, {}, [103])])
-    item = _one(root, PublicDataset.SCIFACT)
-    assert item.claim.status is GoldStatus.INSUFFICIENT_EVIDENCE
-    (pair,) = item.claim.pairs
+    item, _ = _one(root, PublicDataset.SCIFACT)
+    assert item.claims[0].status is GoldStatus.INSUFFICIENT_EVIDENCE
+    (pair,) = item.claims[0].pairs
     assert pair.agreement_label is SourceLabel.NEUTRAL
     assert pair.evidence_spans == ()
 
@@ -157,53 +183,28 @@ def test_scifact_noinfo_maps_to_neutral_and_insufficient_evidence(tmp_path: Path
 def test_a_cited_source_without_evidence_is_a_neutral_pair_beside_the_support(
     tmp_path: Path,
 ) -> None:
-    root = _scifact(
-        tmp_path, [_claim(4, {"101": [{"sentences": [0, 1], "label": "SUPPORT"}]}, [101, 103])]
-    )
-    item = _one(root, PublicDataset.SCIFACT)
-    assert item.claim.status is GoldStatus.VERIFIED
-    assert [(p.source_id, p.agreement_label) for p in item.claim.pairs] == [
-        ("scifact-doc-101", SourceLabel.ENTAILS),
-        ("scifact-doc-103", SourceLabel.NEUTRAL),
+    root = _scifact(tmp_path, [_claim(4, {"101": [_support(0, 1)]}, [101, 103])])
+    item, result = _one(root, PublicDataset.SCIFACT)
+    claim = item.claims[0]
+    assert claim.status is GoldStatus.VERIFIED
+    assert [(p.pair_id, p.source_group, p.agreement_label) for p in claim.pairs] == [
+        ("G10000004-c1-s1", "scifact-doc-101", SourceLabel.ENTAILS),
+        ("G10000004-c1-s2", "scifact-doc-103", SourceLabel.NEUTRAL),
     ]
-    assert len(item.claim.pairs[0].evidence_spans) == 2
+    assert len(claim.pairs[0].evidence_spans) == 2
+    assert len(result.texts) == 2
 
 
 @pytest.mark.parametrize(
     ("claim", "reason"),
     [
+        (_claim(5, {"109": [_support(0)]}, [109]), "source_not_in_corpus"),
+        (_claim(6, {"101": [_support(7)]}, [101]), "rationale_sentence_missing"),
         (
-            _claim(5, {"109": [{"sentences": [0], "label": "SUPPORT"}]}, [109]),
-            "source_not_in_corpus",
-        ),
-        (
-            _claim(6, {"101": [{"sentences": [7], "label": "SUPPORT"}]}, [101]),
-            "rationale_sentence_missing",
-        ),
-        (
-            _claim(
-                7,
-                {
-                    "101": [{"sentences": [1], "label": "SUPPORT"}],
-                    "102": [{"sentences": [1], "label": "CONTRADICT"}],
-                },
-                [101, 102],
-            ),
+            _claim(7, {"101": [_support(1)], "102": [_contradict(1)]}, [101, 102]),
             "sources_disagree",
         ),
-        (
-            _claim(
-                8,
-                {
-                    "101": [
-                        {"sentences": [1], "label": "SUPPORT"},
-                        {"sentences": [2], "label": "CONTRADICT"},
-                    ]
-                },
-                [101],
-            ),
-            "mixed_labels_in_source",
-        ),
+        (_claim(8, {"101": [_support(1), _contradict(2)]}, [101]), "mixed_labels_in_source"),
         (_claim(9, {}, []), "no_cited_source"),
         (_claim(10, {"101": [{"sentences": [1], "label": "MAYBE"}]}, [101]), "unknown_label"),
         ({"id": 11, "claim": ""}, "malformed_record"),
@@ -218,13 +219,12 @@ def test_scifact_items_that_cannot_be_mapped_cleanly_are_dropped_by_reason(
 
 
 def test_scifact_uses_train_and_dev_and_never_opens_the_test_split(tmp_path: Path) -> None:
-    root = _scifact(
-        tmp_path,
-        [_claim(1, {}, [103])],
-        [_claim(2, {"101": [{"sentences": [1], "label": "SUPPORT"}]}, [101])],
-    )
+    root = _scifact(tmp_path, [_claim(1, {}, [103])], [_claim(2, {"101": [_support(1)]}, [101])])
     result = import_public(PublicDataset.SCIFACT, root)
-    assert [i.item_id for i in result.items] == ["scifact-dev-2", "scifact-train-1"]
+    assert [(i.item_id, i.provenance and i.provenance.dataset_split) for i in result.items] == [
+        ("G10000001", "train"),
+        ("G10000002", "dev"),
+    ]
 
 
 def test_scifact_without_a_labelled_file_is_refused(tmp_path: Path) -> None:
@@ -261,7 +261,7 @@ def _sample(claim_id: str, **changes: object) -> dict[str, object]:
         "claim_id_pair": "val_tab_9999",
         "detail_others": "",
         "domain": "nlp",
-        "paper_id": "synthetic",
+        "paper_id": "synthetic-paper-1",
         "paper_path": "papers/dev/synthetic.json",
         "license_name": "CC BY 4.0",
         "license_url": "https://creativecommons.org/licenses/by/4.0/",
@@ -293,23 +293,32 @@ def test_a_supported_table_claim_maps_to_entails_and_verified_with_every_passage
     tmp_path: Path,
 ) -> None:
     root = _sciclaimeval(tmp_path, [_sample("val_tab_0001")], {"val_tab_0001": TABLE})
-    item = _one(root, PublicDataset.SCICLAIMEVAL)
-    assert item.item_id == "sciclaimeval-dev-val_tab_0001"
+    item, result = _one(root, PublicDataset.SCICLAIMEVAL)
+    assert item.item_id == "G20000001"
     assert item.domain is Domain.ML
-    assert item.licence == "CC BY 4.0"
     assert item.text_unit == "Alpha is more accurate than Beta."
-    assert item.claim.status is GoldStatus.VERIFIED
-    (source,) = item.sources
-    assert source.text == TABLE_TEXT
-    assert source.checked_text is CheckedText.FULL_TEXT
-    assert source.licence == "CC BY 4.0"
-    (pair,) = item.claim.pairs
+    assert item.claims[0].status is GoldStatus.VERIFIED
+    (pair,) = item.claims[0].pairs
+    assert pair.source_id == "sciclaimeval-table-val_tab_0001"
+    # The source group is the paper (maintainer decision 14).
+    assert pair.source_group == "sciclaimeval-paper-synthetic-paper-1"
+    assert pair.text_hash == _hash(TABLE_TEXT)
+    assert pair.checked_text is CheckedText.FULL_TEXT
     assert pair.agreement_label is SourceLabel.ENTAILS
     passages = split_passages(TABLE_TEXT, CheckedText.FULL_TEXT)
     assert [(s.passage_id, s.offsets) for s in pair.evidence_spans] == [
         (p.passage_id, p.offsets) for p in passages
     ]
-    assert item.evidence_modified is False
+    provenance = item.provenance
+    assert provenance is not None
+    assert (provenance.dataset, provenance.dataset_split) == (PublicDataset.SCICLAIMEVAL, "dev")
+    assert provenance.original_id == "val_tab_0001"
+    assert provenance.licence == "CC BY 4.0"
+    assert provenance.text_redistributable is True
+    assert provenance.evidence_modified is False
+    # Not in S2 metrics (decision 5) nor S4 (decision 4).
+    assert provenance.not_scored == (NotScored.S2, NotScored.S4)
+    assert result.texts == {_hash(TABLE_TEXT): TABLE_TEXT}
 
 
 def test_a_refuted_table_claim_maps_to_contradicts_and_contradicted_on_modified_evidence(
@@ -317,13 +326,15 @@ def test_a_refuted_table_claim_maps_to_contradicts_and_contradicted_on_modified_
 ) -> None:
     root = _sciclaimeval(
         tmp_path,
-        [_sample("val_tab_0002", label="Refuted", domain="peerj")],
+        [_sample("val_tab_0002", label="Refuted", domain="peerj", license_name="Public Domain")],
         {"val_tab_0002": TABLE},
     )
-    item = _one(root, PublicDataset.SCICLAIMEVAL)
-    assert item.claim.status is GoldStatus.CONTRADICTED
-    assert item.claim.pairs[0].agreement_label is SourceLabel.CONTRADICTS
-    assert item.evidence_modified is True
+    item, _ = _one(root, PublicDataset.SCICLAIMEVAL)
+    assert item.claims[0].status is GoldStatus.CONTRADICTED
+    assert item.claims[0].pairs[0].agreement_label is SourceLabel.CONTRADICTS
+    assert item.provenance is not None
+    assert item.provenance.evidence_modified is True
+    assert item.provenance.licence == "Public Domain"
     assert item.domain is Domain.BIOMEDICINE
 
 
@@ -331,10 +342,11 @@ def test_a_claim_that_needs_its_context_carries_it_in_the_text_unit(tmp_path: Pa
     root = _sciclaimeval(
         tmp_path, [_sample("val_tab_0003", use_context="yes")], {"val_tab_0003": TABLE}
     )
-    item = _one(root, PublicDataset.SCICLAIMEVAL)
+    item, _ = _one(root, PublicDataset.SCICLAIMEVAL)
     claim = "Alpha is more accurate than Beta."
     assert item.text_unit == "We compare two synthetic models. " + claim
-    assert item.text_unit[item.claim.span[0] : item.claim.span[1]] == claim
+    span = item.claims[0].span
+    assert item.text_unit[span[0] : span[1]] == claim
 
 
 @pytest.mark.parametrize(
@@ -353,6 +365,11 @@ def test_a_claim_that_needs_its_context_carries_it_in_the_text_unit(tmp_path: Pa
         ({"label": "NEI"}, {"val_tab_0004": TABLE}, "unknown_label"),
         ({"claim": ""}, {"val_tab_0004": TABLE}, "malformed_record"),
         ({"license_name": ""}, {"val_tab_0004": TABLE}, "malformed_record"),
+        ({"paper_id": ""}, {"val_tab_0004": TABLE}, "malformed_record"),
+        # Only CC BY 4.0 and public-domain samples are kept (maintainer decision 2).
+        ({"license_name": "CC BY-NC 4.0"}, {"val_tab_0004": TABLE}, "licence_not_allowed"),
+        ({"license_name": "CC BY-NC-SA 4.0"}, {"val_tab_0004": TABLE}, "licence_not_allowed"),
+        ({"license_name": "CC BY-SA 4.0"}, {"val_tab_0004": TABLE}, "licence_not_allowed"),
     ],
 )
 def test_sciclaimeval_items_that_cannot_be_mapped_cleanly_are_dropped_by_reason(
@@ -373,7 +390,7 @@ def test_a_table_file_name_is_never_taken_from_outside_the_tables_directory(
     assert result.dropped == {("dev", DropReason.MALFORMED_RECORD): 1}
 
 
-# Determinism, the summary and the output file ---------------------------------
+# Determinism, the summary, the checks and the output ---------------------------
 
 
 def test_the_import_is_deterministic_and_summarized_by_counts(tmp_path: Path) -> None:
@@ -383,79 +400,56 @@ def test_the_import_is_deterministic_and_summarized_by_counts(tmp_path: Path) ->
             _sample("val_tab_0006", label="Refuted"),
             _sample("val_tab_0005"),
             _sample("val_fig_0007", evi_type="figure"),
+            _sample("val_tab_0008", license_name="CC BY-SA 4.0"),
         ],
-        {"val_tab_0005": TABLE, "val_tab_0006": TABLE},
+        {"val_tab_0005": TABLE, "val_tab_0006": TABLE, "val_tab_0008": TABLE},
     )
     first = import_public(PublicDataset.SCICLAIMEVAL, root)
     second = import_public(PublicDataset.SCICLAIMEVAL, root)
     assert first == second
-    assert [i.item_id for i in first.items] == [
-        "sciclaimeval-dev-val_tab_0005",
-        "sciclaimeval-dev-val_tab_0006",
-    ]
+    assert [i.item_id for i in first.items] == ["G20000005", "G20000006"]
     summary = summarize(first)
     assert summary["items"] == 2
     assert summary["by_status"] == {"dev": {"contradicted": 1, "verified": 1}}
     assert summary["by_pair_label"] == {"dev": {"contradicts": 1, "entails": 1}}
-    assert summary["dropped"] == {"dev": {"evidence_figure": 1}}
+    assert summary["dropped"] == {"dev": {"evidence_figure": 1, "licence_not_allowed": 1}}
     assert summary["by_licence"] == {"CC BY 4.0": 2}
     assert summary["by_domain"] == {"ml": 2}
+    assert summary["source_groups"] == 1
     # Counts only: no claim or source text in the summary.
     assert "Alpha" not in json.dumps(summary)
 
 
-def test_items_round_trip_through_their_file(tmp_path: Path) -> None:
+def test_items_and_source_texts_are_written_and_read_back(tmp_path: Path) -> None:
     root = _sciclaimeval(tmp_path, [_sample("val_tab_0008")], {"val_tab_0008": TABLE})
-    items = import_public(PublicDataset.SCICLAIMEVAL, root).items
-    out = tmp_path / "out" / "items.jsonl"
-    write_public_items(out, items)
-    assert read_public_items(out) == items
+    result = import_public(PublicDataset.SCICLAIMEVAL, root)
+    out = tmp_path / "out" / "sciclaimeval"
+    write_public_import(out, result)
+    assert read_gold_release(out / "items.jsonl") == result.items
+    digest = _hash(TABLE_TEXT).removeprefix("sha256:")
+    assert (out / "sources" / f"{digest}.txt").read_text(encoding="utf-8") == TABLE_TEXT
 
 
 def test_the_output_is_refused_inside_a_git_work_tree(tmp_path: Path) -> None:
     subprocess.run(["git", "init", "-q", str(tmp_path / "repo")], check=True)
+    empty = PublicImport(PublicDataset.SCIFACT, (), {}, {})
     with pytest.raises(GoldSetError, match="git"):
-        write_public_items(tmp_path / "repo" / "items.jsonl", ())
-    assert not (tmp_path / "repo" / "items.jsonl").exists()
+        write_public_import(tmp_path / "repo" / "out", empty)
+    assert not (tmp_path / "repo" / "out").exists()
 
 
-def test_an_item_whose_hash_or_spans_do_not_fit_its_text_is_invalid(tmp_path: Path) -> None:
+def test_an_item_whose_hash_spans_or_status_do_not_fit_is_refused(tmp_path: Path) -> None:
     root = _sciclaimeval(tmp_path, [_sample("val_tab_0009")], {"val_tab_0009": TABLE})
-    document = json.loads(import_public(PublicDataset.SCICLAIMEVAL, root).items[0].to_json())
-    wrong_hash = json.loads(json.dumps(document))
-    wrong_hash["sources"][0]["text"] = "Changed."
-    with pytest.raises(ContractValidationError, match="text_hash"):
-        PublicItem.validate_document(wrong_hash, "synthetic")
-    wrong_span = json.loads(json.dumps(document))
-    wrong_span["claim"]["pairs"][0]["evidence_spans"][0]["offsets"] = [0, 1000]
-    with pytest.raises(ContractValidationError, match="passage"):
-        PublicItem.validate_document(wrong_span, "synthetic")
-    wrong_status = json.loads(json.dumps(document))
-    wrong_status["claim"]["status"] = "contradicted"
-    with pytest.raises(ContractValidationError, match="status"):
-        PublicItem.validate_document(wrong_status, "synthetic")
-
-
-# Fixtures -------------------------------------------------------------------------
-
-FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "public_item"
-
-
-@pytest.mark.parametrize("path", sorted((FIXTURES / "valid").glob("*.json")), ids=lambda p: p.name)
-def test_valid_fixtures_validate_and_round_trip(path: Path) -> None:
-    item = PublicItem.from_json(path.read_text(encoding="utf-8"), path.name)
-    assert item.to_json() == path.read_text(encoding="utf-8")
-    assert PublicItem.from_json(item.to_json_line()) == item
-
-
-@pytest.mark.parametrize(
-    ("name", "code"),
-    [
-        ("synthetic_status_not_from_labels.json", "status_mismatch"),
-        ("synthetic_label_not_mapped.json", "label_not_mapped"),
-    ],
-)
-def test_invalid_fixtures_are_refused_with_their_code(name: str, code: str) -> None:
-    with pytest.raises(ContractValidationError) as refused:
-        PublicItem.from_json((FIXTURES / "invalid" / name).read_text(encoding="utf-8"), name)
-    assert [problem.code for problem in refused.value.problems] == [code]
+    result = import_public(PublicDataset.SCICLAIMEVAL, root)
+    (item,) = result.items
+    check_public_item(item, result.texts)
+    with pytest.raises(GoldSetError, match="text"):
+        check_public_item(item, {})
+    document = json.loads(item.to_json_line())
+    document["claims"][0]["pairs"][0]["evidence_spans"][0]["offsets"] = [0, 1000]
+    with pytest.raises(GoldSetError, match="passage"):
+        check_public_item(GoldItem.validate_document(document, "synthetic"), result.texts)
+    document = json.loads(item.to_json_line())
+    document["claims"][0]["status"] = "contradicted"
+    with pytest.raises(GoldSetError, match="status"):
+        check_public_item(GoldItem.validate_document(document, "synthetic"), result.texts)

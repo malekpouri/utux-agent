@@ -32,7 +32,6 @@ EXPECTED = {
     "labelling_work",
     "adjudication",
     "reference_claims",
-    "public_item",
 }
 
 
@@ -140,7 +139,6 @@ FIXTURE_DIRECTORY = {
     "labelling_work": "labelling_work",
     "adjudication": "adjudication",
     "reference_claims": "reference_claims",
-    "public_item": "public_item",
 }
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 NOTE = (
