@@ -500,7 +500,7 @@ Scientific reliability is the core of the design and of the evaluation, not an a
 
 ### Verification checks
 
-1. **Citation existence.** Each reference is resolved by DOI, arXiv ID or PMID against Crossref, OpenAlex, arXiv or PubMed. Title, authors and year must match. Unresolved references are removed from the bibliography and their claims are marked `unverified`.
+1. **Citation existence.** Each reference is resolved by DOI, arXiv ID or PMID against Crossref, OpenAlex, arXiv or PubMed. It exists when its title matches after normalisation (Unicode NFKC, case folding, punctuation removed) with a similarity of at least 0.9, one minus the Levenshtein distance divided by the length of the longer title; the first author's family name matches; and the year differs by at most one, to allow preprint and published versions. Each failed rule has a reason code, and the thresholds are scored on the gold set (ADR-0016). Unresolved references are removed from the bibliography and their claims are marked `unverified`.
 2. **Citation support.** A model that judges support can itself be wrong, for example by accepting a claim that the source makes only for one dataset, one metric or one experimental condition. The check therefore has six steps:
    1. Extract atomic claims from the text.
    2. Identify the source and the exact location of the evidence.
