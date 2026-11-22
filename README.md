@@ -34,6 +34,8 @@ claim verification and the reviewers come later. What works:
   `split-report` and `freeze` take the gold set from a pool of items to a
   frozen release, with an offline annotation page
   ([Annotation tooling](docs/annotation-tooling.md)). They never write a label.
+- `utux cache clear` empties the machine-wide cache of API responses and
+  source texts ([Stored sources and the cache](docs/sources.md)).
 - `utux run`, `utux approve`, `utux status` and `utux unlock` drive a run
   through methodology, implementation and experiment, answer its approval
   gates, show where it is, and remove a lock left by a crash
@@ -201,7 +203,7 @@ See [Cost and budget](docs/cost.md).
 - [Logged model calls and `utux model ping`](docs/model-calls.md)
 - [Cost and budget: `utux cost`](docs/cost.md)
 - [Gold items, releases and the split](docs/gold-set.md)
-- [Annotation tooling](docs/annotation-tooling.md) and [passages](docs/passages.md)
+- [Annotation tooling](docs/annotation-tooling.md), [passages](docs/passages.md) and [stored sources and the cache](docs/sources.md)
 - [Agreement, metrics and intervals](docs/evaluation-toolkit.md)
 - [Evaluation protocol, draft](docs/eval/protocol.md)
 - [Annotation guideline, draft](docs/eval/annotation-guideline.md)
