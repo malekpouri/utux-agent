@@ -45,7 +45,7 @@ from utux.interfaces.model_provider import (
 )
 from utux.providers import profiles
 from utux.schemas.common import Stage, Tier
-from utux.schemas.event import EventStatus, EventType, NewEvent
+from utux.schemas.event import Event, EventStatus, EventType, NewEvent
 from utux.schemas.project_config import Budget, DataPolicy, load_project_config
 from utux.workspace.hashing import hash_bytes
 from utux.workspace.layout import CONFIG_FILE, EVENT_LOG_FILE
@@ -133,6 +133,9 @@ class LoggedModelCaller:
         self._data_policy = data_policy
         self._budget = budget
         self._clock = clock
+        # The event of the last successful call, so that a caller can name
+        # the call, for example in the file name of a trace of its answer.
+        self.last_event: Event | None = None
 
     def call(
         self,
@@ -245,7 +248,7 @@ class LoggedModelCaller:
                 )
             )
             raise
-        self._log.append(
+        self.last_event = self._log.append(
             event(
                 EventStatus.OK,
                 model=response.model,

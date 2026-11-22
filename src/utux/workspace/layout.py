@@ -53,19 +53,25 @@ also matches `/`, so a plain name needs one pattern for the top level and
 one for below it.
 """
 
+TRACES_DIRECTORY = ".utux/traces"
+"""The raw text of model answers that were not valid, one file per call."""
+
 ADR_0009_IGNORE_LINES = (
     "inputs/**",
     "!inputs/**/",
     "!inputs/**/*.md",
     "!inputs/.gitkeep",
     "runs/*/outputs/",
+    ".utux/traces/",
 )
 """The ignore lines of ADR-0009: large files stay out of git.
 
-Every file under `inputs/` except `*.md` files, and everything under
-`runs/<run_id>/outputs/`. The directories under `inputs/` are taken back so
-that git still looks for `*.md` files in them, and `inputs/.gitkeep` is taken
-back so that the directory is in the first commit.
+Every file under `inputs/` except `*.md` files, everything under
+`runs/<run_id>/outputs/`, and the traces of invalid model answers under
+`.utux/traces/`, which stay on the machine (findings of M1-16). The
+directories under `inputs/` are taken back so that git still looks for `*.md`
+files in them, and `inputs/.gitkeep` is taken back so that the directory is
+in the first commit.
 """
 
 GITIGNORE_LINES = (

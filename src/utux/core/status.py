@@ -80,6 +80,8 @@ class RunStatus:
         node_finished: Whether that node finished.
         last_error: The reason of an `error` event that is the run's last
             event, or None.
+        last_error_trace: The trace that error event names: the raw text
+            of the answer that was not valid, kept in `.utux/traces/`.
     """
 
     run_id: str
@@ -91,6 +93,7 @@ class RunStatus:
     stage: Stage | None
     node_finished: bool
     last_error: str | None
+    last_error_trace: str | None = None
 
 
 @dataclass(frozen=True)
@@ -222,11 +225,9 @@ def _run(
     else:
         state = RunState.UNFINISHED
     last = own[-1] if own else None
-    last_error = (
-        last.status_reason
-        if last is not None and last.type is EventType.ERROR and state is RunState.UNFINISHED
-        else None
-    )
+    failed = last is not None and last.type is EventType.ERROR and state is RunState.UNFINISHED
+    last_error = last.status_reason if failed and last is not None else None
+    trace = last.data.get("trace") if failed and last is not None else None
     return RunStatus(
         run_id=run.event_id,
         mode=str(run.data["mode"]),
@@ -237,6 +238,7 @@ def _run(
         stage=starts[-1].stage if starts else None,
         node_finished=node_finished,
         last_error=last_error,
+        last_error_trace=None if trace is None else str(trace),
     )
 
 

@@ -87,6 +87,7 @@ _DATA_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.ROUTE_BACK: ("from_stage", "to_stage", "finding", "attempt", "cap"),
     EventType.LOCK_REMOVED: ("pid", "host", "command", "started_at"),
     EventType.CODE_EXECUTION: ("execution_run_id", "image_digest", "exit_status", "stopped_by"),
+    EventType.ERROR: ("trace",),
 }
 
 # Keys of `data` whose value must be non-empty text.
@@ -143,6 +144,7 @@ _OPTIONAL_HASH_KEYS: dict[EventType, tuple[str, ...]] = {
 # Keys of `data` whose value must be non-empty text or null.
 _OPTIONAL_TEXT_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.APPROVAL_ANSWERED: ("feedback",),
+    EventType.ERROR: ("trace",),
 }
 
 # Keys of `data` whose value must be a stable code, as `status_reason`, or null.

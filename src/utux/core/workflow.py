@@ -52,6 +52,7 @@ from utux.core.agents import (
     load_prompt,
     render_method,
     render_results,
+    unwrap_code_fence,
 )
 from utux.core.checkpoints import StrictCheckpointSerializer
 from utux.errors import (
@@ -91,7 +92,7 @@ from utux.schemas.approval import (
 )
 from utux.schemas.artifact_metadata import ArtifactMetadata, ArtifactState
 from utux.schemas.common import Scalar, Stage, Tier
-from utux.schemas.event import EventStatus, EventType, NewEvent
+from utux.schemas.event import Event, EventStatus, EventType, NewEvent
 from utux.schemas.json_io import parse_json
 from utux.schemas.project_config import Gate, OversightMode, ProjectConfig, load_project_config
 from utux.schemas.result_record import ResultRecord
@@ -105,7 +106,7 @@ from utux.schemas.run_manifest import (
 from utux.workspace.atomic import atomic_write_text
 from utux.workspace.commits import check_commits, commit_stage, head_commit
 from utux.workspace.hashing import hash_file
-from utux.workspace.layout import CONFIG_FILE, EVENT_LOG_FILE, RESULTS_FILE
+from utux.workspace.layout import CONFIG_FILE, EVENT_LOG_FILE, RESULTS_FILE, TRACES_DIRECTORY
 from utux.workspace.model_calls import LoggedModelCaller
 from utux.workspace.results import METRICS_FILE, manifest_outputs, record_run
 from utux.workspace.writer import writing_command
@@ -454,12 +455,13 @@ def _ask[T: BaseModel](
                 inputs
                 + "\n\nYour previous answer was not valid: "
                 + problem
-                + "\nAnswer again with JSON only, of the form the instructions give."
+                + "\nAnswer again with a single JSON object and nothing else."
             )
         )
         content = _call(context, node, prompt, asked, retry=attempt > 0)
+        call = context.caller.last_event
         try:
-            answer = output.model_validate_json(content)
+            answer = output.model_validate_json(unwrap_code_fence(content))
             if check is not None:
                 check(answer)
             return answer
@@ -470,6 +472,7 @@ def _ask[T: BaseModel](
             )
         except AgentOutputError as error:
             problem = str(error)
+        trace = _keep_trace(context, call, content)
     context.log.append(
         NewEvent(
             actor=SYSTEM_ACTOR,
@@ -478,11 +481,26 @@ def _ask[T: BaseModel](
             status_reason=INVALID_STRUCTURED_OUTPUT,
             run_id=context.run_id,
             stage=STAGE_OF[node],
+            data={"trace": trace},
         )
     )
     raise AgentOutputError(
         f"the {role}'s answer was not valid twice, so the {node} stage failed: {problem}"
     )
+
+
+def _keep_trace(context: _Context, call: Event | None, content: str) -> str | None:
+    """Keep the raw text of an answer that was not valid; return its path.
+
+    The file is `.utux/traces/<event id of the call>.txt`. Traces stay on
+    the machine: git ignores them and a stage commit never adds them.
+    """
+    if call is None:
+        return None
+    path = f"{TRACES_DIRECTORY}/{call.event_id}.txt"
+    (context.project / TRACES_DIRECTORY).mkdir(parents=True, exist_ok=True)
+    atomic_write_text(context.project / path, content)
+    return path
 
 
 def _input_files(project: Path) -> str:
