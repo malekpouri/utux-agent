@@ -1,6 +1,6 @@
 # ADR-0017: LiteratureSource contract
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-22
 
 ## Context
@@ -86,8 +86,15 @@ source, a conformance suite, and a `literature_call` event for every call
 - Whether queries to an external source are allowed under the data policy
   `local_only` is decided with the first real source (M2-05), using
   `is_external`, as for model providers.
-- If this ADR is accepted, the contract cell of `LiteratureSource` in the
-  specification, section 5, is updated to the typed form, in its own commit.
+- The contract cell of `LiteratureSource` in the specification, section 5,
+  is updated to the typed form, in its own commit.
+
+### Acceptance, 2026-11-22
+
+Accepted by the maintainer on 2026-11-22 as written. Under `local_only`, a
+search on an external source is refused before any request, since a query
+can carry project text; fetch and resolve by identifier stay allowed
+(M2-05).
 
 ## Sources
 
