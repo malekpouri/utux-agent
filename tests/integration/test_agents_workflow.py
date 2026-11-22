@@ -74,9 +74,9 @@ def test_every_model_call_logs_its_prompt_version(project: Path) -> None:
     run_workflow(project, services(project))
     calls = _events(project, EventType.MODEL_CALL)
     assert [e.prompt_version for e in calls] == [
-        "methodologist@1",
-        "implementer@1",
-        "analyst@2",
+        "methodologist@2",
+        "implementer@2",
+        "analyst@3",
     ]
 
 
@@ -240,3 +240,58 @@ def test_rejections_beyond_the_retry_cap_pause_with_retry_limit(project: Path) -
         (EventStatus.REFUSED, 2),
     ]
     assert request.refused_event_id == routes[-1].event_id
+
+
+# Findings of M1-16: a fenced answer, and traces of invalid answers
+
+
+def _fenced(reply: object) -> str:
+    return "```json\n" + json.dumps(reply, indent=2) + "\n```"
+
+
+def test_an_answer_in_one_code_fence_is_taken(project: Path) -> None:
+    switch_gates_off(project)
+    run_services = services(project, (Raw("methodologist", _fenced(METHOD)), CODE))
+    run_workflow(project, run_services)
+    assert len(_provider(run_services).of("methodologist")) == 1
+    assert (project / "method.md").read_text(encoding="utf-8") == METHOD_MD
+    assert not (project / ".utux" / "traces").exists()
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Here is the plan.\n" + _fenced(METHOD),
+        _fenced(METHOD) + "\n" + _fenced(METHOD),
+    ],
+    ids=["preface", "two blocks"],
+)
+def test_a_fence_with_more_around_it_is_invalid_and_its_text_is_kept(
+    project: Path, answer: str
+) -> None:
+    switch_gates_off(project)
+    run_services = services(project, (Raw("methodologist", answer), METHOD, CODE))
+    run_workflow(project, run_services)
+    calls = [
+        e
+        for e in _events(project, EventType.MODEL_CALL)
+        if e.stage and e.stage.value == "methodology"
+    ]
+    assert [e.retry_reason for e in calls] == [None, "invalid_structured_output"]
+    trace = project / ".utux" / "traces" / f"{calls[0].event_id}.txt"
+    assert trace.read_text(encoding="utf-8") == answer
+
+
+def test_a_stage_that_fails_names_the_trace_of_its_last_answer(project: Path) -> None:
+    switch_gates_off(project)
+    first, second = Raw("methodologist", "not json"), Raw("methodologist", "still not json")
+    with pytest.raises(AgentOutputError):
+        run_workflow(project, services(project, (first, second)))
+    calls = _events(project, EventType.MODEL_CALL)
+    (error,) = _events(project, EventType.ERROR)
+    assert error.data == {"trace": f".utux/traces/{calls[1].event_id}.txt"}
+    traces = project / ".utux" / "traces"
+    assert (traces / f"{calls[0].event_id}.txt").read_text(encoding="utf-8") == "not json"
+    assert (traces / f"{calls[1].event_id}.txt").read_text(encoding="utf-8") == "still not json"
+    # Traces stay on the machine: git ignores them.
+    assert ".utux/traces/" in (project / ".gitignore").read_text(encoding="utf-8")

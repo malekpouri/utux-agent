@@ -87,6 +87,13 @@ _DATA_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.ROUTE_BACK: ("from_stage", "to_stage", "finding", "attempt", "cap"),
     EventType.LOCK_REMOVED: ("pid", "host", "command", "started_at"),
     EventType.CODE_EXECUTION: ("execution_run_id", "image_digest", "exit_status", "stopped_by"),
+    EventType.ERROR: ("trace",),
+}
+
+# Keys of `data` that may be absent: events of the type written before the key
+# existed stay valid. `trace` of `error` came with the findings of M1-16.
+_MAY_BE_ABSENT: dict[EventType, tuple[str, ...]] = {
+    EventType.ERROR: ("trace",),
 }
 
 # Keys of `data` whose value must be non-empty text.
@@ -143,6 +150,7 @@ _OPTIONAL_HASH_KEYS: dict[EventType, tuple[str, ...]] = {
 # Keys of `data` whose value must be non-empty text or null.
 _OPTIONAL_TEXT_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.APPROVAL_ANSWERED: ("feedback",),
+    EventType.ERROR: ("trace",),
 }
 
 # Keys of `data` whose value must be a stable code, as `status_reason`, or null.
@@ -202,8 +210,11 @@ def _check_data_keys(value: dict[str, Scalar], info: ValidationInfo) -> dict[str
         # The type is invalid and is reported on its own field.
         return value
     expected = _DATA_KEYS.get(kind, ())
+    absent_ok = _MAY_BE_ABSENT.get(kind, ())
     errors: list[InitErrorDetails] = [
-        {"type": "missing", "loc": (key,), "input": None} for key in expected if key not in value
+        {"type": "missing", "loc": (key,), "input": None}
+        for key in expected
+        if key not in value and key not in absent_ok
     ]
     errors += [
         {"type": "extra_forbidden", "loc": (key,), "input": None}

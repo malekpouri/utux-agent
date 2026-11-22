@@ -59,6 +59,16 @@ record. `utux init` writes these ignore lines.
 - Result records and manifests stay in git, so every number remains
   traceable to a run even when its output files are not.
 
+### Addition, 2026-11-22: traces of invalid answers
+
+Requested by the maintainer after the first run of task M1-16 (`docs/plan/M1.md`,
+"Findings of M1-16"). When a model's structured answer is not valid, its raw
+text is kept in `.utux/traces/<event_id>.txt` so that the cause can be
+found. `.utux/traces/` is added to the ignore lines of this decision: traces
+stay on the machine and never enter the git history, like confidential
+inputs, and a stage commit never adds them even in a project whose
+`.gitignore` lacks the line. The decision itself is unchanged.
+
 ## Sources
 
 - `docs/spec.md`, section 6 (one git repository per project), section 7

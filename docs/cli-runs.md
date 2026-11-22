@@ -97,6 +97,8 @@ it can be read while a run holds it. It shows:
   (a live `run` process holds the lock), paused at a request, paused with
   the request answered, stopped by a rejection, not finished, or finished;
 - the stage and node that started last, and whether that node finished;
+  for a run whose last event is an error, its reason and, for an answer that
+  was not valid, the trace that keeps the answer's raw text;
 - every pending request: an answered one is marked, and is taken when the
   run resumes. Beside an experiment-plan request, the execution it
   approves: command, image digest, read-only paths and limits, timeout

@@ -77,11 +77,24 @@ name, such as `methodologist@1`, is the `prompt_version` of every model call.
 The prompt is the call's system message; the inputs are its user message.
 
 **Answers are JSON**, validated against the role's schema
-(`utux.core.agents`). An answer that is not valid is asked for once more,
-with the problems in the request and `retry_reason`
+(`utux.core.agents`). The prompts ask for a single JSON object and nothing
+else, and show their example without a code fence. If the whole answer,
+after trimming whitespace, is exactly one block fenced with ```` ```json ````
+or ```` ``` ````, its content is read; anything else stays as it is and is
+invalid if it is not JSON: text before or after the block, more than one
+block, or a block of another language. An answer that is not valid is asked
+for once more, with the problems in the request and `retry_reason`
 `invalid_structured_output` on the call's event. A second invalid answer
 fails the stage with `AgentOutputError`, records an `error` event with that
 reason, and writes nothing.
+
+**Traces.** The raw text of every answer that is not valid is kept in
+`.utux/traces/<event_id>.txt`, named by the answer's `model_call` event, and
+the `error` event names the last one in `data.trace`; `utux status` shows it
+beside the error. Traces stay on the machine: `.gitignore` keeps them out of
+git (ADR-0009) and a stage commit never adds them. They are written under
+every data policy; under `local_only` nothing changes, since such calls never
+reach an external provider. Remove them when they are no longer needed.
 
 - `method.md` is written by utux from the methodologist's steps, so its
   metric lines always have their exact form.

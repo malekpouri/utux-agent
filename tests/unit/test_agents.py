@@ -19,6 +19,7 @@ from utux.core.agents import (
     load_prompt,
     render_method,
     render_results,
+    unwrap_code_fence,
 )
 from utux.errors import AgentOutputError, PromptError
 from utux.schemas.result_record import ResultRecord
@@ -48,7 +49,7 @@ def _record(record_id: str, value: float, metric: str = "r2") -> ResultRecord:
 
 @pytest.mark.parametrize(
     ("role", "version"),
-    [("methodologist", 1), ("implementer", 1), ("analyst", 2)],
+    [("methodologist", 2), ("implementer", 2), ("analyst", 3)],
 )
 def test_each_role_has_a_versioned_prompt_in_the_pack(role: str, version: int) -> None:
     prompt = load_prompt(PROMPTS, role)
@@ -199,8 +200,45 @@ def test_the_example_reply_of_each_prompt_is_valid() -> None:
         ("analyst", AnalysisOutput),
     ):
         text = load_prompt(PROMPTS, role).text
-        example = text.split("```json\n", 1)[1].split("```", 1)[0]
+        # The example follows "for example:" and ends at the next blank line.
+        example = text.split("for example:\n\n", 1)[1].split("\n\n", 1)[0]
         model.model_validate(json.loads(example))
+
+
+# Findings of M1-16: answers in a code fence
+
+
+@pytest.mark.parametrize("role", ["methodologist", "implementer", "analyst"])
+def test_the_prompts_show_no_code_fence_and_ask_for_one_json_object(role: str) -> None:
+    text = load_prompt(PROMPTS, role).text
+    assert "```" not in text
+    assert "Answer with a single JSON object and nothing else" in text
+
+
+@pytest.mark.parametrize(
+    ("answer", "content"),
+    [
+        ('```json\n{"code": "x"}\n```', '{"code": "x"}'),
+        ('```\n{"code": "x"}\n```', '{"code": "x"}'),
+        ('  \n```json\n{\n  "code": "x"\n}\n```\n\n', '{\n  "code": "x"\n}'),
+        ('{"code": "x"}', '{"code": "x"}'),
+    ],
+)
+def test_one_fenced_block_is_unwrapped(answer: str, content: str) -> None:
+    assert unwrap_code_fence(answer) == content
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        'Here is the code:\n```json\n{"code": "x"}\n```',
+        '```json\n{"code": "x"}\n```\nI hope this helps.',
+        '```json\n{"code": "x"}\n```\n```json\n{"code": "y"}\n```',
+        '```python\n{"code": "x"}\n```',
+    ],
+)
+def test_anything_but_exactly_one_fenced_block_is_left_as_it_is(answer: str) -> None:
+    assert unwrap_code_fence(answer) == answer
 
 
 # Number words (PR #37 review)

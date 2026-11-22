@@ -560,7 +560,8 @@ def _status_lines(status: ProjectStatus) -> list[str]:
         commits = "on" if run.commits else "off"
         state = _STATE_TEXT[run.state].format(waiting=run.waiting_for)
         if run.last_error is not None:
-            state += f" (its last event is an error: {run.last_error})"
+            trace = "" if run.last_error_trace is None else f"; trace {run.last_error_trace}"
+            state += f" (its last event is an error: {run.last_error}{trace})"
         lines = [f"Run {run.run_id} ({run.mode} mode, commits {commits}): {state}"]
         if run.node is None or run.stage is None:
             lines.append("Stage: none started")

@@ -518,6 +518,7 @@ def test_types_without_defined_keys_accept_only_an_empty_object() -> None:
             EventType.RUN_STARTED,
             EventType.RUN_RESTARTED,
             EventType.CODE_EXECUTION,
+            EventType.ERROR,
             EventType.LOCK_REMOVED,
             EventType.APPROVAL_REQUESTED,
             EventType.APPROVAL_ANSWERED,
@@ -878,3 +879,28 @@ def test_code_execution_accepts_a_limit_and_no_exit_status() -> None:
     document = _of("code_execution.json", **_RUN, exit_status=None, stopped_by="wall_clock")
     document.update(status="error", status_reason="limit_wall_clock")
     assert Event.from_json(json.dumps(document)).data["stopped_by"] == "wall_clock"
+
+
+# data of error (findings of M1-16)
+
+
+def test_an_error_event_names_its_trace_or_null() -> None:
+    document = _of("lock_removed.json", trace=".utux/traces/e-000012.txt")
+    document.update(type="error", status="error", status_reason="invalid_structured_output")
+    assert Event.from_json(json.dumps(document)).data == {"trace": ".utux/traces/e-000012.txt"}
+    document["data"] = {"trace": None}
+    assert Event.from_json(json.dumps(document)).data == {"trace": None}
+    document["data"] = {"trace": ""}
+    assert [field for field, _ in _problems(document)] == ["data.trace"]
+    document["data"] = {"trace": None, "other": 1}
+    assert [field for field, _ in _problems(document)] == ["data.other"]
+
+
+def test_an_error_event_written_before_the_trace_key_stays_valid() -> None:
+    # The maintainer's first M1-16 run wrote error events with empty data; the
+    # project must stay valid so that utux run can continue it.
+    document = _of("lock_removed.json")
+    document.update(
+        type="error", status="error", status_reason="invalid_structured_output", data={}
+    )
+    assert Event.from_json(json.dumps(document)).data == {}

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from utux.errors import CommitError
+from utux.workspace.layout import TRACES_DIRECTORY
 
 COMMIT_CHECK_FAILED = "commit_check_failed"
 COMMIT_CHECK_TIMEOUT = "commit_check_timeout"
@@ -125,10 +126,17 @@ def _git(project: Path, *arguments: str) -> str:
 def commit_stage(project: Path, message: str) -> str:
     """Commit every change of the project and return the commit's id.
 
+    `.utux/traces/` is never added, even in a project whose `.gitignore`
+    lacks the line: the traces hold raw model answers, which stay on the
+    machine (findings of M1-16).
+
     Raises:
         CommitError: git failed, for example because signing failed.
     """
     _git(project, "add", "--all")
+    # Taken out of the index again; an exclude pathspec fails when the
+    # directory is also ignored. A trace committed before is untracked.
+    _git(project, "rm", "-r", "--cached", "--quiet", "--ignore-unmatch", "--", TRACES_DIRECTORY)
     _git(project, "commit", "--quiet", "--allow-empty", "-m", message)
     return _git(project, "rev-parse", "HEAD").strip()
 

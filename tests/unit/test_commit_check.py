@@ -116,3 +116,16 @@ def test_stage_commits_never_disable_signing(project: Path, tmp_path: Path) -> N
     with pytest.raises(Exception, match="commit"):
         commit_stage(project, "utux: methodology (e-000004)")
     assert os.environ.get("GIT_CONFIG_GLOBAL")
+
+
+def test_a_stage_commit_never_takes_a_trace_even_without_the_ignore_line(project: Path) -> None:
+    # A project made before .utux/traces/ was an ignore line (findings of M1-16).
+    traces = project / ".utux" / "traces"
+    traces.mkdir(parents=True)
+    (traces / "e-000012.txt").write_text("synthetic raw answer\n", encoding="utf-8")
+    (project / "method.md").write_text("synthetic\n", encoding="utf-8")
+    commit_stage(project, "utux: methodology (e-000004)")
+    tracked = subprocess.run(
+        ["git", "-C", str(project), "ls-files"], capture_output=True, text=True, check=True
+    ).stdout.split()
+    assert tracked == ["method.md"]

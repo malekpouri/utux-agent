@@ -4,7 +4,9 @@ A prompt is a versioned file of the pack, `<role>@<n>.md`, whose first line
 is `# Role: <role>`; the highest version is used, and its name, such as
 `methodologist@1`, is logged with every model call. Each role answers in
 JSON, which is validated against its schema here; the workflow asks once
-more with the problems if it fails (ADR-0007, RFC-001 section 2).
+more with the problems if it fails (ADR-0007, RFC-001 section 2). An answer
+that is exactly one fenced code block is read from inside the fence
+(`unwrap_code_fence`).
 
 - The methodologist returns numbered steps with a success criterion and the
   metrics each produces; `render_method` writes `method.md` from them, so the
@@ -80,6 +82,24 @@ NUMBER_WORDS = (
 _NUMBER_WORD = re.compile(
     r"\b(?:" + "|".join(NUMBER_WORDS) + r"|per\s+cent)\b", flags=re.IGNORECASE
 )
+
+
+_FENCED = re.compile(r"\A```(?:json)?[ \t]*\n(.*?)\n?```\Z", flags=re.DOTALL)
+
+
+def unwrap_code_fence(text: str) -> str:
+    """The content of an answer that is exactly one fenced code block.
+
+    Models often wrap their JSON in a Markdown fence. If the whole answer,
+    after trimming whitespace, is one block fenced with ```json or ```, its
+    content is returned. Anything else is returned unchanged, so that it is
+    judged as it is: text before or after the block, more than one block, or
+    a block of another language stays invalid JSON.
+    """
+    found = _FENCED.match(text.strip())
+    if found is None or "```" in found.group(1):
+        return text
+    return found.group(1)
 
 
 def _number_in(text: str) -> str | None:

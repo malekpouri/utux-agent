@@ -22,6 +22,7 @@ from workflow_scripts import (
     METHOD,
     METHOD_MD,
     QUESTION,
+    Raw,
     Reply,
     configure_models,
     services,
@@ -33,7 +34,7 @@ from utux.core.workflow import WorkflowServices, current_artifact, planned_execu
 from utux.events.log import EventLog
 from utux.executors.scripted import ScriptedRun
 from utux.schemas.approval import load_approval_request, load_approval_response
-from utux.schemas.event import Event, EventType
+from utux.schemas.event import Event, EventStatus, EventType, NewEvent
 from utux.schemas.project_config import DataPolicy, load_project_config
 from utux.workspace.hashing import hash_file
 from utux.workspace.project import init_project
@@ -657,3 +658,41 @@ def test_log_repair_refuses_a_lock_that_is_held_or_cannot_be_checked(
     assert "locked" in output
     assert (project / ".utux" / "lock").exists()
     assert (project / "events.jsonl").read_bytes() == before
+
+
+def test_status_shows_the_trace_beside_the_error(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    switch_gates_off(project)
+    _script(monkeypatch, (Raw("methodologist", "not json"), Raw("methodologist", "not json")))
+    assert _utux("run", str(project))[0] == 1
+    code, output = _utux("status", str(project))
+    assert code == 0, output
+    calls = _events(project, EventType.MODEL_CALL)
+    assert f"invalid_structured_output; trace .utux/traces/{calls[-1].event_id}.txt" in output
+
+
+def test_a_project_from_before_traces_continues_with_utux_run(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # As the maintainer's first M1-16 project: methodology failed twice, and
+    # the error event, written before the trace key, has empty data.
+    switch_gates_off(project)
+    _script(monkeypatch, (Raw("methodologist", "not json"), Raw("methodologist", "not json")))
+    assert _utux("run", str(project))[0] == 1
+    (run,) = _events(project, EventType.RUN_STARTED)
+    EventLog(project / "events.jsonl").append(
+        NewEvent(
+            actor="system:utux",
+            type=EventType.ERROR,
+            status=EventStatus.ERROR,
+            status_reason="invalid_structured_output",
+            run_id=run.event_id,
+            data={},
+        )
+    )
+    assert _utux("validate", str(project))[0] == 0
+    _script(monkeypatch)
+    code, output = _utux("run", str(project))
+    assert code == 0, output
+    assert "finished" in output
