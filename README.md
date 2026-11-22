@@ -7,8 +7,10 @@ to checked evidence or to a computed result.
 
 ## What works today
 
-The project is in milestone M0, foundations. It does not yet do research:
-there are no agents and no pipeline stages. What works:
+The project is in milestone M1, the execution spike. It runs stages 3 to 5
+of the pipeline (methodology, implementation, experiment) with three model
+roles and model-written code in a hardened Docker sandbox; the other stages,
+claim verification and the reviewers come later. What works:
 
 - `utux init` creates a project: its directory tree, `utux.yaml`, the event
   log with its first event, and a git repository with a first commit.
@@ -45,16 +47,16 @@ Following the roadmap in section 12 of the [specification](docs/spec.md):
 
 - **M0, in progress:** the evaluation protocol and gold set v0, written and
   labelled by people.
-- **M1:** stages 3 to 5 (methodology, implementation, experiment) on
-  LangGraph, with model-written code run only in a hardened Docker sandbox,
-  run manifests and result records. See [the M1 plan](docs/plan/M1.md).
+- **M1, in progress:** stages 3 to 5 run as described above; what remains is
+  the maintainer's end-to-end run of the toy task with a real model. See
+  [the M1 plan](docs/plan/M1.md).
 - **M2:** claim verification against the literature, scored on the gold set.
 - **M3:** the full pipeline from question to reviewed manuscript, with
   approval gates and model routing.
 - **M4:** the benchmark against the hypotheses of the specification.
 - **M5:** the v1 release.
 
-Nothing on this list exists yet.
+Nothing on this list beyond what is described above exists yet.
 
 ## Requirements
 
@@ -84,7 +86,9 @@ uv run utux validate my-project
 [Creating a project](docs/project.md). Under `--data-policy local_only`,
 every call to an external provider such as OpenRouter is refused.
 
-`utux model ping` needs a model under `models.tiers` in `utux.yaml`.
+`utux model ping` and `utux run` need models under `models.tiers` in
+`utux.yaml`: the ping uses the tier it is given, and the roles of a run use
+`standard` unless `models.roles` says otherwise.
 `utux init` already writes a `models` section with an empty tier mapping, so
 edit that section in `my-project/utux.yaml`. Replace this line:
 
@@ -97,6 +101,7 @@ with:
 ```yaml
   tiers:
     light: openai/gpt-4o-mini
+    standard: openai/gpt-4o-mini
 ```
 
 Do not append a second `models:` key at the end of the file; a key that
@@ -110,6 +115,59 @@ uv run utux model ping my-project --tier light
 With the `default` profile this is a real, paid call to OpenRouter and needs
 the `OPENROUTER_API_KEY` environment variable. See
 [Logged model calls and `utux model ping`](docs/model-calls.md).
+
+### Run the toy task
+
+The toy task compares two classifiers on a dataset that ships with
+scikit-learn, so the run needs no network inside the sandbox. Describe it in
+the project's `inputs/` directory.
+
+Write `my-project/inputs/question.md`:
+
+```markdown
+# Question
+
+On the breast cancer dataset that ships with scikit-learn, does logistic
+regression classify tumours more accurately than a decision tree, measured
+by accuracy under 5-fold cross-validation?
+```
+
+Write `my-project/inputs/data.md`:
+
+```markdown
+# Data
+
+The Wisconsin breast cancer dataset, loaded in the code with
+`sklearn.datasets.load_breast_cancer()`: 569 samples, 30 numeric features,
+and a binary label (malignant or benign). It is bundled with scikit-learn;
+nothing is downloaded.
+```
+
+Build the image of the generic pack once. This needs Docker and the network,
+and records the image's id in `packs/generic/image/digest.txt`; a run uses
+only that image. Then run the three stages:
+
+```bash
+uv run utux image build
+uv run utux run my-project                     # exit status 3: paused at the method gate, a-000001
+uv run utux status my-project
+uv run utux approve my-project a-000001 approve
+uv run utux run my-project                     # exit status 3: paused at the experiment-plan gate, a-000002
+uv run utux approve my-project a-000002 approve
+uv run utux run my-project                     # exit status 0: finished
+uv run utux validate my-project
+```
+
+`utux run` exits with 0 when the run completed, 1 on an error and 3 when it
+paused for an approval; the message names the request and the command that
+answers it. Read `my-project/method.md` before you approve `a-000001`, and
+`my-project/code/main.py`, with the execution `utux status` shows, before
+you approve `a-000002`. To change a file instead, edit it and answer with
+`edit`; to ask for another version, answer `reject --feedback "..."`. The
+model calls of the run are real, paid calls. The results are in
+`my-project/results.md` and `my-project/results.jsonl`. See
+[Running a project from the command line](docs/cli-runs.md) and
+[How a run works](docs/run.md).
 
 See what the project has spent, as text or as JSON:
 

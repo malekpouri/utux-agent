@@ -8,6 +8,23 @@ imports. `run_workflow(project, services)` starts a run and
 ([Running a project from the command line](cli-runs.md)). Both hold the
 project lock and record setting changes first ([Creating a project](project.md)).
 
+In short, a run:
+
+1. starts with a `run_started` event and, if git can sign, commits each
+   finished node;
+2. runs `methodology`, `implementation`, `experiment` and `analysis`, each
+   writing into a staging area and moving its files into place only when it
+   completes, and checkpoints after each node;
+3. stops at the method gate and at the experiment-plan gate until a person
+   answers, and at a budget or retry limit;
+4. checks the results after the analysis and sends the run back to an
+   earlier stage when a check fails, within the retry cap;
+5. is resumed with `utux run`, from its checkpoint, after a pause, a stop
+   or a crash, and the files win: what changed is run again.
+
+Every step is an event in `events.jsonl` as it happens
+([The event log](event-log.md)).
+
 ## Two kinds of run
 
 | Kind | What it is | Its id |
@@ -261,3 +278,34 @@ as a new version, made by `human:unknown` from the version before it, so
 that the chain of artifacts stays whole. `human:unknown` is used for nothing
 else: `utux validate` reports a sidecar made by it that is not built from one
 earlier version of the same artifact (`edit_actor_misused`).
+
+## The project lock
+
+A run holds the project lock, `.utux/lock`, from start to end, also while
+it waits for a model or the sandbox; a second writing command on the same
+project is refused and names the holder ([Creating a project](project.md)).
+A pause releases the lock: the process ends. `utux status` shows whether
+the lock is held, by the run or by another command, and reads the project
+without taking it.
+
+## After a crash
+
+A run that is killed, or whose machine stops, leaves three things behind:
+the checkpoint of the last finished node, the lock, and possibly a half
+written last line of the event log or a half filled staging area. Nothing
+is lost that a finished node wrote. To recover:
+
+1. Make sure no utux process is still running on the project.
+2. Run `utux validate DIR`. If it reports an incomplete last line of
+   `events.jsonl`, run `utux log repair DIR`: it saves the fragment aside,
+   removes the lock if its holder is gone, and records both. Otherwise run
+   `utux unlock DIR`, which removes the lock only if its holder, a process
+   on this host, is no longer running, and records it.
+3. Run `utux run DIR`. The run resumes from its checkpoint: the node that
+   was interrupted runs again from its start, from an empty staging area,
+   and a file edited in the meantime is taken as a new version (the files
+   win). `utux status DIR` shows where it is.
+
+A lock held on another host, or by a process that is still running, is
+never removed; wait for that process, or stop it.
+
