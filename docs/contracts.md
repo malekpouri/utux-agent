@@ -225,7 +225,7 @@ A request at the experiment-plan gate records the execution it approves (`execut
     "image_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "command": ["python", "code/main.py"],
     "read_only_paths": ["code", "inputs"],
-    "limits": {"cpus": 2.0, "memory_mb": 4096, "gpus": null, "disk_mb": 512,
+    "limits": {"cpus": 2.0, "memory_mb": 4096, "gpus": 0, "disk_mb": 512,
                "max_processes": 256, "output_mb": 1024, "timeout_seconds": 3600.0}
   },
   "requested_by": "system:utux",
