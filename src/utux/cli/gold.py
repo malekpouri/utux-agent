@@ -32,8 +32,8 @@ from utux.evalkit.annotation import (
     with_splits,
     write_annotation_page,
 )
-from utux.evalkit.gold import check_release
-from utux.evalkit.public import PublicDataset, import_public, summarize, write_public_items
+from utux.evalkit.gold import PublicDataset, check_release
+from utux.evalkit.public import import_public, summarize, write_public_import
 from utux.evalkit.splits import assign_splits, split_report
 from utux.workspace.atomic import atomic_write_text
 from utux.workspace.hashing import hash_file
@@ -350,13 +350,18 @@ def import_public_dataset(
         Path, typer.Argument(help="The downloaded release, outside the repository.")
     ],
     out: Annotated[
-        Path, typer.Option("--out", help="The items file to write, outside any git work tree.")
+        Path,
+        typer.Option("--out", help="The directory to write into, outside any git work tree."),
     ],
 ) -> None:
-    """Map a public dataset into gold v0 items and print the counts, never an item."""
+    """Map a public dataset into gold items and print the counts, never an item.
+
+    Writes `items.jsonl` (gold items of origin `public`) and `sources/`, the
+    source texts by hash.
+    """
     try:
         result = import_public(dataset, directory)
-        write_public_items(out, result.items)
+        write_public_import(out, result)
     except UtuxError as error:
         raise _fail(error) from error
     typer.echo(f"Wrote {_count(len(result.items), 'item')} to {out}")

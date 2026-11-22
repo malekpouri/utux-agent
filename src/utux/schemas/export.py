@@ -19,7 +19,6 @@ from utux.evalkit.annotation import (
     ReferenceClaims,
 )
 from utux.evalkit.gold import GoldItem
-from utux.evalkit.public import PublicItem
 from utux.schemas.approval import ApprovalRequest, ApprovalResponse
 from utux.schemas.artifact_metadata import ArtifactMetadata
 from utux.schemas.base import ContractDocument
@@ -57,7 +56,6 @@ CONTRACTS: dict[str, type[ContractDocument]] = {
     "labelling_work": LabellingWork,
     "adjudication": Adjudication,
     "reference_claims": ReferenceClaims,
-    "public_item": PublicItem,
 }
 """Every file contract, by the name used for its schema file."""
 
