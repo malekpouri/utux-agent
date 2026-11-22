@@ -411,6 +411,9 @@ def test_status_shows_the_paused_stage_and_the_execution_beside_an_experiment_pl
     assert f"image: {IMAGE}" in output
     assert f"read-only paths: {', '.join(planned.read_only_paths)}" in output
     assert f"timeout {planned.limits.timeout_seconds:g} s" in output
+    # The limits are those that apply: the executor's defaults where utux.yaml sets none.
+    assert "not set" not in output
+    assert "cpus 1, memory 2048 MB, gpus 0, disk 512 MB, processes 256, output 1024 MB" in output
     # status is read-only.
     assert (project / "events.jsonl").read_bytes() == before
 

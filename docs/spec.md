@@ -454,7 +454,7 @@ Append-only is enforced by the application, not by the file system, so the log i
 
 The core writes `approvals/<id>.request.json` and pauses. The CLI, or any future interface, writes `approvals/<id>.response.json` with `approve`, `reject` or `edit` and, for an edit, the id and content hash of the edited version the person saved. Responses are written atomically: temporary file, then rename.
 
-A run that reaches a gate with no answer writes the request and pauses: the process ends with a message naming the request, and `utux run` resumes once the response is written. The answers are taken when the run resumes; an edit is taken only if the edited file's hash matches the response, and artifacts built from the old version are marked `stale`. Until a separate experiment plan file exists, the experiment-plan gate approves the code the experiment will run, and its request records the execution it approves: image digest, command, read-only paths and limits. Before the experiment runs the record is built again, and any difference makes the run ask again.
+A run that reaches a gate with no answer writes the request and pauses: the process ends with a message naming the request, and `utux run` resumes once the response is written. The answers are taken when the run resumes; an edit is taken only if the edited file's hash matches the response, and artifacts built from the old version are marked `stale`. Until a separate experiment plan file exists, the experiment-plan gate approves the code the experiment will run, and its request records the execution it approves: image digest, command, read-only paths and limits, each the value that will apply, the executor's default where `utux.yaml` sets none. Before the experiment runs the record is built again, and any difference makes the run ask again.
 
 ```json
 {"schema_version": 1, "approval_id": "a-000008", "kind": "artifact", "gate": "experiment_plan",
@@ -462,8 +462,8 @@ A run that reaches a gate with no answer writes the request and pauses: the proc
  "path": "code/main.py", "stage": null, "refused_event_id": null,
  "execution": {"image_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "command": ["python", "code/main.py"], "read_only_paths": ["code", "inputs"],
-  "limits": {"cpus": null, "memory_mb": null, "gpus": null, "disk_mb": null, "max_processes": null,
-   "output_mb": null, "timeout_seconds": 3600.0}},
+  "limits": {"cpus": 1.0, "memory_mb": 2048, "gpus": 0, "disk_mb": 512, "max_processes": 256,
+   "output_mb": 1024, "timeout_seconds": 3600.0}},
  "requested_by": "system:utux", "requested_at": "2026-11-15T10:05:00Z"}
 ```
 

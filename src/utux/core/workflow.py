@@ -71,6 +71,7 @@ from utux.errors import (
     RunRejectedError,
 )
 from utux.events.log import EventLog
+from utux.executors.docker import DEFAULT_LIMITS
 from utux.executors.image import require_recorded_image
 from utux.interfaces.executor import ExecutionStep, Executor, ResourceLimits, RunResult
 from utux.interfaces.model_provider import (
@@ -582,11 +583,16 @@ def _hardware() -> Hardware:
     )
 
 
-def planned_execution(config: ProjectConfig, image_digest: str) -> PlannedExecution:
+def planned_execution(
+    config: ProjectConfig, image_digest: str, defaults: ResourceLimits = DEFAULT_LIMITS
+) -> PlannedExecution:
     """The execution the experiment runs: what its approval covers.
 
     The experiment builds its step from this record, and the experiment-plan
-    gate compares it with the record its request approved.
+    gate compares it with the record its request approved. Every limit is
+    the one that applies: the value of `utux.yaml`, else the executor's
+    default, and no GPU when neither sets one (findings of M1-16). So an
+    approval names what will actually apply.
     """
     resources = config.resources
     return PlannedExecution(
@@ -594,12 +600,12 @@ def planned_execution(config: ProjectConfig, image_digest: str) -> PlannedExecut
         command=("python", "code/main.py"),
         read_only_paths=("code", "inputs"),
         limits=ExecutionLimits(
-            cpus=resources.cpus,
-            memory_mb=resources.memory_mb,
-            gpus=resources.gpus,
-            disk_mb=resources.disk_mb,
-            max_processes=resources.max_processes,
-            output_mb=resources.output_mb,
+            cpus=resources.cpus or defaults.cpus,
+            memory_mb=resources.memory_mb or defaults.memory_mb,
+            gpus=resources.gpus if resources.gpus is not None else (defaults.gpus or 0),
+            disk_mb=resources.disk_mb or defaults.disk_mb,
+            max_processes=resources.max_processes or defaults.max_processes,
+            output_mb=resources.output_mb or defaults.output_mb,
             timeout_seconds=float(resources.wall_clock_seconds or _DEFAULT_TIMEOUT_SECONDS),
         ),
     )

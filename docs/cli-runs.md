@@ -102,7 +102,9 @@ it can be read while a run holds it. It shows:
 - every pending request: an answered one is marked, and is taken when the
   run resumes. Beside an experiment-plan request, the execution it
   approves: command, image digest, read-only paths and limits, timeout
-  included;
+  included. The limits are those that apply, the executor's defaults where
+  `utux.yaml` sets none; only a request written before this was recorded
+  shows `not set`;
 - the last execution run, its exit status and the limit Docker reported, if
   any. For exit status 137 with no reported limit, a note says that the
   process was killed and that this is often the memory limit. The note is
@@ -119,7 +121,7 @@ Pending approvals:
     command: python code/main.py
     image: sha256:...
     read-only paths: code, inputs
-    limits: cpus 2, memory 4096 MB, gpus not set, disk 1024 MB, processes 256, output 100 MB, timeout 3600 s
+    limits: cpus 2, memory 4096 MB, gpus 0, disk 1024 MB, processes 256, output 100 MB, timeout 3600 s
 Known cost: 0.0042 USD of a budget of 5 USD (4.9958 USD left)
 Lock: not held
 ```

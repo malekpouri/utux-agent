@@ -104,8 +104,12 @@ reach an external provider. Remove them when they are no longer needed.
   reference) and `results.md` after: a number without its result record is
   refused. The number words are zero to nineteen, the tens, hundred,
   thousand, million, billion, percent, per cent, half, twice, double and
-  triple, as whole words in any case. The check catches digits and these
-  words; it is not a proof that no number was written ("a dozen", a number
+  triple, as whole words in any case. Zero to ten are allowed, as in "the
+  two models", unless the next word is percent, per cent, percentage, times,
+  fold, point or points, or the word is joined to fold with a hyphen
+  (five-fold); then they state an amount and are refused. A refusal names
+  the word and the sentence it is in, and the analyst is asked again with
+  it. The check catches digits and these words; it is not a proof that no number was written ("a dozen", a number
   in another language). Configuration numbers, such as the number of folds,
   belong in `method.md`, and the analyst's prompt says so.
 
@@ -172,8 +176,12 @@ refused call. Before that, the run stays paused. `reject` stops the run.
 
 **What an experiment-plan approval covers.** The request records the
 execution it approves in `execution`: the image digest, the command, the
-read-only paths and the limits, the timeout included. Before the experiment
-runs, utux builds the same record again from `utux.yaml` and the pack's
+read-only paths and the limits, the timeout included. Each limit is the one
+that will apply: the value in `utux.yaml`, or else the executor's default
+(for the Docker executor: 1 CPU, 2048 MB of memory, no GPU, 512 MB of
+`/tmp`, 256 processes and 1024 MiB of output), so that an approval names
+what will actually apply, and `utux status` shows those values. Before the
+experiment runs, utux builds the same record again from `utux.yaml` and the pack's
 image. If anything differs, for example a rebuilt image, a changed limit or
 another pack, the approval does not cover it and the run asks again before
 anything runs.

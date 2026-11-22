@@ -14,7 +14,8 @@ that is exactly one fenced code block is read from inside the fence
 - The implementer returns the code of the step.
 - The analyst returns a text that refers to every number by its result id,
   `[R0001]`, and contains no other digit and no number word (`NUMBER_WORDS`,
-  and `per cent`); `render_results` puts each record's value and unit before
+  and `per cent`), apart from zero to ten that state no amount, as in "the
+  two models"; `render_results` puts each record's value and unit before
   its reference, and `check_results` checks the finished `results.md` again.
   The check catches digits and these words; it is not a proof that no number
   was written, for example as "a dozen" or in another language.
@@ -102,10 +103,57 @@ def unwrap_code_fence(text: str) -> str:
     return found.group(1)
 
 
-def _number_in(text: str) -> str | None:
-    """The first digit or number word of a text, or None."""
-    found = _DIGIT.search(text) or _NUMBER_WORD.search(text)
-    return None if found is None else found.group(0)
+SMALL_NUMBER_WORDS = frozenset(NUMBER_WORDS[:11])
+"""zero to ten: allowed as words, as in "the two models", unless they state an amount."""
+
+# What makes a small number word an amount: a unit or a multiple after it.
+_AMOUNT_AFTER = re.compile(
+    r"-fold\b|\s+(?:per\s+cent|percent|percentage|times|fold|points?)\b", flags=re.IGNORECASE
+)
+_SENTENCE_END = re.compile(r"[.!?](?=\s|$)|\n")
+
+
+def _number_at(masked: str) -> tuple[int, str] | None:
+    """The first digit or refused number word of a text, and where it is.
+
+    `masked` has its references, or the values that stand with their
+    records, replaced by `#` of the same length, so positions match the text.
+    """
+    found: list[tuple[int, str]] = []
+    digit = _DIGIT.search(masked)
+    if digit is not None:
+        found.append((digit.start(), digit.group(0)))
+    for word in _NUMBER_WORD.finditer(masked):
+        small = word.group(0).lower() in SMALL_NUMBER_WORDS
+        if small and _AMOUNT_AFTER.match(masked, word.end()) is None:
+            continue
+        found.append((word.start(), word.group(0)))
+        break
+    return min(found) if found else None
+
+
+def _sentence(text: str, position: int) -> str:
+    """The sentence of a text that holds a position."""
+    ends = [found.end() for found in _SENTENCE_END.finditer(text, 0, position)]
+    start = ends[-1] if ends else 0
+    end = _SENTENCE_END.search(text, position)
+    stop = len(text) if end is None else (end.start() if end.group(0) == "\n" else end.end())
+    return text[start:stop].strip()
+
+
+def _refusal(text: str, masked: str) -> str | None:
+    """How a text writes a number out, naming the word and its sentence; None if it does not."""
+    number = _number_at(masked)
+    if number is None:
+        return None
+    position, word = number
+    return f'{word!r} in "{_sentence(text, position)}"'
+
+
+def _masked(text: str, parts: list[str]) -> str:
+    for part in parts:
+        text = text.replace(part, "#" * len(part))
+    return text
 
 
 @dataclass(frozen=True)
@@ -204,7 +252,10 @@ def check_analysis_text(text: str, record_ids: set[str]) -> None:
     """Refuse an analysis that has a number without a result id.
 
     Every reference must be a record of the run, and no digit may appear
-    outside a reference.
+    outside a reference, nor a number word. Zero to ten are allowed as
+    words, as in "the two models", unless the next word is percent, per
+    cent, percentage, times, fold, point or points, or the word is joined to
+    fold with a hyphen (five-fold).
 
     Raises:
         AgentOutputError: An unknown reference, or a digit outside one.
@@ -214,11 +265,12 @@ def check_analysis_text(text: str, record_ids: set[str]) -> None:
         raise AgentOutputError(
             f"the analysis refers to {', '.join(unknown)}, not a record of the run"
         )
-    number = _number_in(_REFERENCE.sub("", text))
-    if number is not None:
+    refusal = _refusal(text, _REFERENCE.sub(lambda found: "#" * len(found.group(0)), text))
+    if refusal is not None:
         raise AgentOutputError(
-            f"the analysis writes a number out ({number!r}); every number must be a "
-            "reference such as [R0001]"
+            f"the analysis writes a number out: {refusal}. Every number must be a reference "
+            "such as [R0001]; words for zero to ten are allowed, but not before percent, "
+            "times, fold or points"
         )
 
 
@@ -243,12 +295,9 @@ def check_results(text: str, records: list[ResultRecord]) -> None:
     Raises:
         AgentOutputError: A number without its record.
     """
-    rest = text
-    for record in records:
-        rest = rest.replace(_value(record), "")
-    number = _number_in(rest)
-    if number is not None:
+    refusal = _refusal(text, _masked(text, [_value(record) for record in records]))
+    if refusal is not None:
         raise AgentOutputError(
-            f"results.md holds a number without its result record ({number!r}); every "
+            f"results.md holds a number without its result record: {refusal}. Every "
             "number must be a record's value followed by its id"
         )
