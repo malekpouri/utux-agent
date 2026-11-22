@@ -56,6 +56,7 @@ class EventType(StrEnum):
     RUN_RESTARTED = "run_restarted"
     ROUTE_BACK = "route_back"
     LOCK_REMOVED = "lock_removed"
+    LITERATURE_CALL = "literature_call"
 
 
 class EventStatus(StrEnum):
@@ -88,6 +89,7 @@ _DATA_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.LOCK_REMOVED: ("pid", "host", "command", "started_at"),
     EventType.CODE_EXECUTION: ("execution_run_id", "image_digest", "exit_status", "stopped_by"),
     EventType.ERROR: ("trace",),
+    EventType.LITERATURE_CALL: ("source", "operation", "identifier", "query_hash", "cache_hit"),
 }
 
 # Keys of `data` that may be absent: events of the type written before the key
@@ -111,12 +113,14 @@ _TEXT_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.ROUTE_BACK: ("from_stage", "to_stage"),
     EventType.LOCK_REMOVED: ("host", "command", "started_at"),
     EventType.CODE_EXECUTION: ("execution_run_id", "image_digest"),
+    EventType.LITERATURE_CALL: ("source",),
 }
 
 # Keys of `data` whose value must be true or false.
 _BOOLEAN_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.MODEL_CALL: ("is_external",),
     EventType.RUN_STARTED: ("commits",),
+    EventType.LITERATURE_CALL: ("cache_hit",),
 }
 
 # Keys of `data` whose value must be a content hash.
@@ -145,12 +149,14 @@ _OPTIONAL_LIMIT_KEYS: dict[EventType, tuple[str, ...]] = {
 # Keys of `data` whose value must be a content hash or null.
 _OPTIONAL_HASH_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.RUN_RESTARTED: ("expected_hash", "actual_hash"),
+    EventType.LITERATURE_CALL: ("query_hash",),
 }
 
 # Keys of `data` whose value must be non-empty text or null.
 _OPTIONAL_TEXT_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.APPROVAL_ANSWERED: ("feedback",),
     EventType.ERROR: ("trace",),
+    EventType.LITERATURE_CALL: ("identifier",),
 }
 
 # Keys of `data` whose value must be a stable code, as `status_reason`, or null.
@@ -160,6 +166,9 @@ _OPTIONAL_CODE_KEYS: dict[EventType, tuple[str, ...]] = {
 }
 
 _CODE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+LITERATURE_OPERATIONS = ("search", "fetch", "resolve")
+"""The operations of a `literature_call` event (ADR-0017)."""
 
 # Keys of `data` whose value must be a whole number of zero or more.
 _COUNT_KEYS: dict[EventType, tuple[str, ...]] = {
@@ -202,6 +211,36 @@ def _check_model(value: str | None, info: ValidationInfo) -> str | None:
     if value is None and info.data.get("type") is EventType.MODEL_CALL:
         raise PydanticCustomError("model_required", "a model_call event must name its model")
     return value
+
+
+def _literature_problems(value: dict[str, Scalar]) -> list[InitErrorDetails]:
+    """The operation is known; a search names its query by hash, the others an identifier."""
+    operation = value.get("operation")
+    if operation not in LITERATURE_OPERATIONS:
+        return [
+            {
+                "type": PydanticCustomError(
+                    "enum",
+                    "must be one of {operations}",
+                    {"operations": ", ".join(LITERATURE_OPERATIONS)},
+                ),
+                "loc": ("operation",),
+                "input": None,
+            }
+        ]
+    errors: list[InitErrorDetails] = []
+    search = operation == "search"
+    for key, wanted in (("identifier", not search), ("query_hash", search)):
+        if (value.get(key) is not None) != wanted:
+            reason = f"a {operation} names its {key}" if wanted else f"a {operation} has no {key}"
+            errors.append(
+                {
+                    "type": PydanticCustomError("operation_mismatch", reason),
+                    "loc": (key,),
+                    "input": None,
+                }
+            )
+    return errors
 
 
 def _check_data_keys(value: dict[str, Scalar], info: ValidationInfo) -> dict[str, Scalar]:
@@ -320,6 +359,8 @@ def _check_data_keys(value: dict[str, Scalar], info: ValidationInfo) -> dict[str
                     "input": None,
                 }
             )
+    if kind is EventType.LITERATURE_CALL:
+        errors += _literature_problems(value)
     for key in _BOOLEAN_KEYS.get(kind, ()):
         if key in value and not isinstance(value[key], bool):
             errors.append(
