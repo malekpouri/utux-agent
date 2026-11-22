@@ -41,6 +41,7 @@ from utux.schemas.result_record import ResultRecord
 from utux.schemas.run_manifest import RunManifest
 from utux.schemas.source_record import SourceRecord
 from utux.schemas.yaml_io import parse_yaml
+from utux.sources.store import source_file_stem
 from utux.workspace.hashing import hash_bytes, hash_file
 from utux.workspace.layout import (
     ADR_0009_IGNORE_LINES,
@@ -554,20 +555,25 @@ class _Validator:
         bad record is reported once.
         """
         first_use: dict[str, str] = {}
-        for path in self.entries(SOURCES_DIRECTORY):
-            # Other files hold the stored text of the sources.
+        entries = list(self.entries(SOURCES_DIRECTORY))
+        texts = {path.stem: path for path in entries if path.is_file() and path.suffix == ".txt"}
+        claimed: set[str] = set()
+        for path in entries:
+            # The .txt files hold the stored texts; they are checked with their records.
             if not (path.is_file() and path.suffix == ".json"):
                 continue
+            claimed.add(path.stem)
             file = self.relative(path)
             text = self.read_text(file)
             if text is None:
                 continue
             source_id: str | None = None
+            record: SourceRecord | None = None
             try:
                 data = parse_json(text, file)
                 if isinstance(data, dict) and isinstance(data.get("source_id"), str):
                     source_id = data["source_id"]
-                SourceRecord.validate_document(data, file)
+                record = SourceRecord.validate_document(data, file)
             except ContractValidationError as error:
                 self.add_error(file, None, error)
             if source_id is None:
@@ -580,9 +586,61 @@ class _Validator:
                     "duplicate_id",
                     f"{source_id} is already used by {first_use[source_id]}",
                 )
-            else:
-                first_use[source_id] = file
+                continue
+            first_use[source_id] = file
+            if record is not None:
+                self.stored_text(path, file, record, texts.get(path.stem))
+        for stem, path in sorted(texts.items()):
+            if stem not in claimed:
+                self.add(
+                    self.relative(path),
+                    None,
+                    DOCUMENT_FIELD,
+                    "text_without_record",
+                    f"no source record {stem}.json stands beside this stored text",
+                )
         return set(first_use)
+
+    def stored_text(self, path: Path, file: str, record: SourceRecord, text: Path | None) -> None:
+        """Check a source record's file name and its stored text (M2-03)."""
+        expected = source_file_stem(record.source_id)
+        if path.stem != expected:
+            self.add(
+                file,
+                None,
+                "source_id",
+                "name_mismatch",
+                f"the record of {record.source_id} belongs in {SOURCES_DIRECTORY}/{expected}.json",
+            )
+            return
+        if record.stored_text is None:
+            if text is not None:
+                self.add(
+                    self.relative(text),
+                    None,
+                    DOCUMENT_FIELD,
+                    "text_not_stored",
+                    f"the record of {record.source_id} stores no text, but this file holds one",
+                )
+            return
+        if text is None:
+            self.add(
+                file,
+                None,
+                "stored_text",
+                "missing_text",
+                f"the stored text {SOURCES_DIRECTORY}/{expected}.txt is missing",
+            )
+            return
+        actual = hash_file(text)
+        if actual != record.text_hash:
+            self.add(
+                self.relative(text),
+                None,
+                DOCUMENT_FIELD,
+                "text_hash_mismatch",
+                f"the text has the hash {actual}, not the record's {record.text_hash}",
+            )
 
     def runs(self) -> None:
         for directory in self.entries(RUNS_DIRECTORY):

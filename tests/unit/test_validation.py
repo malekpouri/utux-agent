@@ -92,7 +92,7 @@ CORRUPTED: list[tuple[str, str, int | None, str, str]] = [
     ("manifest_missing_seeds", "runs/r012/manifest.json", None, "seeds", "missing"),
     (
         "source_record_without_licence",
-        "sources/doi-10.0000-example.json",
+        "sources/doi-10-0000-example-c13671bc.json",
         None,
         "licence",
         "missing",
@@ -394,7 +394,7 @@ def test_source_without_record_reason(tmp_path: Path) -> None:
 def test_duplicate_source_record_names_the_other_file(tmp_path: Path) -> None:
     (problem,) = validate_project(build("source_record_duplicate", tmp_path)).problems
     assert problem.reason == (
-        "doi:10.0000/example is already used by sources/doi-10.0000-example.json"
+        "doi:10.0000/example is already used by sources/doi-10-0000-example-c13671bc.json"
     )
 
 

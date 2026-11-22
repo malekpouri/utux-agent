@@ -306,3 +306,11 @@ class ApprovalAnswerError(UtuxError):
 
 class UnlockRefusedError(UtuxError):
     """The project lock is not removed: it is absent, unreadable, or may be in use."""
+
+
+class SourceStoreError(UtuxError):
+    """A source cannot be written or read as its record says."""
+
+
+class CacheError(UtuxError):
+    """The cache cannot be used as asked: a key in the data, or a held lock."""

@@ -10,6 +10,7 @@ import typer
 
 from utux import __version__
 from utux.budget.accounting import CostReport, CostTotals, project_cost_report, remaining, usd
+from utux.cli.cache import cache_app
 from utux.cli.gold import gold_app
 from utux.core.approvals import answer_approval
 from utux.core.services import services_for_run
@@ -39,6 +40,7 @@ app = typer.Typer(
     add_completion=False,
 )
 app.add_typer(gold_app, name="gold")
+app.add_typer(cache_app, name="cache")
 
 
 def _print_version(value: bool) -> None:

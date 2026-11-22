@@ -14,10 +14,12 @@ apply is `null` where the table says it may be.
 
 ## Source record
 
-One file per source in `sources/`. It says where a source came from, under
-which terms it may be used, and what is known about the stored text
-(specification, section 14; RFC-001, S2; RFC-002, section 2). The text
-itself is not part of the record.
+One file per source in `sources/`, named by the stem of its source id
+([Stored sources](sources.md)). It says where a source came from, under
+which terms it may be used, what is known about the stored text, and the
+resolved bibliographic metadata (specification, section 14; RFC-001, S2;
+RFC-002, section 2). The text itself is not part of the record; it is stored
+beside it.
 
 | Field | Form | Meaning |
 | --- | --- | --- |
@@ -34,13 +36,21 @@ itself is not part of the record.
 | `extraction_method` | code or null | How the text was extracted |
 | `extraction_tool_version` | text or null | The extraction tool and its version |
 | `extraction_quality` | `clean`, `good`, `degraded` or null | Quality rating of the stored text |
+| `storage_permitted` | boolean | Whether the licence lets utux store the text |
+| `title` | text or null | The resolved title |
+| `authors` | list of `family` (text) and `given` (text or null) | The resolved authors, in order; empty when none were given |
+| `year` | integer from 1000 to 2999, or null | The year of publication |
+| `venue` | text or null | The journal, conference or repository |
 
 When text is stored, `text_hash`, `extraction_method` and
 `extraction_quality` must not be null (code `required_with_text`). When no
 text is stored, the four text fields must be null (code
 `not_allowed_without_text`). A source whose version is `index_abstract` cannot
 have stored full text (code `stored_text_exceeds_source_version`, on
-`stored_text`).
+`stored_text`). A source whose `storage_permitted` is false stores no text
+(code `text_not_permitted`, on `stored_text`). The bibliographic fields are
+added in M2-03 for the citation existence check (ADR-0016); a resolver may
+leave any of them unknown.
 
 ## Run manifest
 

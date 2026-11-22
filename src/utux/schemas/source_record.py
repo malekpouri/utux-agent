@@ -10,9 +10,9 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, ClassVar, Self
 
-from pydantic import Field, model_validator
+from pydantic import Field, StrictBool, model_validator
 
-from utux.schemas.base import ContractDocument, field_problem, raise_field_problems
+from utux.schemas.base import ContractDocument, ContractPart, field_problem, raise_field_problems
 from utux.schemas.claim_ledger import CheckedText, ExtractionQuality
 from utux.schemas.common import Identifier, NonEmptyText, Sha256Hash, UtcTimestamp
 from utux.schemas.json_io import read_json
@@ -32,6 +32,13 @@ class SourceVersion(StrEnum):
     PUBLISHER = "publisher"
     PREPRINT = "preprint"
     INDEX_ABSTRACT = "index_abstract"
+
+
+class Author(ContractPart):
+    """One author, as the resolver gives the name."""
+
+    family: NonEmptyText
+    given: NonEmptyText | None = None
 
 
 _TEXT_FIELDS = ("text_hash", "extraction_method", "extraction_tool_version", "extraction_quality")
@@ -61,6 +68,12 @@ class SourceRecord(ContractDocument):
         extraction_tool_version: The extraction tool and its version, or null.
         extraction_quality: The quality rating of the stored text. Null
             exactly when no text is stored.
+        storage_permitted: Whether the licence lets utux store the text. A
+            source whose licence does not is recorded with metadata only.
+        title: The resolved title, or null when the resolver gave none.
+        authors: The resolved authors, in order; empty when none were given.
+        year: The year of publication, or null.
+        venue: The journal, conference or repository, or null.
     """
 
     SCHEMA_VERSION: ClassVar[int] = 1
@@ -77,6 +90,11 @@ class SourceRecord(ContractDocument):
     extraction_method: Identifier | None
     extraction_tool_version: NonEmptyText | None
     extraction_quality: ExtractionQuality | None
+    storage_permitted: StrictBool
+    title: NonEmptyText | None
+    authors: tuple[Author, ...]
+    year: Annotated[int, Field(ge=1000, le=2999, strict=True)] | None
+    venue: NonEmptyText | None
 
     @model_validator(mode="after")
     def _text_fields_follow_stored_text(self) -> Self:
@@ -94,6 +112,14 @@ class SourceRecord(ContractDocument):
                 for name in _REQUIRED_WITH_TEXT
                 if getattr(self, name) is None
             ]
+        if not self.storage_permitted and self.stored_text is not None:
+            problems.append(
+                field_problem(
+                    "text_not_permitted",
+                    "the licence does not permit storing the text, so none is stored",
+                    "stored_text",
+                )
+            )
         if (
             self.source_version is SourceVersion.INDEX_ABSTRACT
             and self.stored_text is CheckedText.FULL_TEXT
