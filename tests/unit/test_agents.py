@@ -330,7 +330,8 @@ def test_the_refusal_names_the_word_and_its_sentence() -> None:
 
 
 def test_the_analyst_prompt_keeps_to_the_fields_of_each_record() -> None:
-    text = load_prompt(PROMPTS, "analyst").text
+    # Lines are wrapped; the phrases are compared with single spaces.
+    text = " ".join(load_prompt(PROMPTS, "analyst").text.split())
     assert "both models" in text
     assert "two models" in text
     for field in ("metric", "model", "dataset", "split", "unit"):
@@ -339,14 +340,14 @@ def test_the_analyst_prompt_keeps_to_the_fields_of_each_record() -> None:
 
 
 def test_the_methodologist_prompt_asks_for_one_number_per_metric() -> None:
-    text = load_prompt(PROMPTS, "methodologist").text
+    text = " ".join(load_prompt(PROMPTS, "methodologist").text.split())
     assert "one number that answers the research question" in text
     assert "accuracy_comparison" in text
     assert "shape" in text
 
 
 def test_the_implementer_prompt_names_none_tolerance_split_and_random_state() -> None:
-    text = load_prompt(PROMPTS, "implementer").text
+    text = " ".join(load_prompt(PROMPTS, "implementer").text.split())
     assert "None, not null" in text
     assert "tolerance" in text
     assert "cv5" in text
