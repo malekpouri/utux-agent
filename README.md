@@ -30,6 +30,10 @@ claim verification and the reviewers come later. What works:
   event before they act.
 - `utux schema export <dir>` writes a JSON Schema file for every file
   contract.
+- `utux gold pool-check`, `batch`, `import`, `merge`, `agreement`,
+  `split-report` and `freeze` take the gold set from a pool of items to a
+  frozen release, with an offline annotation page
+  ([Annotation tooling](docs/annotation-tooling.md)). They never write a label.
 - `utux run`, `utux approve`, `utux status` and `utux unlock` drive a run
   through methodology, implementation and experiment, answer its approval
   gates, show where it is, and remove a lock left by a crash
