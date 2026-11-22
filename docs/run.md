@@ -99,7 +99,12 @@ reach an external provider. Remove them when they are no longer needed.
 - `method.md` is written by utux from the methodologist's steps, so its
   metric lines always have their exact form.
 - `results.md` is written by utux from the analyst's text: each `[R0001]`
-  becomes `<value> <unit> [R0001]` from that record. The text is checked
+  becomes `<value> <unit> [R0001]` from that record. The value is shown to
+  the decimals its tolerance implies (0.0001 gives four, 0.005 two; a
+  tolerance of 0 shows the full value), and a dimensionless unit (`score`,
+  `ratio`, `fraction`, `dimensionless`, `1`) is not shown. The record in
+  `results.jsonl` keeps the full value. The analyst writes no unit words:
+  utux adds them. The text is checked
   before (no digit and no number word outside a reference, no unknown
   reference) and `results.md` after: a number without its result record is
   refused. The number words are zero to nineteen, the tens, hundred,
