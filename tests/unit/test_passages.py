@@ -4,8 +4,10 @@ Every text here is synthetic. Expected passages are written out by hand.
 """
 
 import hashlib
+import json
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -171,3 +173,19 @@ def test_the_same_text_gives_the_same_ids_in_another_process() -> None:
 def test_the_splitter_has_a_version() -> None:
     assert SPLITTER_VERSION == "passages@1"
     assert isinstance(split_passages("A.", ABSTRACT)[0], Passage)
+
+
+# passages@1 is frozen for gold set v0 (rule 18 of M2)
+
+FROZEN = Path(__file__).resolve().parents[1] / "fixtures" / "passages" / "passages_v1.json"
+
+
+def test_passages_at_1_output_is_unchanged_for_its_fixtures() -> None:
+    frozen = json.loads(FROZEN.read_text(encoding="utf-8"))
+    assert frozen["splitter"] == "passages@1"
+    for case in frozen["cases"]:
+        passages = split_passages(case["text"], CheckedText(case["kind"]))
+        assert [
+            {"passage_id": p.passage_id, "offsets": list(p.offsets), "text": p.text}
+            for p in passages
+        ] == case["passages"], case["text"]
