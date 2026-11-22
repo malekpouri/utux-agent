@@ -10,3 +10,4 @@ inputs/**
 !inputs/**/*.md
 !inputs/.gitkeep
 runs/*/outputs/
+.utux/traces/
