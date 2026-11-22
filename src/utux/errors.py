@@ -334,3 +334,7 @@ class LiteratureNotFoundError(LiteratureSourceError):
 
 class LiteratureInvalidResponseError(LiteratureSourceError):
     """The source's answer cannot be turned into a valid result."""
+
+
+class LiteratureCallRefusedError(UtuxError):
+    """utux refused a literature call itself, for example under `local_only`."""
