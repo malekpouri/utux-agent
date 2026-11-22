@@ -64,7 +64,8 @@ In M0 this rule is stricter than the specification. Section 10 of the
 specification lets external models see schemas and aggregate statistics that
 the user has approved, even under `local_only`; utux cannot yet tell such
 content apart, so under `local_only` every call to an external provider is
-refused. Finer control is left to M3.
+refused. Finer control is left to M3. Literature calls follow their own rule
+under `local_only`: see [The data policy](data-policy.md).
 
 When the known cost has reached the project budget, or the budget of the
 call's stage, a call is refused the same way with `status_reason`

@@ -52,3 +52,42 @@ wraps it:
 | `LiteratureRateLimitError` | `rate_limited` |
 | `LiteratureNotFoundError` | `not_found` |
 | `LiteratureInvalidResponseError` | `invalid_response` |
+
+## OpenAlex and arXiv
+
+Task M2-05. Both use the standard library's HTTP, with `utux.sources.http.HttpClient`:
+a user agent that names utux and its version, one request at a time, a
+minimum interval between requests, at most three attempts for a `429`, a
+`5xx` or a network failure (waiting for `Retry-After` when given, never more
+than 60 seconds), and answers of at most 10 MB. Neither uses a key.
+
+| | `OpenAlexSource` | `ArxivSource` |
+| --- | --- | --- |
+| Identifiers | `doi:`, `pmid:`, `openalex:` | `arxiv:` |
+| Interval between requests | 0.1 s (10 a second, the limit without a key) | 3 s (arXiv's terms of use) |
+| Text | the abstract, rebuilt exactly from the inverted index, words joined by single spaces | the abstract (`summary`), runs of whitespace made one space |
+| `source_version` | `index_abstract` | `preprint` |
+| `extraction_method` | `openalex_inverted_index` | `arxiv_api_atom` |
+| Licence | the open-access location's licence, if given | not given by the API |
+| Contact email | sent as `mailto` when `literature.contact_email` is set | never sent |
+
+**Authors.** Both services give each author as one name. The last word is
+taken as the family name and the rest as the given name, a rule that is
+wrong for some names, such as "van der Berg"; ADR-0016 compares the first
+author's family name.
+
+**An OpenAlex abstract** is rebuilt from its inverted index, which maps each
+word to its positions; the positions must cover 0 to n - 1 exactly once each,
+or the answer is invalid.
+
+**An arXiv feed** that holds a document type or an entity declaration is
+refused before it is parsed, so no entity is ever expanded.
+
+Under `local_only`, a search on either is refused; fetch and resolve stay
+allowed ([The data policy](data-policy.md)).
+
+The live smoke tests reach both services and are run by the maintainer only:
+
+```bash
+uv run pytest -m live tests/integration/test_literature_live.py
+```
