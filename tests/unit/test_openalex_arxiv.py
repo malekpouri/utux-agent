@@ -13,10 +13,15 @@ from utux.errors import (
     LiteratureInvalidResponseError,
     LiteratureNotFoundError,
     LiteratureRateLimitError,
+    LiteratureSourceError,
 )
+from utux.events.log import EventLog
 from utux.schemas.claim_ledger import CheckedText
+from utux.schemas.project_config import DataPolicy
 from utux.schemas.source_record import SourceVersion
 from utux.sources.arxiv import ArxivSource
+from utux.sources.cache import ContentCache
+from utux.sources.calls import LoggedLiteratureSource
 from utux.sources.http import HttpClient, HttpRequest, HttpResponse, RecordedTransport
 from utux.sources.openalex import OpenAlexSource, rebuild_abstract
 
@@ -203,12 +208,14 @@ def test_a_body_larger_than_the_limit_is_invalid() -> None:
         source.resolve("doi:10.0000/synthetic-known")
 
 
-# No credentials, and the contact email only when set (M2-05, rule 8)
+# Credentials: none unless the user set OPENALEX_API_KEY (PR #54 review, rule 8)
+
+SECRET = "synthetic-openalex-key-0123456789"
 
 
-def _every_request(contact_email: str | None) -> list[HttpRequest]:
+def _every_request(environ: dict[str, str]) -> list[HttpRequest]:
     openalex = RecordedTransport({}, default=_ok("openalex/work_known.json"))
-    source = OpenAlexSource(openalex, contact_email=contact_email)
+    source = OpenAlexSource(openalex, environ=environ)
     source.resolve("doi:10.0000/synthetic-known")
     source.fetch("doi:10.0000/synthetic-known")
     openalex.default = _ok("openalex/search_comparison.json")
@@ -222,20 +229,61 @@ def _every_request(contact_email: str | None) -> list[HttpRequest]:
     return [*openalex.requests, *arxiv.requests]
 
 
-def test_no_literature_request_carries_credentials() -> None:
-    for request in _every_request(contact_email=None):
+def _assert_no_secret_in_url(request: HttpRequest) -> None:
+    lowered = request.url.lower()
+    for word in ("key", "token", "secret", "password", "auth", "mailto", "@"):
+        assert word not in lowered, request.url
+
+
+def test_without_the_variable_no_request_carries_credentials() -> None:
+    for request in _every_request({}):
         assert {name.lower() for name in request.headers} <= {"user-agent", "accept"}
-        lowered = request.url.lower()
-        for word in ("key", "token", "secret", "password", "auth", "mailto", "@"):
-            assert word not in lowered, request.url
+        _assert_no_secret_in_url(request)
 
 
-def test_the_contact_email_is_sent_only_when_set_and_only_to_openalex() -> None:
-    email = "synthetic@example.org"
-    requests = _every_request(contact_email=email)
-    openalex = [r for r in requests if r.url.startswith(OPENALEX)]
-    arxiv = [r for r in requests if r.url.startswith(ARXIV)]
-    assert all("mailto=synthetic%40example.org" in r.url for r in openalex)
-    assert not any(
-        "example.org" in r.url or "example.org" in json.dumps(dict(r.headers)) for r in arxiv
+def test_with_the_variable_only_openalex_gets_it_and_only_as_a_bearer_header() -> None:
+    for request in _every_request({"OPENALEX_API_KEY": SECRET}):
+        _assert_no_secret_in_url(request)
+        assert SECRET not in request.url
+        if request.url.startswith(OPENALEX):
+            assert request.headers["Authorization"] == f"Bearer {SECRET}"
+            assert {name.lower() for name in request.headers} == {
+                "user-agent",
+                "accept",
+                "authorization",
+            }
+        else:
+            assert "Authorization" not in request.headers
+            assert SECRET not in json.dumps(dict(request.headers))
+
+
+def test_the_key_appears_in_no_event_cache_entry_or_error(tmp_path: Path) -> None:
+    environ = {"OPENALEX_API_KEY": SECRET}
+    log = EventLog(tmp_path / "events.jsonl")
+    cache = ContentCache(tmp_path / "cache")
+    transport = RecordedTransport(
+        {KNOWN_URL: _ok("openalex/work_known.json")}, default=HttpResponse(401, b"")
     )
+    logged = LoggedLiteratureSource(
+        log,
+        OpenAlexSource(transport, environ=environ),
+        cache,
+        policy=DataPolicy.EXTERNAL_ALLOWED,
+    )
+    logged.resolve("doi:10.0000/synthetic-known")
+    logged.resolve("doi:10.0000/synthetic-known")
+    with pytest.raises(LiteratureSourceError) as failed:
+        logged.resolve("doi:10.0000/other")
+    assert SECRET not in str(failed.value)
+    for path in tmp_path.rglob("*"):
+        if path.is_file():
+            assert SECRET.encode() not in path.read_bytes(), path
+            assert SECRET not in path.name
+
+
+def test_the_contact_email_is_never_sent_to_openalex_or_arxiv() -> None:
+    # A service gets the contact email only if its current documentation says
+    # it helps; OpenAlex's and arXiv's do not (PR #54 review).
+    for request in _every_request({}):
+        assert "example.org" not in request.url
+        assert "mailto" not in request.url
