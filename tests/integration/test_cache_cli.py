@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
-from utux.sources.cache import ContentCache
 
 from utux.cli import app
+from utux.sources.cache import ContentCache
 
 runner = CliRunner(env={"NO_COLOR": "1", "TERM": "dumb"})
 

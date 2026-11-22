@@ -7,9 +7,9 @@ import os
 from pathlib import Path
 
 import pytest
-from utux.sources.cache import ContentCache, cache_directory
 
 from utux.errors import CacheError
+from utux.sources.cache import ContentCache, cache_directory
 from utux.workspace.hashing import hash_bytes
 
 

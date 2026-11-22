@@ -8,6 +8,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+from utux.errors import SourceStoreError
+from utux.schemas.claim_ledger import CheckedText
+from utux.schemas.source_record import SourceRecord
+from utux.sources.passages import split_passages
 from utux.sources.store import (
     NO_TEXT,
     read_source,
@@ -16,11 +21,6 @@ from utux.sources.store import (
     stored_passages,
     write_source,
 )
-
-from utux.errors import SourceStoreError
-from utux.schemas.claim_ledger import CheckedText
-from utux.schemas.source_record import SourceRecord
-from utux.sources.passages import split_passages
 from utux.workspace.hashing import hash_bytes
 from utux.workspace.validation import validate_project
 
