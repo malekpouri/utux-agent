@@ -143,9 +143,11 @@ and a binary label (malignant or benign). It is bundled with scikit-learn;
 nothing is downloaded.
 ```
 
-Build the image of the generic pack once. This needs Docker and the network,
-and records the image's id in `packs/generic/image/digest.txt`; a run uses
-only that image. Then run the three stages:
+Build the image of the generic pack once. This needs Docker and the network.
+Building writes your local image id into `packs/generic/image/digest.txt`.
+That is expected: the id depends on the machine and the Docker setup, so it
+differs from the committed one, and a run uses only the image whose id is
+recorded there. Do not commit that change. Then run the three stages:
 
 ```bash
 uv run utux image build
