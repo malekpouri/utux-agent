@@ -316,6 +316,8 @@ models:
     planner: light
 workflow:
   retry_cap: 2
+literature:
+  contact_email: null        # optional; sent to a literature API only when set
 ```
 
 The project lock `.utux/lock`:
