@@ -1,7 +1,11 @@
 """OpenAlex as a `LiteratureSource` (task M2-05, ADR-0017).
 
 OpenAlex answers basic queries without a key, at up to 10 requests a second
-per address, and utux sends no key (rule 7 assessment in pull request #54).
+per address (rule 7 assessment in pull request #54). utux is keyless by
+default. A key is used only when the user sets the environment variable
+`OPENALEX_API_KEY`, never `utux.yaml`, and it is sent only as an
+`Authorization: Bearer` header, never in a URL (rule 8 of `docs/plan/M2.md`).
+With a key, requests may go 30 a second.
 It resolves DOIs, PubMed ids and OpenAlex ids:
 
 - `doi:<doi>` as `/works/https://doi.org/<doi>`;
@@ -13,10 +17,12 @@ index (`rebuild_abstract`). OpenAlex gives each author as one display name;
 the last word is taken as the family name and the rest as the given name, a
 rule that is wrong for some names, such as "van der Berg".
 
-The optional contact email of rule 8 is sent as `mailto` only when it is set.
+The contact email of `utux.yaml` is never sent to OpenAlex: its current
+documentation does not say that it helps.
 """
 
 import json
+import os
 import time
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -33,6 +39,9 @@ from utux.sources.http import HttpClient, Transport, urllib_transport
 BASE_URL = "https://api.openalex.org/works"
 MIN_INTERVAL_SECONDS = 0.1
 """Ten requests a second, the limit for calls without a key."""
+MIN_INTERVAL_WITH_KEY_SECONDS = 1 / 30
+"""Thirty requests a second, the limit for calls with a free key."""
+KEY_ENVIRONMENT = "OPENALEX_API_KEY"
 
 
 def rebuild_abstract(index: object) -> str | None:
@@ -128,19 +137,20 @@ class OpenAlexSource:
         self,
         transport: Transport = urllib_transport,
         *,
-        contact_email: str | None = None,
+        environ: Mapping[str, str] = os.environ,
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
-        """Reach OpenAlex through `transport`; send `contact_email` only when set."""
+        """Reach OpenAlex through `transport`, with the key of `OPENALEX_API_KEY` if set."""
+        key = environ.get(KEY_ENVIRONMENT, "").strip()
         self._client = HttpClient(
             transport,
-            min_interval_seconds=MIN_INTERVAL_SECONDS,
+            min_interval_seconds=MIN_INTERVAL_WITH_KEY_SECONDS if key else MIN_INTERVAL_SECONDS,
             accept="application/json",
+            headers={"Authorization": f"Bearer {key}"} if key else None,
             sleep=sleep,
             monotonic=monotonic,
         )
-        self._contact_email = contact_email
 
     @property
     def name(self) -> str:
@@ -154,8 +164,6 @@ class OpenAlexSource:
 
     def _url(self, path: str, params: dict[str, str | int] | None = None) -> str:
         query = dict(params or {})
-        if self._contact_email:
-            query["mailto"] = self._contact_email
         return BASE_URL + path + ("?" + urlencode(query) if query else "")
 
     def _get(self, url: str) -> Any:

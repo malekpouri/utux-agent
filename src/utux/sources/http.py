@@ -15,7 +15,9 @@ responses so that no test reaches the network (rule 6 of `docs/plan/M2.md`).
   a `5xx` or network failure that persists is unavailable, and any other
   answer is invalid.
 
-It sends no credentials: no `Authorization` header and no key in a URL.
+It sends no credentials of its own and never a key in a URL. A source may
+give it extra headers, such as OpenAlex's optional bearer key; they are
+sent with every request of that source and appear in no error message.
 """
 
 import threading
@@ -120,6 +122,7 @@ class HttpClient:
         *,
         min_interval_seconds: float,
         accept: str,
+        headers: Mapping[str, str] | None = None,
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -127,6 +130,8 @@ class HttpClient:
         self._transport = transport
         self._interval = min_interval_seconds
         self._accept = accept
+        # Extra headers, such as a source's optional key; never logged or put in errors.
+        self._headers = dict(headers or {})
         self._sleep = sleep
         self._monotonic = monotonic
         self._lock = threading.Lock()
@@ -159,7 +164,9 @@ class HttpClient:
                 larger than `MAX_BYTES`.
         """
         request = HttpRequest(
-            url, {"User-Agent": USER_AGENT, "Accept": self._accept}, self.TIMEOUT_SECONDS
+            url,
+            {"User-Agent": USER_AGENT, "Accept": self._accept, **self._headers},
+            self.TIMEOUT_SECONDS,
         )
         with self._lock:
             for attempt in range(self.MAX_ATTEMPTS):
