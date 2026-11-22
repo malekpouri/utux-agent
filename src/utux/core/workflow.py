@@ -24,7 +24,6 @@ builds the graph.
 
 import ast
 import itertools
-import math
 import os
 import platform
 import re
@@ -49,6 +48,7 @@ from utux.core.agents import (
     Prompt,
     check_analysis_text,
     check_results,
+    decimals_for_tolerance,
     load_prompt,
     render_method,
     render_results,
@@ -969,17 +969,6 @@ def _finding(context: _Context, state: RunState) -> str:
     return NO_FINDING
 
 
-def _decimals(tolerance: float) -> int | None:
-    """The decimals a tolerance implies.
-
-    Rounding to them errs by at most the tolerance. None for a tolerance of
-    zero, which asks for the exact value.
-    """
-    if tolerance <= 0:
-        return None
-    return max(0, math.ceil(-math.log10(2 * tolerance) - 1e-9))
-
-
 def hard_coded(code: str, value: float, tolerance: float) -> bool:
     """Whether a metric's value appears as a numeric literal in the code.
 
@@ -994,7 +983,7 @@ def hard_coded(code: str, value: float, tolerance: float) -> bool:
         tree = ast.parse(code)
     except SyntaxError:
         return False
-    decimals = _decimals(tolerance)
+    decimals = decimals_for_tolerance(tolerance)
 
     def rounded(number: float) -> float:
         return number if decimals is None else round(number, decimals)

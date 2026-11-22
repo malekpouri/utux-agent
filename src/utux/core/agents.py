@@ -15,12 +15,15 @@ that is exactly one fenced code block is read from inside the fence
 - The analyst returns a text that refers to every number by its result id,
   `[R0001]`, and contains no other digit and no number word (`NUMBER_WORDS`,
   and `per cent`), apart from zero to ten that state no amount, as in "the
-  two models"; `render_results` puts each record's value and unit before
-  its reference, and `check_results` checks the finished `results.md` again.
+  two models"; `render_results` puts each record's value, rounded to the
+  decimals its tolerance implies, and its unit, unless the unit is
+  dimensionless such as `score`, before its reference, and `check_results`
+  checks the finished `results.md` again.
   The check catches digits and these words; it is not a proof that no number
   was written, for example as "a dozen" or in another language.
 """
 
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -274,8 +277,33 @@ def check_analysis_text(text: str, record_ids: set[str]) -> None:
         )
 
 
+DIMENSIONLESS_UNITS = frozenset({"score", "ratio", "fraction", "dimensionless", "1"})
+"""Units that are not shown after a value in `results.md`."""
+
+
+def decimals_for_tolerance(tolerance: float) -> int | None:
+    """The decimals a tolerance implies: 0.0001 gives four, 0.005 two.
+
+    Rounding to them errs by at most the tolerance. None for a tolerance of
+    zero, which asks for the exact value.
+    """
+    if tolerance <= 0:
+        return None
+    return max(0, math.ceil(-math.log10(2 * tolerance) - 1e-9))
+
+
+def shown_value(record: ResultRecord) -> str:
+    """A record's value as `results.md` shows it: to the decimals of its tolerance.
+
+    The record itself keeps the full value (finding 9 of M1-16).
+    """
+    decimals = decimals_for_tolerance(record.tolerance)
+    return repr(record.value) if decimals is None else f"{record.value:.{decimals}f}"
+
+
 def _value(record: ResultRecord) -> str:
-    return f"{record.value!r} {record.unit} [{record.id}]"
+    unit = "" if record.unit in DIMENSIONLESS_UNITS else f" {record.unit}"
+    return f"{shown_value(record)}{unit} [{record.id}]"
 
 
 def render_results(output: AnalysisOutput, records: list[ResultRecord]) -> str:
