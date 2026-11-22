@@ -198,6 +198,7 @@ See [Cost and budget](docs/cost.md).
 - [Schema conventions](docs/schema-conventions.md)
 - [Artifact metadata and content hashes](docs/artifact-metadata.md)
 - [The `ModelProvider` interface](docs/model-provider.md)
+- [The `LiteratureSource` interface](docs/literature-source.md)
 - [The `Executor` interface](docs/executor.md), [the sandbox](docs/sandbox.md) and [the image of a pack](docs/pack-image.md)
 - [Events and the event log](docs/event-log.md)
 - [Logged model calls and `utux model ping`](docs/model-calls.md)
