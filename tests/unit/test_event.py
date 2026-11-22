@@ -242,6 +242,7 @@ def test_event_types_are_the_ones_named_in_the_specification_and_the_plan() -> N
         "run_restarted",
         "route_back",
         "lock_removed",
+        "literature_call",
     }
 
 
@@ -519,6 +520,7 @@ def test_types_without_defined_keys_accept_only_an_empty_object() -> None:
             EventType.RUN_RESTARTED,
             EventType.CODE_EXECUTION,
             EventType.ERROR,
+            EventType.LITERATURE_CALL,
             EventType.LOCK_REMOVED,
             EventType.APPROVAL_REQUESTED,
             EventType.APPROVAL_ANSWERED,
@@ -904,3 +906,44 @@ def test_an_error_event_written_before_the_trace_key_stays_valid() -> None:
         type="error", status="error", status_reason="invalid_structured_output", data={}
     )
     assert Event.from_json(json.dumps(document)).data == {}
+
+
+# data of literature_call (M2-04)
+
+_SEARCH = {
+    "source": "openalex",
+    "operation": "search",
+    "identifier": None,
+    "query_hash": "sha256:" + "4" * 64,
+    "cache_hit": True,
+}
+
+
+def test_literature_call_names_the_source_operation_and_what_was_asked() -> None:
+    event = load_event(FIXTURES / "valid" / "literature_call.json")
+    assert event.data["identifier"] == "doi:10.0000/example"
+    assert Event.from_json(json.dumps(_of("literature_call.json", **_SEARCH))).data == _SEARCH
+
+
+@pytest.mark.parametrize(
+    ("changes", "problem"),
+    [
+        ({"operation": "download"}, "data.operation"),
+        ({"cache_hit": "yes"}, "data.cache_hit"),
+        ({"query_hash": "abc"}, "data.query_hash"),
+        ({"source": ""}, "data.source"),
+        # A search names its query by hash, never by an identifier.
+        ({"identifier": "doi:10.0000/example"}, "data.identifier"),
+        ({"query_hash": None}, "data.query_hash"),
+    ],
+)
+def test_literature_call_data_is_checked(changes: dict[str, object], problem: str) -> None:
+    fields = [name for name, _ in _problems(_of("literature_call.json", **{**_SEARCH, **changes}))]
+    assert problem in fields
+
+
+def test_a_resolve_or_fetch_names_its_identifier_and_no_query() -> None:
+    data = {**_SEARCH, "operation": "fetch"}
+    fields = [name for name, _ in _problems(_of("literature_call.json", **data))]
+    assert "data.identifier" in fields
+    assert "data.query_hash" in fields
