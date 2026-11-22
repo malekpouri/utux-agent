@@ -1089,11 +1089,12 @@ def _origin_problems(items: Sequence[GoldItem], by_id: dict[str, GoldItem]) -> l
             problems.append(
                 Problem(field, f"the origin {source} is not in the release", "unknown_source_item")
             )
-        elif origin.origin is not Origin.NATURAL:
+        elif origin.origin not in (Origin.NATURAL, Origin.PUBLIC):
+            # A perturbation is made from a natural or a public item (RFC-002, section 2).
             problems.append(
                 Problem(
                     field,
-                    f"the origin {source} is {origin.origin.value}, not a natural item",
+                    f"the origin {source} is {origin.origin.value}, not a natural or public item",
                     "source_item_not_natural",
                 )
             )
