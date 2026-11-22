@@ -2,7 +2,7 @@
   "schema_version": 1,
   "phase": "labelling",
   "batch_id": "b02",
-  "batch_hash": "sha256:6293bb09598e0c4f90aebc04842e4ad8f555a0a7d3800e7da88f01a03e8a726c",
+  "batch_hash": "sha256:40c0e35de155365f1a13d1fd646590e1715c4fc3e4f2fd41934f93a4b89f5b54",
   "annotator": "a03",
   "items": [
     {
@@ -18,7 +18,7 @@
               "source_id": "doi:10.0000/synthetic",
               "evidence_spans": [
                 {
-                  "passage_id": "p2",
+                  "passage_id": "p-b87a6bff-000020",
                   "offsets": [
                     20,
                     43

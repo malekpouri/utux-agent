@@ -52,6 +52,19 @@ var UtuxAnnotation = (function () {
   var FLAGS = ["direction_mismatch", "causal_overreach", "magnitude_mismatch", "overgeneralisation",
                "metric_mismatch", "certainty_escalation", "missing_comparator"];
 
+  // Offsets in batches and work files count Unicode code points, as Python
+  // does. The browser counts UTF-16 code units, which differ for a
+  // character outside the Basic Multilingual Plane; these convert.
+  function codePoints(text) { return Array.from(text); }
+  function lengthInCodePoints(text) { return codePoints(text).length; }
+  function toCodePoint(text, utf16) { return codePoints(text.slice(0, utf16)).length; }
+  function spanFromSelection(text, startUtf16, endUtf16) {
+    return [toCodePoint(text, startUtf16), toCodePoint(text, endUtf16)];
+  }
+  function sliceByCodePoints(text, start, end) {
+    return codePoints(text).slice(start, end).join("");
+  }
+
   // A new, empty work for a batch: every label starts unset.
   function newWork(batch) {
     return {
@@ -84,7 +97,7 @@ var UtuxAnnotation = (function () {
       var at = item.item_id + ", claim " + (n + 1) + ": ";
       var span = claim.span || [];
       if (!(Number.isInteger(span[0]) && Number.isInteger(span[1]) && span[0] >= 0 &&
-            span[1] > span[0] && span[1] <= shown.text_unit.length)) {
+            span[1] > span[0] && span[1] <= lengthInCodePoints(shown.text_unit))) {
         errors.push(at + "the span must be within the text unit");
       }
       if (!note(claim.text)) { errors.push(at + "the claim has no text"); }
@@ -168,7 +181,8 @@ var UtuxAnnotation = (function () {
     return { errors: [], json: JSON.stringify(out, null, 2) + "\n" };
   }
 
-  return { newWork: newWork, exportWork: exportWork, KINDS: KINDS, STATUSES: STATUSES,
+  return { newWork: newWork, exportWork: exportWork, spanFromSelection: spanFromSelection,
+           sliceByCodePoints: sliceByCodePoints, KINDS: KINDS, STATUSES: STATUSES,
            LABELS: LABELS, FLAGS: FLAGS };
 })();
 </script>
@@ -248,7 +262,7 @@ var UtuxAnnotation = (function () {
     var passages = source.passages.map(function (p) {
       return el("span", { class: "passage" }, [
         el("span", { class: "muted", text: p.passage_id + "  " }),
-        document.createTextNode(source.text.slice(p.offsets[0], p.offsets[1]))
+        document.createTextNode(A.sliceByCodePoints(source.text, p.offsets[0], p.offsets[1]))
       ]);
     });
     return el("div", { class: "panel" }, [
@@ -266,7 +280,7 @@ var UtuxAnnotation = (function () {
       list.innerHTML = "";
       item.claims.forEach(function (claim, n) {
         var box = el("div", { class: "panel" }, [
-          el("h3", { text: "Claim " + (n + 1) + "  [" + claim.span[0] + ", " + claim.span[1] + "]: “" + shown.text_unit.slice(claim.span[0], claim.span[1]) + "”" }),
+          el("h3", { text: "Claim " + (n + 1) + "  [" + claim.span[0] + ", " + claim.span[1] + "]: “" + A.sliceByCodePoints(shown.text_unit, claim.span[0], claim.span[1]) + "”" }),
           el("label", { text: "Claim, self-contained" }), textField(claim.text, function (v) { claim.text = v; }, true),
           el("div", { text: "Kind" }), choice("kind-" + n, A.KINDS, claim.kind, function (v) { claim.kind = v; }),
           el("div", { text: "Cites" }), toggles(shown.sources.map(function (s) { return s.source_id; }), claim.citations, function (next) { claim.citations = next; }),
@@ -278,7 +292,7 @@ var UtuxAnnotation = (function () {
     draw();
     var add = el("button", { text: "Add a claim from the marked span", onclick: function () {
       if (unit.selectionEnd <= unit.selectionStart) { status.textContent = "Mark the span of the claim in the text unit first."; return; }
-      item.claims.push({ span: [unit.selectionStart, unit.selectionEnd], text: "", kind: null, citations: [] });
+      item.claims.push({ span: A.spanFromSelection(unit.value, unit.selectionStart, unit.selectionEnd), text: "", kind: null, citations: [] });
       save(); draw();
     } });
     return [el("h2", { text: "Text unit" }), unit, add, el("h2", { text: "Your claims" }), list,
@@ -302,7 +316,7 @@ var UtuxAnnotation = (function () {
             if (input.checked) { pair.evidence_spans.push({ passage_id: p.passage_id, offsets: p.offsets.slice() }); }
             save();
           });
-          return el("label", { class: "passage" }, [input, document.createTextNode(" " + p.passage_id + ": " + source.text.slice(p.offsets[0], p.offsets[1]))]);
+          return el("label", { class: "passage" }, [input, document.createTextNode(" " + p.passage_id + ": " + A.sliceByCodePoints(source.text, p.offsets[0], p.offsets[1]))]);
         });
         parts.push(el("div", { class: "panel" }, [
           el("h3", { text: "Source " + pair.source_id + " (" + source.checked_text + ", " + source.extraction_quality + ")" }),

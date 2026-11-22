@@ -6,9 +6,10 @@ between files, checks them, and puts the two annotators' work side by side.
 
 The files, in the order of the work (`docs/annotation-tooling.md`):
 
-1. **Pool** (`AnnotationPool`), written by the maintainer: the items to
-   annotate, with their sources, the passages of each source's text, and,
-   for a perturbed or system-generated item, its hidden record.
+1. **Pool** (`AnnotationPool`), written by the item builder: the items to
+   annotate, with their sources and, for a perturbed or system-generated
+   item, its hidden record. The passages of each source's text come from the
+   shared splitter (`utux.sources.passages`, ADR-0015).
 2. **Batch** (`AnnotationBatch`), one per annotator and phase, written by
    `export_batch`. It holds what the annotator may see: the text unit and the
    sources, and in phase 2 the reference claims. It holds neither the other
@@ -29,17 +30,15 @@ labels that the agents and the developers who tune prompts must not read
 (RFC-002, section 6): keep them with the adjudicator, outside the repository.
 """
 
-import itertools
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from importlib.resources import files
 from pathlib import Path
-from typing import Annotated, ClassVar, Self
+from typing import ClassVar, Self
 
-from pydantic import Field, StrictBool, field_validator, model_validator
-from pydantic_core import InitErrorDetails
+from pydantic import StrictBool, field_validator, model_validator
 
 from utux.errors import ContractValidationError, GoldSetError, Problem
 from utux.evalkit.agreement import (
@@ -86,6 +85,7 @@ from utux.schemas.claim_ledger import (
 )
 from utux.schemas.common import Count, Identifier, NonEmptyText, Sha256Hash
 from utux.schemas.json_io import read_json
+from utux.sources.passages import SPLITTER_VERSION, split_passages
 from utux.workspace.atomic import atomic_write_text
 from utux.workspace.hashing import hash_bytes
 
@@ -112,7 +112,8 @@ def _increasing(value: tuple[int, int]) -> tuple[int, int]:
 class Passage(ContractPart):
     """A passage of a source's text: the unit an annotator marks as evidence.
 
-    `offsets` are character offsets into the source's text, start and end.
+    `offsets` are the start and end in code points of the source's text, as
+    the shared splitter gives them.
     """
 
     passage_id: NonEmptyText
@@ -124,54 +125,27 @@ class Passage(ContractPart):
         return _increasing(value)
 
 
-def _passage_problems(text: str, passages: Sequence[Passage]) -> list[InitErrorDetails]:
-    problems: list[InitErrorDetails] = []
-    seen: set[str] = set()
-    for index, passage in enumerate(passages):
-        if passage.passage_id in seen:
-            problems.append(
-                field_problem("duplicate_passage", "a passage id is used once", "passages", index)
-            )
-        seen.add(passage.passage_id)
-        if passage.offsets[1] > len(text):
-            problems.append(
-                field_problem(
-                    "span_out_of_range",
-                    f"the end ({passage.offsets[1]}) is beyond the text ({len(text)})",
-                    "passages",
-                    index,
-                    "offsets",
-                )
-            )
-    ordered = sorted(enumerate(passages), key=lambda entry: entry[1].offsets)
-    for (_, first), (index, second) in itertools.pairwise(ordered):
-        if second.offsets[0] < first.offsets[1]:
-            problems.append(
-                field_problem(
-                    "passages_overlap",
-                    f"{second.passage_id} overlaps {first.passage_id}",
-                    "passages",
-                    index,
-                    "offsets",
-                )
-            )
-    return problems
-
-
 class PoolSource(ContractPart):
-    """A source of a pool item, with its stored text and its passages."""
+    """A source of a pool item, with its stored text.
+
+    Its passages are not given: they come from the shared splitter of
+    ADR-0015 (`utux.sources.passages`), so the passage ids of the reference
+    labels are the ids the verifier uses.
+    """
 
     source_id: NonEmptyText
     source_group: NonEmptyText
     checked_text: CheckedText
     extraction_quality: ExtractionQuality
     text: NonEmptyText
-    passages: Annotated[tuple[Passage, ...], Field(min_length=1)]
 
-    @model_validator(mode="after")
-    def _passages_fit(self) -> Self:
-        raise_field_problems("PoolSource", _passage_problems(self.text, self.passages))
-        return self
+    @property
+    def passages(self) -> tuple[Passage, ...]:
+        """The passages of the stored text, from the shared splitter."""
+        return tuple(
+            Passage(passage_id=passage.passage_id, offsets=passage.offsets)
+            for passage in split_passages(self.text, self.checked_text)
+        )
 
     @property
     def text_hash(self) -> str:
@@ -295,6 +269,8 @@ class AnnotationBatch(ContractDocument):
         phase: `claim_extraction` or `labelling`.
         batch_id: The batch; both annotators of a batch get the same items.
         annotator: The annotator's pseudonymous id, such as `a03`.
+        splitter: The version of the passage splitter its passages came
+            from, such as `passages@1` (ADR-0015).
         batch_hash: The hash of the rest of the batch. The work names it, so
             that work is read only against the batch it was made from.
         items: The items.
@@ -305,6 +281,7 @@ class AnnotationBatch(ContractDocument):
     phase: Phase
     batch_id: Identifier
     annotator: AnnotatorId
+    splitter: NonEmptyText
     batch_hash: Sha256Hash
     items: tuple[BatchItem, ...]
 
@@ -314,6 +291,7 @@ def _batch_hash(phase: Phase, batch_id: str, annotator: str, items: Sequence[Bat
         "phase": phase.value,
         "batch_id": batch_id,
         "annotator": annotator,
+        "splitter": SPLITTER_VERSION,
         "items": [item.model_dump(mode="json") for item in items],
     }
     canonical = json.dumps(content, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -371,6 +349,7 @@ def export_batch(
         "phase": phase.value,
         "batch_id": batch_id,
         "annotator": annotator,
+        "splitter": SPLITTER_VERSION,
         "batch_hash": "sha256:" + "0" * 64,
         "items": [item.model_dump(mode="json") for item in items],
     }

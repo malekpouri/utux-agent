@@ -1,0 +1,203 @@
+{
+  "splitter": "passages@1",
+  "cases": [
+    {
+      "kind": "abstract",
+      "text": "We compare A and B. A beats B on dataset X. A is slow.",
+      "passages": [
+        {
+          "passage_id": "p-b87a6bff-000000",
+          "offsets": [
+            0,
+            19
+          ],
+          "text": "We compare A and B."
+        },
+        {
+          "passage_id": "p-b87a6bff-000020",
+          "offsets": [
+            20,
+            43
+          ],
+          "text": "A beats B on dataset X."
+        },
+        {
+          "passage_id": "p-b87a6bff-000044",
+          "offsets": [
+            44,
+            54
+          ],
+          "text": "A is slow."
+        }
+      ]
+    },
+    {
+      "kind": "abstract",
+      "text": "The method, e.g. a tree, works. Smith et al. (2020) agree [3]. Accuracy rose to 0.97! Is it fast? Yes.",
+      "passages": [
+        {
+          "passage_id": "p-e1960779-000000",
+          "offsets": [
+            0,
+            31
+          ],
+          "text": "The method, e.g. a tree, works."
+        },
+        {
+          "passage_id": "p-e1960779-000032",
+          "offsets": [
+            32,
+            62
+          ],
+          "text": "Smith et al. (2020) agree [3]."
+        },
+        {
+          "passage_id": "p-e1960779-000063",
+          "offsets": [
+            63,
+            85
+          ],
+          "text": "Accuracy rose to 0.97!"
+        },
+        {
+          "passage_id": "p-e1960779-000086",
+          "offsets": [
+            86,
+            97
+          ],
+          "text": "Is it fast?"
+        },
+        {
+          "passage_id": "p-e1960779-000098",
+          "offsets": [
+            98,
+            102
+          ],
+          "text": "Yes."
+        }
+      ]
+    },
+    {
+      "kind": "abstract",
+      "text": "It holds [Smith et al. 2020. Vol. 2]. See Fig. 3 and Eq. 2. Written by J. Smith. Done.",
+      "passages": [
+        {
+          "passage_id": "p-a8e96c59-000000",
+          "offsets": [
+            0,
+            37
+          ],
+          "text": "It holds [Smith et al. 2020. Vol. 2]."
+        },
+        {
+          "passage_id": "p-a8e96c59-000038",
+          "offsets": [
+            38,
+            59
+          ],
+          "text": "See Fig. 3 and Eq. 2."
+        },
+        {
+          "passage_id": "p-a8e96c59-000060",
+          "offsets": [
+            60,
+            73
+          ],
+          "text": "Written by J."
+        },
+        {
+          "passage_id": "p-a8e96c59-000074",
+          "offsets": [
+            74,
+            80
+          ],
+          "text": "Smith."
+        },
+        {
+          "passage_id": "p-a8e96c59-000081",
+          "offsets": [
+            81,
+            86
+          ],
+          "text": "Done."
+        }
+      ]
+    },
+    {
+      "kind": "abstract",
+      "text": "Let 𝑥 be large. Then “it holds.” Next.",
+      "passages": [
+        {
+          "passage_id": "p-440bdcbb-000000",
+          "offsets": [
+            0,
+            15
+          ],
+          "text": "Let 𝑥 be large."
+        },
+        {
+          "passage_id": "p-440bdcbb-000016",
+          "offsets": [
+            16,
+            32
+          ],
+          "text": "Then “it holds.”"
+        },
+        {
+          "passage_id": "p-440bdcbb-000033",
+          "offsets": [
+            33,
+            38
+          ],
+          "text": "Next."
+        }
+      ]
+    },
+    {
+      "kind": "full_text",
+      "text": "Introduction. We study A.\n\nMethods follow\nwithout a stop\n\n\nResults: 1.5 and 2.0 hold. End.",
+      "passages": [
+        {
+          "passage_id": "p-180f85f6-000000",
+          "offsets": [
+            0,
+            13
+          ],
+          "text": "Introduction."
+        },
+        {
+          "passage_id": "p-180f85f6-000014",
+          "offsets": [
+            14,
+            25
+          ],
+          "text": "We study A."
+        },
+        {
+          "passage_id": "p-180f85f6-000027",
+          "offsets": [
+            27,
+            56
+          ],
+          "text": "Methods follow\nwithout a stop"
+        },
+        {
+          "passage_id": "p-180f85f6-000059",
+          "offsets": [
+            59,
+            85
+          ],
+          "text": "Results: 1.5 and 2.0 hold."
+        },
+        {
+          "passage_id": "p-180f85f6-000086",
+          "offsets": [
+            86,
+            90
+          ],
+          "text": "End."
+        }
+      ]
+    }
+  ]
+}
