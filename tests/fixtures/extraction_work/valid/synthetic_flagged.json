@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "phase": "claim_extraction",
+  "batch_id": "b01",
+  "batch_hash": "sha256:7a4a7c346459a89049996721cae1251a527ef88a4c636a3c0b87649c81f4cc3c",
+  "annotator": "a03",
+  "items": [
+    {
+      "item_id": "G0001",
+      "claims": [],
+      "flag": "Synthetic: the source is unreadable.",
+      "minutes": 9
+    }
+  ]
+}

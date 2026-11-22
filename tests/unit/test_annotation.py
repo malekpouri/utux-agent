@@ -13,10 +13,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+from utux.errors import ContractValidationError, GoldSetError
 from utux.evalkit.annotation import (
     Adjudication,
+    AnnotationBatch,
     AnnotationPool,
+    ExtractionWork,
+    LabellingWork,
     Phase,
+    ReferenceClaims,
     export_batch,
     merge_extraction,
     merge_labelling,
@@ -25,8 +31,6 @@ from utux.evalkit.annotation import (
     with_splits,
     write_annotation_page,
 )
-
-from utux.errors import ContractValidationError, GoldSetError
 from utux.evalkit.gold import GoldSplit, check_release
 
 TEXT = "Method A outperforms method B on dataset X [1]. Method A is fast."
@@ -628,3 +632,44 @@ work.items[0].minutes = 7;
     assert output["blank"]["items"][0]["claims"] == []
     work = read_work(batch, json.loads(output["result"]["json"]))
     assert work.items[0].claims[0].text == CLAIM_1["text"]
+
+
+# Fixtures of the annotation contracts
+
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+CONTRACTS = {
+    "annotation_pool": AnnotationPool,
+    "annotation_batch": AnnotationBatch,
+    "extraction_work": ExtractionWork,
+    "labelling_work": LabellingWork,
+    "adjudication": Adjudication,
+    "reference_claims": ReferenceClaims,
+}
+
+
+@pytest.mark.parametrize("name", sorted(CONTRACTS))
+def test_valid_fixtures_load_and_round_trip(name: str) -> None:
+    for path in sorted((FIXTURES / name / "valid").iterdir()):
+        document = json.loads(path.read_text(encoding="utf-8"))
+        model = CONTRACTS[name].validate_document(document, path.name)
+        assert json.loads(model.to_json()) == document, path.name
+
+
+@pytest.mark.parametrize("name", sorted(CONTRACTS))
+def test_invalid_fixtures_are_refused(name: str) -> None:
+    paths = sorted((FIXTURES / name / "invalid").iterdir())
+    assert paths
+    for path in paths:
+        with pytest.raises(ContractValidationError):
+            CONTRACTS[name].validate_document(json.loads(path.read_text("utf-8")), path.name)
+
+
+def test_the_documented_adjudication_example_is_valid() -> None:
+    text = (Path(__file__).resolve().parents[2] / "docs" / "annotation-tooling.md").read_text(
+        encoding="utf-8"
+    )
+    example = text.split("### 5. The adjudication file", 1)[1].split("```json\n", 1)[1]
+    document = json.loads(example.split("```", 1)[0])
+    assert (
+        Adjudication.validate_document(document, "docs/annotation-tooling.md").adjudicator == "a01"
+    )

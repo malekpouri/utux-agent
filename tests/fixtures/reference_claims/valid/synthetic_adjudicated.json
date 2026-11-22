@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "items": [
+    {
+      "item_id": "G0001",
+      "annotators": [
+        "a03",
+        "a07"
+      ],
+      "adjudicator": "a01",
+      "claims": [
+        {
+          "claim_id": "G0001-c1",
+          "span": [
+            0,
+            47
+          ],
+          "text": "Method A outperforms method B on dataset X.",
+          "kind": "finding",
+          "citations": [
+            "doi:10.0000/synthetic"
+          ]
+        },
+        {
+          "claim_id": "G0001-c2",
+          "span": [
+            48,
+            65
+          ],
+          "text": "Method A is fast.",
+          "kind": "method",
+          "citations": []
+        }
+      ],
+      "claim_extraction": {
+        "raw": {
+          "a03": [
+            {
+              "span": [
+                0,
+                47
+              ],
+              "text": "Method A outperforms method B on dataset X.",
+              "citations": [
+                "doi:10.0000/synthetic"
+              ]
+            },
+            {
+              "span": [
+                48,
+                65
+              ],
+              "text": "Method A is fast.",
+              "citations": []
+            }
+          ],
+          "a07": [
+            {
+              "span": [
+                0,
+                47
+              ],
+              "text": "Method A outperforms method B on dataset X.",
+              "citations": [
+                "doi:10.0000/synthetic"
+              ]
+            }
+          ]
+        },
+        "adjudicated": true,
+        "adjudication_reason": "Synthetic reason."
+      }
+    }
+  ]
+}

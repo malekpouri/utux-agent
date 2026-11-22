@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "phase": "claim_extraction",
+  "batch_id": "b01",
+  "annotator": "a03",
+  "batch_hash": "sha256:7a4a7c346459a89049996721cae1251a527ef88a4c636a3c0b87649c81f4cc3c",
+  "items": [
+    {
+      "item_id": "G0001",
+      "domain": "ml",
+      "text_unit": "Method A outperforms method B on dataset X [1]. Method A is fast.",
+      "sources": [
+        {
+          "source_id": "doi:10.0000/synthetic",
+          "checked_text": "abstract",
+          "extraction_quality": "clean",
+          "text_hash": "sha256:b87a6bff86fd734e2457336f8e06e4ace942331bb89a83ae9b669d93b4d47b46",
+          "text": "We compare A and B. A beats B on dataset X. A is slow.",
+          "passages": [
+            {
+              "passage_id": "p1",
+              "offsets": [
+                0,
+                19
+              ]
+            },
+            {
+              "passage_id": "p2",
+              "offsets": [
+                20,
+                43
+              ]
+            },
+            {
+              "passage_id": "p3",
+              "offsets": [
+                44,
+                54
+              ]
+            }
+          ]
+        }
+      ],
+      "claims": []
+    }
+  ]
+}

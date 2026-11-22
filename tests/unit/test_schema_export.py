@@ -26,6 +26,12 @@ EXPECTED = {
     "source_record",
     "gold_item",
     "metrics",
+    "annotation_pool",
+    "annotation_batch",
+    "extraction_work",
+    "labelling_work",
+    "adjudication",
+    "reference_claims",
 }
 
 
@@ -127,6 +133,12 @@ FIXTURE_DIRECTORY = {
     "source_record": "source_record",
     "gold_item": "gold_item",
     "metrics": "metrics",
+    "annotation_pool": "annotation_pool",
+    "annotation_batch": "annotation_batch",
+    "extraction_work": "extraction_work",
+    "labelling_work": "labelling_work",
+    "adjudication": "adjudication",
+    "reference_claims": "reference_claims",
 }
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 NOTE = (

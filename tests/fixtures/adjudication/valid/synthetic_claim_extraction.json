@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "phase": "claim_extraction",
+  "adjudicator": "a01",
+  "extraction": [
+    {
+      "item_id": "G0001",
+      "claims": [
+        {
+          "span": [
+            0,
+            47
+          ],
+          "text": "Method A outperforms method B on dataset X.",
+          "kind": "finding",
+          "citations": [
+            "doi:10.0000/synthetic"
+          ]
+        },
+        {
+          "span": [
+            48,
+            65
+          ],
+          "text": "Method A is fast.",
+          "kind": "method",
+          "citations": []
+        }
+      ],
+      "reason": "Synthetic reason."
+    }
+  ],
+  "claims": [],
+  "pairs": [],
+  "ambiguous": []
+}
