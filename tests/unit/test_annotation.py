@@ -76,6 +76,7 @@ def _perturbed_pool() -> AnnotationPool:
             "target_error": "overgeneralisation",
             "secondary_errors": [],
             "error_class": "single_error",
+            "confirmation": "audit",
             "confirmed_by": "a01",
             "source_item": "G0098",
         },

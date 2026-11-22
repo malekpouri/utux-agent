@@ -163,6 +163,32 @@ INVALID = [
     ("synthetic_unknown_error_class.json", "hidden.error_class", "enum"),
     ("synthetic_confirmed_by_a_name.json", "hidden.confirmed_by", "string_pattern_mismatch"),
     ("synthetic_generated_by_not_a_code.json", "hidden.generated_by", "string_pattern_mismatch"),
+    # Public items and the confirmation of perturbations (M0-15b review, schema (a))
+    ("synthetic_public_with_annotation.json", "annotation", "annotation_not_allowed"),
+    ("synthetic_public_without_provenance.json", "provenance", "provenance_required"),
+    ("synthetic_provenance_on_a_natural_item.json", "provenance", "provenance_not_allowed"),
+    ("synthetic_natural_without_annotation.json", "annotation", "annotation_required"),
+    ("synthetic_annotated_claim_without_kind.json", "claims.0.kind", "kind_required"),
+    (
+        "synthetic_annotated_claim_without_review_flag.json",
+        "claims.0.expert_would_review",
+        "review_flag_required",
+    ),
+    ("synthetic_public_claim_with_raw.json", "claims.0.raw", "raw_not_allowed"),
+    (
+        "synthetic_public_pair_adjudicated.json",
+        "claims.0.pairs.0.adjudicated",
+        "adjudication_not_allowed",
+    ),
+    ("synthetic_audit_without_confirmed_by.json", "hidden.confirmed_by", "confirmed_by_required"),
+    (
+        "synthetic_deterministic_with_confirmed_by.json",
+        "hidden.confirmed_by",
+        "confirmed_by_not_allowed",
+    ),
+    ("synthetic_unknown_confirmation.json", "hidden.confirmation", "enum"),
+    ("synthetic_unknown_not_scored_step.json", "provenance.not_scored.0", "enum"),
+    ("synthetic_unknown_dataset.json", "provenance.dataset", "enum"),
     ("synthetic_malformed_json.json", "<document>", "invalid_json"),
     ("synthetic_not_an_object.json", "<document>", "not_a_mapping"),
     ("synthetic_newer_schema_version.json", "schema_version", "schema_version_newer"),
@@ -520,3 +546,54 @@ def test_a_kind_both_annotators_gave_is_the_reference_kind_unless_adjudicated() 
     for listed in _annotation(document)["claim_extraction"]["raw"].values():
         listed[0]["kind"] = "background"
     assert ("claims", "differs_from_raw") in _problems(document)
+
+
+# Public items (M0-15b review: RFC-002 section 4, option (a))
+
+
+def test_a_public_item_has_provenance_and_no_annotators() -> None:
+    from utux.evalkit.gold import Confirmation, NotScored, Provenance, PublicDataset
+
+    item = load_gold_item(FIXTURES / "valid" / "synthetic_public_item.json")
+    assert item.origin is Origin.PUBLIC
+    assert item.annotation is None
+    assert item.hidden is None
+    assert isinstance(item.provenance, Provenance)
+    assert item.provenance.dataset is PublicDataset.SCIFACT
+    assert item.provenance.licence == "CC BY-NC 2.0"
+    assert item.provenance.text_redistributable is False
+    assert item.provenance.not_scored == (NotScored.S4,)
+    (claim,) = item.claims
+    assert claim.kind is None
+    assert claim.expert_would_review is None
+    assert claim.raw == {}
+    assert [pair.source_group for pair in claim.pairs] == ["scifact-doc-101", "scifact-doc-103"]
+    perturbed = load_gold_item(FIXTURES / "valid" / "synthetic_public_perturbed_item.json")
+    assert isinstance(perturbed.hidden, PerturbationRecord)
+    assert perturbed.hidden.confirmation is Confirmation.DETERMINISTIC
+    assert perturbed.hidden.confirmed_by is None
+
+
+def test_an_item_without_provenance_writes_no_provenance_key() -> None:
+    item = load_gold_item(FIXTURES / "valid" / "synthetic_natural_item.json")
+    assert item.provenance is None
+    assert "provenance" not in json.loads(item.to_json_line())
+
+
+def test_agreement_leaves_out_public_items() -> None:
+    from utux.evalkit.agreement import annotation_agreement
+
+    public = load_gold_item(FIXTURES / "valid" / "synthetic_public_item.json")
+    natural = load_gold_item(FIXTURES / "valid" / "synthetic_natural_item.json")
+    assert annotation_agreement([public, natural]) == annotation_agreement([natural])
+
+
+def test_a_public_item_has_no_hidden_record() -> None:
+    document = json.loads((FIXTURES / "valid" / "synthetic_public_item.json").read_text())
+    perturbed = json.loads(
+        (FIXTURES / "valid" / "synthetic_public_perturbed_item.json").read_text()
+    )
+    document["hidden"] = perturbed["hidden"]
+    with pytest.raises(ContractValidationError) as caught:
+        GoldItem.validate_document(document, "synthetic")
+    assert [(p.field, p.code) for p in caught.value.problems] == [("hidden", "hidden_not_allowed")]

@@ -143,6 +143,7 @@
     "target_error": "overgeneralisation",
     "secondary_errors": [],
     "error_class": "single_error",
+    "confirmation": "audit",
     "confirmed_by": "a90",
     "source_item": "G9000"
   }

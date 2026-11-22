@@ -40,7 +40,7 @@ DEV = {
     # Per pair: G9000 full text, G9001 full text, G9007 abstract.
     "evidence_text": {"abstract": 1, "full_text": 2},
     # Per item: G9000 and G9007 natural, G9001 perturbed.
-    "item_source": {"natural": 2, "perturbed": 1, "system_generated": 0},
+    "item_source": {"natural": 2, "perturbed": 1, "system_generated": 0, "public": 0},
     # Per item: G9001 negation_or_hedge; G9000 and G9007 none.
     "hard_case": {
         "abstract_vs_full_text": 0,
@@ -79,7 +79,7 @@ TEST = {
     # Per pair (8): abstract G9002, G9003-c1-s2, G9004; full text the other five.
     "evidence_text": {"abstract": 3, "full_text": 5},
     # Per item: perturbed G9006, system_generated G9003, natural the other five.
-    "item_source": {"natural": 5, "perturbed": 1, "system_generated": 1},
+    "item_source": {"natural": 5, "perturbed": 1, "system_generated": 1, "public": 0},
     # Per item: G9004 abstract_vs_full_text; the other six none.
     "hard_case": {
         "abstract_vs_full_text": 1,
