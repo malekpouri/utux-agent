@@ -81,6 +81,16 @@ author's family name.
 word to its positions; the positions must cover 0 to n - 1 exactly once each,
 or the answer is invalid.
 
+**An arXiv search** sends the query as a phrase in the title, or a phrase
+in all fields, or all its content words, sorted by relevance:
+`ti:"attention is all you need" OR all:"attention is all you need" OR
+(all:attention AND all:need)`. Words are lowercased so that none is read as
+`AND`, `OR` or `ANDNOT`, and stop words and field prefixes such as `all` are
+left out of the word clause, where they would match nothing. The syntax is
+that of the [arXiv API user manual](https://info.arxiv.org/help/api/user-manual.html),
+section 5.1 (fields, Boolean operators, quotes, parentheses) and section
+3.1.1.3 (`sortBy`); the manual says nothing about stop words.
+
 **An arXiv feed** that holds a document type or an entity declaration is
 refused before it is parsed, so no entity is ever expanded.
 
