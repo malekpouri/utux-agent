@@ -59,7 +59,7 @@ Task M2-05. Both use the standard library's HTTP, with `utux.sources.http.HttpCl
 a user agent that names utux and its version, one request at a time, a
 minimum interval between requests, at most three attempts for a `429`, a
 `5xx` or a network failure (waiting for `Retry-After` when given, never more
-than 60 seconds), and answers of at most 10 MB. Neither uses a key.
+than 60 seconds), and answers of at most 10 MB. Both are keyless by default.
 
 | | `OpenAlexSource` | `ArxivSource` |
 | --- | --- | --- |
@@ -69,7 +69,8 @@ than 60 seconds), and answers of at most 10 MB. Neither uses a key.
 | `source_version` | `index_abstract` | `preprint` |
 | `extraction_method` | `openalex_inverted_index` | `arxiv_api_atom` |
 | Licence | the open-access location's licence, if given | not given by the API |
-| Contact email | sent as `mailto` when `literature.contact_email` is set | never sent |
+| Contact email | never sent: OpenAlex's current documentation does not say it helps | never sent |
+| Key | none by default; with `OPENALEX_API_KEY` set, sent only as `Authorization: Bearer`, and requests may go 30 a second | none |
 
 **Authors.** Both services give each author as one name. The last word is
 taken as the family name and the rest as the given name, a rule that is

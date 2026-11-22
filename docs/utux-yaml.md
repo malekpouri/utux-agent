@@ -44,7 +44,7 @@ These three values are required. Everything else has a default.
 | `models.tiers` | mapping of `light`, `standard`, `strong` to a model id | empty | Model for each tier. What is not set comes from the profile |
 | `models.roles` | mapping of role name to tier | empty | Tier for each agent role |
 | `workflow.retry_cap` | integer, 0 or more | `2` | How many times a run may be routed back to one stage before it pauses and asks; the same cap for every loop. See [How a run works](run.md) |
-| `literature.contact_email` | an email address, or null | null | The address some literature APIs ask for, sent to OpenAlex as `mailto` only when set. utux never requires it. See [The data policy](data-policy.md) |
+| `literature.contact_email` | an email address, or null | null | The address some literature APIs ask for. utux never requires it, and sends it only to a service whose current documentation says it helps; OpenAlex and arXiv get it never. An API key is never read from `utux.yaml`. See [The data policy](data-policy.md) |
 
 Names (`profile`, `domain_pack`, role names) are lower-case letters, digits,
 `-` and `_`, starting with a letter.

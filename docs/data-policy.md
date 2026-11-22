@@ -30,10 +30,12 @@ project.
 
 ## What is never sent
 
-- No literature request carries an `Authorization` header or a key: utux
-  uses no key for OpenAlex or arXiv.
-- The only personal value ever sent to a literature service is the optional
-  contact email of `literature.contact_email`, and only when it is set (rule 8
-  of [the M2 plan](plan/M2.md)). It goes to OpenAlex as `mailto`, and nowhere
-  else.
+- No literature request carries a key unless the user set the environment
+  variable `OPENALEX_API_KEY`. Then the key goes only to OpenAlex, and only
+  as an `Authorization: Bearer` header, never in a URL. It is never read from
+  `utux.yaml`, and it never appears in an event, a cache key, a trace, a log
+  or an error. Keyless is the default.
+- The contact email of `literature.contact_email` is sent only to a service
+  whose current documentation says it helps (rule 8 of
+  [the M2 plan](plan/M2.md)). OpenAlex and arXiv never get it.
 - Source text is never sent to a literature service.
