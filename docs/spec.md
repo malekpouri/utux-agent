@@ -260,7 +260,7 @@ my-project/
   idea.md                   # [later]
   literature.md             # [later]
   references.bib            # [later]
-  sources/                  # [init]  one file per source: metadata, passages, URL, licence, retrieval date
+  sources/                  # [init]  per source: a record (metadata, URL, licence, retrieval date) and its stored text; passages are computed
   method.md                 # [later]
   code/                     # [init]
   runs/                     # [init]
