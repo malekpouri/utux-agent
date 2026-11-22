@@ -314,3 +314,23 @@ class SourceStoreError(UtuxError):
 
 class CacheError(UtuxError):
     """The cache cannot be used as asked: a key in the data, or a held lock."""
+
+
+class LiteratureSourceError(UtuxError):
+    """A literature source failed a call (ADR-0017)."""
+
+
+class LiteratureUnavailableError(LiteratureSourceError):
+    """The source could not be reached, or its server failed. Retryable."""
+
+
+class LiteratureRateLimitError(LiteratureSourceError):
+    """The source refused the call because of a rate limit. Retryable later."""
+
+
+class LiteratureNotFoundError(LiteratureSourceError):
+    """The source has no work with the identifier."""
+
+
+class LiteratureInvalidResponseError(LiteratureSourceError):
+    """The source's answer cannot be turned into a valid result."""
