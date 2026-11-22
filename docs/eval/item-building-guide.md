@@ -1,6 +1,6 @@
 # Building gold items
 
-Version 0.1, draft. Save as `docs/eval/item-building-guide.md`.
+Version 0.2, draft. Save as `docs/eval/item-building-guide.md`.
 
 This guide is for the **item builder**: the person who chooses the citing
 sentences and sources, stores the source text, and writes the perturbed
@@ -128,7 +128,7 @@ original sentence and its citation points to another source record.
 
 Hard cases are chosen, not made: they are natural or perturbed items that
 fall into one of the seven groups of RFC-002 section 3. Tag the group in the
-item's hidden record. Natural examples of "the abstract supports the claim,
+item's `hard_case` field, not in the hidden record. Natural examples of "the abstract supports the claim,
 the full text narrows it" and "the source states it as prior work" are
 especially valuable; look for them while choosing sentences.
 
@@ -159,3 +159,4 @@ Record the time you spend per item and per perturbation; it helps plan v1.
 | Version | Date | Change |
 | --- | --- | --- |
 | 0.1 | 2026-11-22 | First draft, from RFC-002 sections 2 and 3. |
+| 0.2 | 2026-11-22 | Section 5.3: the hard case goes in the item's `hard_case` field, not the hidden record. |
