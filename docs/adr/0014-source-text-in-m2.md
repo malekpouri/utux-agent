@@ -64,7 +64,7 @@ checked against nothing (`no_text`, RFC-001 S2; `docs/plan/M2.md`, M2-03).
   `degraded_source_text`, are not produced in M2. They stay in the schemas
   and the decision rules, tested with synthetic sources.
 
-## Acceptance
+### Acceptance, 2026-11-22
 
 Accepted by the maintainer on 2026-11-22 as written.
 

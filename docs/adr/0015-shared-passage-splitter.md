@@ -80,7 +80,7 @@ ids.
   system, so they do not bias the scores, and each is fixed in a new
   version.
 
-## Acceptance
+### Acceptance, 2026-11-22
 
 Accepted by the maintainer on 2026-11-22 as written. In M2-02, offsets are
 Unicode code points everywhere, and the offline annotation page converts

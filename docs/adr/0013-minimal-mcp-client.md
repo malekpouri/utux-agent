@@ -78,7 +78,7 @@ is marked unavailable for the run.
 - Every tool call writes a `tool_call` event with the hashes of its arguments
   and result, and a failure marks the tool unavailable for the run.
 
-## Acceptance
+### Acceptance, 2026-11-22
 
 Accepted by the maintainer on 2026-11-22, with two additions now in the
 decision: paths and hosts of a server outside a container are shown and

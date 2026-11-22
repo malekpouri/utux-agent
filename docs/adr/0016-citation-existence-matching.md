@@ -79,7 +79,7 @@ these rules.
   happens.
 - Section 8 of the specification states these rules.
 
-## Acceptance
+### Acceptance, 2026-11-22
 
 Accepted by the maintainer on 2026-11-22, with the edit-distance similarity
 of rule 2. Section 8 of the specification is changed to match.
