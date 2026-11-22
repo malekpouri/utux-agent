@@ -119,7 +119,9 @@ def test_a_rationale_sentence_the_splitter_cuts_gives_one_span_per_passage(
 ) -> None:
     # passages@1 ends a sentence after an initial ("J. Doe"), unlike SciFact.
     abstract = ["Work by J. Doe used synthetic drug C.", "It failed."]
-    root = _scifact(tmp_path, [_claim(12, {"104": [{"sentences": [0], "label": "SUPPORT"}]}, [104])])
+    root = _scifact(
+        tmp_path, [_claim(12, {"104": [{"sentences": [0], "label": "SUPPORT"}]}, [104])]
+    )
     _jsonl(
         root / "data" / "corpus.jsonl",
         [{"doc_id": 104, "title": "Synthetic D", "abstract": abstract, "structured": False}],
@@ -135,7 +137,9 @@ def test_a_rationale_sentence_the_splitter_cuts_gives_one_span_per_passage(
 
 
 def test_scifact_contradict_maps_to_contradicts_and_contradicted(tmp_path: Path) -> None:
-    root = _scifact(tmp_path, [_claim(2, {"102": [{"sentences": [1], "label": "CONTRADICT"}]}, [102])])
+    root = _scifact(
+        tmp_path, [_claim(2, {"102": [{"sentences": [1], "label": "CONTRADICT"}]}, [102])]
+    )
     item = _one(root, PublicDataset.SCIFACT)
     assert item.claim.status is GoldStatus.CONTRADICTED
     assert [p.agreement_label for p in item.claim.pairs] == [SourceLabel.CONTRADICTS]
@@ -168,8 +172,14 @@ def test_a_cited_source_without_evidence_is_a_neutral_pair_beside_the_support(
 @pytest.mark.parametrize(
     ("claim", "reason"),
     [
-        (_claim(5, {"109": [{"sentences": [0], "label": "SUPPORT"}]}, [109]), "source_not_in_corpus"),
-        (_claim(6, {"101": [{"sentences": [7], "label": "SUPPORT"}]}, [101]), "rationale_sentence_missing"),
+        (
+            _claim(5, {"109": [{"sentences": [0], "label": "SUPPORT"}]}, [109]),
+            "source_not_in_corpus",
+        ),
+        (
+            _claim(6, {"101": [{"sentences": [7], "label": "SUPPORT"}]}, [101]),
+            "rationale_sentence_missing",
+        ),
         (
             _claim(
                 7,
@@ -184,7 +194,12 @@ def test_a_cited_source_without_evidence_is_a_neutral_pair_beside_the_support(
         (
             _claim(
                 8,
-                {"101": [{"sentences": [1], "label": "SUPPORT"}, {"sentences": [2], "label": "CONTRADICT"}]},
+                {
+                    "101": [
+                        {"sentences": [1], "label": "SUPPORT"},
+                        {"sentences": [2], "label": "CONTRADICT"},
+                    ]
+                },
                 [101],
             ),
             "mixed_labels_in_source",
@@ -215,7 +230,7 @@ def test_scifact_uses_train_and_dev_and_never_opens_the_test_split(tmp_path: Pat
 def test_scifact_without_a_labelled_file_is_refused(tmp_path: Path) -> None:
     root = _scifact(tmp_path, [])
     (root / "data" / "claims_dev.jsonl").unlink()
-    with pytest.raises(GoldSetError, match="claims_dev.jsonl"):
+    with pytest.raises(GoldSetError, match=r"claims_dev\.jsonl"):
         import_public(PublicDataset.SCIFACT, root)
 
 
@@ -301,7 +316,9 @@ def test_a_refuted_table_claim_maps_to_contradicts_and_contradicted_on_modified_
     tmp_path: Path,
 ) -> None:
     root = _sciclaimeval(
-        tmp_path, [_sample("val_tab_0002", label="Refuted", domain="peerj")], {"val_tab_0002": TABLE}
+        tmp_path,
+        [_sample("val_tab_0002", label="Refuted", domain="peerj")],
+        {"val_tab_0002": TABLE},
     )
     item = _one(root, PublicDataset.SCICLAIMEVAL)
     assert item.claim.status is GoldStatus.CONTRADICTED
@@ -417,3 +434,28 @@ def test_an_item_whose_hash_or_spans_do_not_fit_its_text_is_invalid(tmp_path: Pa
     wrong_status["claim"]["status"] = "contradicted"
     with pytest.raises(ContractValidationError, match="status"):
         PublicItem.validate_document(wrong_status, "synthetic")
+
+
+# Fixtures -------------------------------------------------------------------------
+
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "public_item"
+
+
+@pytest.mark.parametrize("path", sorted((FIXTURES / "valid").glob("*.json")), ids=lambda p: p.name)
+def test_valid_fixtures_validate_and_round_trip(path: Path) -> None:
+    item = PublicItem.from_json(path.read_text(encoding="utf-8"), path.name)
+    assert item.to_json() == path.read_text(encoding="utf-8")
+    assert PublicItem.from_json(item.to_json_line()) == item
+
+
+@pytest.mark.parametrize(
+    ("name", "code"),
+    [
+        ("synthetic_status_not_from_labels.json", "status_mismatch"),
+        ("synthetic_label_not_mapped.json", "label_not_mapped"),
+    ],
+)
+def test_invalid_fixtures_are_refused_with_their_code(name: str, code: str) -> None:
+    with pytest.raises(ContractValidationError) as refused:
+        PublicItem.from_json((FIXTURES / "invalid" / name).read_text(encoding="utf-8"), name)
+    assert [problem.code for problem in refused.value.problems] == [code]
