@@ -10,6 +10,14 @@ import json
 from pathlib import Path
 
 from utux.errors import AtomicWriteError, SchemaExportError
+from utux.evalkit.annotation import (
+    Adjudication,
+    AnnotationBatch,
+    AnnotationPool,
+    ExtractionWork,
+    LabellingWork,
+    ReferenceClaims,
+)
 from utux.evalkit.gold import GoldItem
 from utux.schemas.approval import ApprovalRequest, ApprovalResponse
 from utux.schemas.artifact_metadata import ArtifactMetadata
@@ -42,6 +50,12 @@ CONTRACTS: dict[str, type[ContractDocument]] = {
     "source_record": SourceRecord,
     "gold_item": GoldItem,
     "metrics": MetricsFile,
+    "annotation_pool": AnnotationPool,
+    "annotation_batch": AnnotationBatch,
+    "extraction_work": ExtractionWork,
+    "labelling_work": LabellingWork,
+    "adjudication": Adjudication,
+    "reference_claims": ReferenceClaims,
 }
 """Every file contract, by the name used for its schema file."""
 

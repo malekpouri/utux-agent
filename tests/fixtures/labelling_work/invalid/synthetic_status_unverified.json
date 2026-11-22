@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "phase": "labelling",
+  "batch_id": "b02",
+  "batch_hash": "sha256:6293bb09598e0c4f90aebc04842e4ad8f555a0a7d3800e7da88f01a03e8a726c",
+  "annotator": "a03",
+  "items": [
+    {
+      "item_id": "G0001",
+      "claims": [
+        {
+          "claim_id": "G0001-c1",
+          "status": "unverified",
+          "expert_would_review": false,
+          "note": null,
+          "pairs": [
+            {
+              "source_id": "doi:10.0000/synthetic",
+              "evidence_spans": [
+                {
+                  "passage_id": "p2",
+                  "offsets": [
+                    20,
+                    43
+                  ]
+                }
+              ],
+              "agreement_label": "entails",
+              "scope_flags": [],
+              "note": null
+            }
+          ]
+        },
+        {
+          "claim_id": "G0001-c2",
+          "status": "insufficient_evidence",
+          "expert_would_review": false,
+          "note": null,
+          "pairs": []
+        }
+      ],
+      "flag": null,
+      "minutes": null
+    }
+  ]
+}

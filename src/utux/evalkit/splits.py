@@ -217,18 +217,27 @@ def split_report(items: Sequence[GoldItem]) -> SplitReport:
     that the two splits can be compared line by line.
 
     Raises:
-        GoldSetError: There are no items.
+        GoldSetError: There are no items, or an item has no split yet; set
+            the splits first (`utux.evalkit.annotation.with_splits`).
     """
     if not items:
         raise GoldSetError("the release has no items to report on")
+    unset = [item.item_id for item in items if item.split is None]
+    if unset:
+        raise GoldSetError(
+            f"{len(unset)} items have no split yet, the first {unset[0]}; set the splits "
+            "first, from assign_splits"
+        )
     counts: dict[GoldSplit, dict[str, dict[str, int]]] = {
         split: {key: dict.fromkeys(values, 0) for key, _, _, values, _ in _STRATA}
         for split in GoldSplit
     }
     sizes = dict.fromkeys(GoldSplit, 0)
     for item in items:
-        sizes[item.split] += 1
+        split = item.split
+        assert split is not None
+        sizes[split] += 1
         for key, _, _, _, values_of in _STRATA:
             for value in values_of(item):
-                counts[item.split][key][value] += 1
+                counts[split][key][value] += 1
     return SplitReport(sizes, counts)

@@ -266,6 +266,7 @@ indentation.
               79
             ],
             "text": "Method Alpha reduces classification error compared with Method Beta on SynthImg.",
+            "kind": "finding",
             "citations": [
               "synthetic:alpha-2026"
             ]
@@ -276,6 +277,7 @@ indentation.
               121
             ],
             "text": "Method Alpha is twice as fast as Method Beta at inference.",
+            "kind": "quantitative",
             "citations": [
               "synthetic:alpha-2026"
             ]
@@ -288,6 +290,7 @@ indentation.
               121
             ],
             "text": "Method Alpha reduces classification error compared with Method Beta on SynthImg and is twice as fast at inference.",
+            "kind": "finding",
             "citations": [
               "synthetic:alpha-2026"
             ]

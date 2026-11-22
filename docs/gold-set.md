@@ -1,7 +1,9 @@
 # Gold items, releases and the split
 
 `utux.evalkit` holds the tooling around the gold-standard set of RFC-002. It
-reads and checks gold items and splits a release into `dev` and `test`. It
+reads and checks gold items and splits a release into `dev` and `test`. The
+tooling for annotators and the adjudicator, from batches to merged gold
+items, is in [Annotation tooling](annotation-tooling.md). It
 never creates, infers or changes a reference label: those are made by people
 only (RFC-002, section 5).
 
@@ -18,7 +20,7 @@ same reference claims. Each annotator's own entries are kept at every level.
 | `schema_version` | `1` |
 | `item_id` | `G` and at least four digits, for example `G0412` |
 | `gold_version` | the release, `major.minor`, for example `1.0` |
-| `split` | `dev` or `test` |
+| `split` | `dev` or `test`, or null until the release is frozen; `check_release` requires one (`split_not_set`) |
 | `domain` | `ml` or `biomedicine` |
 | `origin` | `natural`, `perturbed` or `system_generated` |
 | `hard_case` | null, or one of `abstract_vs_full_text`, `number_wrong_context`, `conflict_within_source`, `true_but_not_in_source`, `attributed_prior_work`, `heavy_paraphrase`, `negation_or_hedge` (RFC-002, section 3) |
@@ -73,7 +75,8 @@ none), `agreement_label` (the four agreement labels or `conflicting`),
   adjudicated (`adjudicator_required`), and null otherwise
   (`adjudicator_not_allowed`).
 - `claim_extraction`: `raw`, each annotator's own list of claims (`span`,
-  within the text unit; `text`; and `citations`, the distinct source ids the
+  within the text unit; `text`; `kind`, the annotator's kind of the claim;
+  and `citations`, the distinct source ids the
   claim relies on, empty for a claim that cites no source; repeated:
   `duplicate_citation`), `adjudicated` and
   `adjudication_reason`.
@@ -92,8 +95,8 @@ pair):
   extraction, the reference claims are then the agreed list.
 
 Claim lists, evidence spans and scope flags are compared as sets, so their
-order does not matter. Two listed claims are the same when span, text and
-citations (as a set) are the same; a reference claim's citations are the
+order does not matter. Two listed claims are the same when span, text, kind
+and citations (as a set) are the same; a reference claim's citations are the
 sources of its pairs. Notes are not compared. Every level with `adjudicated`
 true has an `adjudication_reason` (`adjudication_reason_required`), and every
 other level has none (`adjudication_reason_not_allowed`).
@@ -135,6 +138,7 @@ with the id of the item to change:
 | --- | --- |
 | Item ids are unique | `duplicate_item_id` |
 | Every item has the version of the first item | `gold_version_mismatch` |
+| Every item has a split; the split rules below hold among items that have one | `split_not_set` |
 | A perturbed item's origin is in the release | `unknown_source_item` |
 | The origin is a natural item | `source_item_not_natural` |
 | A perturbed item is in the split of its origin | `split_differs_from_origin` |

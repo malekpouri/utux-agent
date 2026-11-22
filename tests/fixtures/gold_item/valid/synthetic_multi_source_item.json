@@ -200,6 +200,7 @@
               78
             ],
             "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9003.",
+            "kind": "finding",
             "citations": [
               "synthetic:sg-synthetic-c-paper",
               "synthetic:sg-synthetic-d-paper"
@@ -211,6 +212,7 @@
               113
             ],
             "text": "Synthetic method B is slower.",
+            "kind": "finding",
             "citations": [
               "synthetic:sg-synthetic-c-paper"
             ]
@@ -223,6 +225,7 @@
               78
             ],
             "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9003.",
+            "kind": "finding",
             "citations": [
               "synthetic:sg-synthetic-c-paper",
               "synthetic:sg-synthetic-d-paper"
@@ -234,6 +237,7 @@
               113
             ],
             "text": "Synthetic method B is slower.",
+            "kind": "finding",
             "citations": [
               "synthetic:sg-synthetic-c-paper"
             ]

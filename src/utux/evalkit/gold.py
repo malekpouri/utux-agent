@@ -333,12 +333,14 @@ class GoldClaim(ContractPart):
 class ExtractedClaim(ContractPart):
     """A claim as one annotator listed it at claim extraction.
 
+    `kind` is the annotator's kind of the claim (guideline section 4.4).
     `citations` are the source ids the claim relies on (guideline section
     4.1); empty for a claim that cites no source.
     """
 
     span: tuple[Count, Count]
     text: NonEmptyText
+    kind: ClaimKind
     citations: tuple[NonEmptyText, ...]
 
     @field_validator("span")
@@ -360,12 +362,12 @@ def _citations(claim: ExtractedClaim | GoldClaim) -> frozenset[str]:
 
 def _claim_set(
     claims: Sequence[ExtractedClaim | GoldClaim],
-) -> frozenset[tuple[object, str, frozenset[str]]]:
-    """What is compared between claim lists: span, text and citations as a set.
+) -> frozenset[tuple[object, str, ClaimKind, frozenset[str]]]:
+    """What is compared between claim lists: span, text, kind and citations as a set.
 
     A reference claim's citations are the sources of its pairs.
     """
-    return frozenset((claim.span, claim.text, _citations(claim)) for claim in claims)
+    return frozenset((claim.span, claim.text, claim.kind, _citations(claim)) for claim in claims)
 
 
 class ClaimExtraction(ContractPart):
@@ -487,7 +489,8 @@ class GoldItem(ContractDocument):
     Attributes:
         item_id: Id of the item, unique within a release.
         gold_version: The release, `major.minor`.
-        split: `dev` or `test`.
+        split: `dev` or `test`; null until the release is frozen, when
+            `check_release` requires one (`split_not_set`).
         domain: `ml` or `biomedicine`.
         origin: `natural`, `perturbed` or `system_generated`.
         hard_case: The hard-case group of RFC-002, section 3, or null.
@@ -504,7 +507,7 @@ class GoldItem(ContractDocument):
 
     item_id: ItemId
     gold_version: GoldVersion
-    split: GoldSplit
+    split: GoldSplit | None
     domain: Domain
     origin: Origin
     hard_case: HardCase | None
@@ -857,6 +860,8 @@ def check_release(items: Sequence[GoldItem]) -> ReleaseCheck:
     - A perturbed item's origin is in the release, is a natural item, and is
       in the same split (RFC-002, section 6).
     - A source has one source group and one text hash throughout.
+    - Every item has a split (`split_not_set`); the split rules are checked
+      among the items that have one.
     - No source group is in both splits. Each such group is reported once,
       on the first pair, in release order, whose item is in another split
       than the first item of the group.
@@ -871,7 +876,15 @@ def check_release(items: Sequence[GoldItem]) -> ReleaseCheck:
     Returns:
         The problems and the departures; each is empty when there are none.
     """
-    problems: list[Problem] = []
+    problems: list[Problem] = [
+        Problem(
+            f"{item.item_id}.split",
+            "the item has no split yet; a frozen release has dev or test for every item",
+            "split_not_set",
+        )
+        for item in items
+        if item.split is None
+    ]
     by_id: dict[str, GoldItem] = {}
     for item in items:
         if item.item_id in by_id:
@@ -921,7 +934,7 @@ def _origin_problems(items: Sequence[GoldItem], by_id: dict[str, GoldItem]) -> l
                     "source_item_not_natural",
                 )
             )
-        elif origin.split is not item.split:
+        elif origin.split is not None and item.split is not None and origin.split is not item.split:
             problems.append(
                 Problem(
                     f"{item.item_id}.split",
@@ -969,6 +982,8 @@ def _group_problems(items: Sequence[GoldItem]) -> list[Problem]:
     split_of_group: dict[str, GoldSplit] = {}
     reported: set[str] = set()
     for item in items:
+        if item.split is None:
+            continue
         for claim, index, pair in item.pairs():
             group = pair.source_group
             split = split_of_group.setdefault(group, item.split)

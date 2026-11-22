@@ -136,6 +136,7 @@
               78
             ],
             "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9002.",
+            "kind": "finding",
             "citations": [
               "synthetic:sg-synthetic-c-paper"
             ]
@@ -146,6 +147,7 @@
               110
             ],
             "text": "Synthetic method C is new.",
+            "kind": "finding",
             "citations": []
           }
         ],
@@ -156,6 +158,7 @@
               78
             ],
             "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9002.",
+            "kind": "finding",
             "citations": [
               "synthetic:sg-synthetic-c-paper"
             ]
@@ -166,6 +169,7 @@
               110
             ],
             "text": "Synthetic method C is new.",
+            "kind": "finding",
             "citations": []
           }
         ]

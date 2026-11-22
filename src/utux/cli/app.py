@@ -10,6 +10,7 @@ import typer
 
 from utux import __version__
 from utux.budget.accounting import CostReport, CostTotals, project_cost_report, remaining, usd
+from utux.cli.gold import gold_app
 from utux.core.approvals import answer_approval
 from utux.core.services import services_for_run
 from utux.core.status import ProjectStatus, RunState, project_status
@@ -37,6 +38,7 @@ app = typer.Typer(
     help="utux Agent: reliable computational research, from idea to reviewed manuscript.",
     add_completion=False,
 )
+app.add_typer(gold_app, name="gold")
 
 
 def _print_version(value: bool) -> None:

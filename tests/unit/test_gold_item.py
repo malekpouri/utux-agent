@@ -498,3 +498,25 @@ def test_citations_are_compared_as_sets() -> None:
     _annotation(document)["claim_extraction"]["raw"]["a92"][0]["citations"].reverse()
     item = GoldItem.validate_document(document, "item.json")
     assert item.annotation.claim_extraction.adjudicated is False
+
+
+# PR #48 review: the split may wait for the freeze, and each annotator's kind is kept
+
+
+def test_an_item_may_have_no_split_until_the_release_is_frozen() -> None:
+    document = _document("synthetic_natural_item.json")
+    document["split"] = None
+    assert GoldItem.validate_document(document, "item.json").split is None
+
+
+def test_a_listed_claim_has_the_annotators_kind() -> None:
+    document = _document("synthetic_natural_item.json")
+    del _annotation(document)["claim_extraction"]["raw"]["a91"][0]["kind"]
+    assert ("annotation.claim_extraction.raw.a91.0.kind", "missing") in _problems(document)
+
+
+def test_a_kind_both_annotators_gave_is_the_reference_kind_unless_adjudicated() -> None:
+    document = _document("synthetic_natural_item.json")
+    for listed in _annotation(document)["claim_extraction"]["raw"].values():
+        listed[0]["kind"] = "background"
+    assert ("claims", "differs_from_raw") in _problems(document)

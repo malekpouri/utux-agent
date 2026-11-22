@@ -51,6 +51,7 @@
               78
             ],
             "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9001.",
+            "kind": "finding",
             "citations": []
           }
         ],
@@ -61,6 +62,7 @@
               78
             ],
             "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9001.",
+            "kind": "finding",
             "citations": []
           },
           {
@@ -69,6 +71,7 @@
               18
             ],
             "text": "Synthetic method A.",
+            "kind": "finding",
             "citations": []
           }
         ]

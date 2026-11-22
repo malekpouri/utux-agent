@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "phase": "labelling",
+  "adjudicator": "a01",
+  "extraction": [],
+  "claims": [
+    {
+      "claim_id": "G0001-c1",
+      "status": "partially_supported",
+      "expert_would_review": true,
+      "reason": ""
+    }
+  ],
+  "pairs": [
+    {
+      "pair_id": "G0001-c1-s1",
+      "evidence_spans": [
+        {
+          "passage_id": "p2",
+          "offsets": [
+            20,
+            43
+          ]
+        }
+      ],
+      "agreement_label": "partial",
+      "scope_flags": [],
+      "reason": "Synthetic reason."
+    }
+  ],
+  "ambiguous": [
+    "G0001-c2"
+  ]
+}
