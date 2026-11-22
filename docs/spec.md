@@ -279,6 +279,7 @@ my-project/
   .utux/checkpoints.sqlite  # [later]
   .utux/lock                # [later] the project lock, held by a command that writes to the project
   .utux/staging/            # [later] the staging area of a stage that has not finished
+  .utux/traces/             # [later] raw text of model answers that were not valid; kept out of git
   reproduce.sh              # [later]
 ```
 
