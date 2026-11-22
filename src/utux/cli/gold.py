@@ -33,6 +33,7 @@ from utux.evalkit.annotation import (
     write_annotation_page,
 )
 from utux.evalkit.gold import check_release
+from utux.evalkit.public import PublicDataset, import_public, summarize, write_public_items
 from utux.evalkit.splits import assign_splits, split_report
 from utux.workspace.atomic import atomic_write_text
 from utux.workspace.hashing import hash_file
@@ -340,3 +341,23 @@ def freeze(
         f"Release {frozen[0].gold_version if frozen else ''}, content hash {hash_file(out)}. "
         "Record the version, this hash and a changelog with the release."
     )
+
+
+@gold_app.command("import-public")
+def import_public_dataset(
+    dataset: Annotated[PublicDataset, typer.Argument(help="scifact or sciclaimeval.")],
+    directory: Annotated[
+        Path, typer.Argument(help="The downloaded release, outside the repository.")
+    ],
+    out: Annotated[
+        Path, typer.Option("--out", help="The items file to write, outside any git work tree.")
+    ],
+) -> None:
+    """Map a public dataset into gold v0 items and print the counts, never an item."""
+    try:
+        result = import_public(dataset, directory)
+        write_public_items(out, result.items)
+    except UtuxError as error:
+        raise _fail(error) from error
+    typer.echo(f"Wrote {_count(len(result.items), 'item')} to {out}")
+    typer.echo(json.dumps(summarize(result), indent=2, sort_keys=True))
