@@ -32,6 +32,50 @@ MIN_INTERVAL_SECONDS = 3.0
 _ATOM = "{http://www.w3.org/2005/Atom}"
 _ARXIV = "{http://arxiv.org/schemas/atom}"
 _WORD = re.compile(r"[A-Za-z0-9]+")
+_FIELD_PREFIXES = frozenset({"ti", "au", "abs", "co", "jr", "cat", "rn", "id", "all"})
+"""The field prefixes of the arXiv API user manual, section 5.1."""
+_OPERATORS = frozenset({"and", "or", "andnot"})
+_STOP_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "but",
+        "by",
+        "can",
+        "for",
+        "from",
+        "has",
+        "have",
+        "in",
+        "into",
+        "is",
+        "it",
+        "its",
+        "no",
+        "not",
+        "of",
+        "on",
+        "or",
+        "our",
+        "that",
+        "the",
+        "their",
+        "this",
+        "to",
+        "was",
+        "we",
+        "were",
+        "with",
+        "you",
+        "your",
+    }
+)
+"""Common English words left out of the word clause; they stay in the phrase."""
 _VERSION = re.compile(r"v[0-9]+$")
 
 
@@ -124,13 +168,36 @@ class ArxivSource:
         return entries[0]
 
     def search(self, query: str, limit: int) -> tuple[WorkMetadata, ...]:
-        """Works whose fields hold every word of the query, by arXiv's relevance."""
+        """Works for a query, by arXiv's relevance.
+
+        The query is searched as a phrase in the title and in all fields, or
+        as all of its content words (arXiv API user manual, section 5.1:
+        quotes make a phrase, `OR` and parentheses combine clauses). Words
+        are lowercased, so none is read as the operator `AND`, `OR` or
+        `ANDNOT`; field prefixes such as `all` and common stop words are left
+        out of the word clause, where they would match nothing.
+        """
         check_search(query, limit)
-        words = _WORD.findall(query)
+        words = [word.lower() for word in _WORD.findall(query)]
         if not words:
             raise ValueError("the query has no word to search for")
-        search = " AND ".join(f"all:{word}" for word in words)
-        entries = self._entries({"search_query": search, "start": 0, "max_results": limit})
+        phrase = " ".join(words)
+        clauses = [f'ti:"{phrase}"', f'all:"{phrase}"']
+        content = [
+            word
+            for word in dict.fromkeys(words)
+            if word not in _STOP_WORDS | _FIELD_PREFIXES | _OPERATORS
+        ]
+        if content:
+            clauses.append("(" + " AND ".join(f"all:{word}" for word in content) + ")")
+        params: dict[str, str | int] = {
+            "search_query": " OR ".join(clauses),
+            "sortBy": "relevance",
+            "sortOrder": "descending",
+            "start": 0,
+            "max_results": limit,
+        }
+        entries = self._entries(params)
         return tuple(self._metadata(entry, None) for entry in entries[:limit])
 
     def resolve(self, identifier: str) -> WorkMetadata:
