@@ -12,5 +12,10 @@
   "extraction_method": "publisher_xml",
   "extraction_tool_version": "synthetic-extractor 1.2.0",
   "extraction_quality": "clean",
-  "title": "A synthetic title"
+  "abstract_text": "Synthetic.",
+  "storage_permitted": true,
+  "title": "A synthetic study",
+  "authors": [],
+  "year": 2024,
+  "venue": null
 }

@@ -39,6 +39,11 @@ FIELDS = [
     "extraction_method",
     "extraction_tool_version",
     "extraction_quality",
+    "storage_permitted",
+    "title",
+    "authors",
+    "year",
+    "venue",
 ]
 
 # One row per invalid fixture: file name, the field the error must name, and
@@ -46,7 +51,7 @@ FIELDS = [
 INVALID: list[Row] = [
     ("missing_licence.json", "licence", "missing"),
     ("missing_text_hash.json", "text_hash", "missing"),
-    ("unknown_key.json", "title", "unknown_key"),
+    ("unknown_key.json", "abstract_text", "unknown_key"),
     ("unknown_redistribution.json", "redistribution", "enum"),
     ("unknown_source_version.json", "source_version", "enum"),
     ("unknown_stored_text.json", "stored_text", "enum"),
@@ -192,3 +197,48 @@ def test_abstract_from_an_index_may_store_the_abstract_or_nothing(stored: str | 
 def test_other_versions_may_store_either_text(version: str, stored: str) -> None:
     document = _record(source_version=version, stored_text=stored)
     assert SourceRecord.from_json(json.dumps(document)).source_version.value == version
+
+
+# M2-03: storage permission and bibliographic metadata
+
+
+def test_a_source_whose_licence_forbids_storage_holds_no_text() -> None:
+    document = _record(storage_permitted=False)
+    assert ("stored_text", "text_not_permitted") in problems(SourceRecord, document)
+    metadata_only = _record(
+        storage_permitted=False,
+        stored_text=None,
+        text_hash=None,
+        extraction_method=None,
+        extraction_tool_version=None,
+        extraction_quality=None,
+    )
+    assert SourceRecord.validate_document(metadata_only, "record").stored_text is None
+
+
+def test_the_bibliographic_metadata_is_read() -> None:
+    record = load_source_record(valid_paths(CONTRACT)[1])
+    assert record.title == "A synthetic study of method A"
+    assert [(a.family, a.given) for a in record.authors] == [("Doe", "Jane"), ("Roe", None)]
+    assert (record.year, record.venue) == (2024, "Synthetic Journal")
+
+
+@pytest.mark.parametrize(
+    ("changes", "field"),
+    [
+        ({"year": 999}, "year"),
+        ({"year": "2024"}, "year"),
+        ({"title": ""}, "title"),
+        ({"authors": [{"family": ""}]}, "authors.0.family"),
+        ({"authors": [{"family": "Doe", "given": "J", "orcid": "x"}]}, "authors.0.orcid"),
+    ],
+)
+def test_bibliographic_fields_are_checked(changes: dict[str, Any], field: str) -> None:
+    assert field in [name for name, _ in problems(SourceRecord, _record(**changes))]
+
+
+def test_unknown_metadata_may_be_null_or_empty() -> None:
+    record = SourceRecord.validate_document(
+        _record(title=None, authors=[], year=None, venue=None), "record"
+    )
+    assert (record.title, record.authors, record.year, record.venue) == (None, (), None, None)

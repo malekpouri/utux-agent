@@ -11,5 +11,10 @@
   "text_hash": null,
   "extraction_method": null,
   "extraction_tool_version": null,
-  "extraction_quality": null
+  "extraction_quality": null,
+  "storage_permitted": false,
+  "title": null,
+  "authors": [],
+  "year": null,
+  "venue": null
 }
