@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from utux.sources.passages import split_passages
 
 from utux.errors import ContractValidationError, GoldSetError
 from utux.evalkit.annotation import (
@@ -21,6 +22,7 @@ from utux.evalkit.annotation import (
     AnnotationPool,
     ExtractionWork,
     LabellingWork,
+    Passage,
     Phase,
     ReferenceClaims,
     export_batch,
@@ -35,9 +37,12 @@ from utux.evalkit.annotation import (
     write_annotation_page,
 )
 from utux.evalkit.gold import GoldItem, GoldSplit, check_release
+from utux.schemas.claim_ledger import CheckedText
 
 TEXT = "Method A outperforms method B on dataset X [1]. Method A is fast."
 SOURCE_TEXT = "We compare A and B. A beats B on dataset X. A is slow."
+# The passages come from the shared splitter (M2-02, ADR-0015).
+P1, P2, P3 = (p.passage_id for p in split_passages(SOURCE_TEXT, CheckedText.ABSTRACT))
 
 
 def _pool(**item: Any) -> AnnotationPool:
@@ -54,11 +59,6 @@ def _pool(**item: Any) -> AnnotationPool:
                 "checked_text": "abstract",
                 "extraction_quality": "clean",
                 "text": SOURCE_TEXT,
-                "passages": [
-                    {"passage_id": "p1", "offsets": [0, 19]},
-                    {"passage_id": "p2", "offsets": [20, 43]},
-                    {"passage_id": "p3", "offsets": [44, 54]},
-                ],
             }
         ],
     }
@@ -115,7 +115,7 @@ def _references(
 
 PAIR = {
     "source_id": "doi:10.0000/synthetic",
-    "evidence_spans": [{"passage_id": "p2", "offsets": [20, 43]}],
+    "evidence_spans": [{"passage_id": P2, "offsets": [20, 43]}],
     "agreement_label": "entails",
     "scope_flags": [],
     "note": None,
@@ -227,34 +227,28 @@ def test_an_annotator_id_must_be_pseudonymous() -> None:
         export_batch(_pool(), Phase.CLAIM_EXTRACTION, "alex", "b01")
 
 
-@pytest.mark.parametrize(
-    ("passages", "code"),
-    [
-        ([{"passage_id": "p1", "offsets": [0, 99]}], "span_out_of_range"),
-        (
-            [{"passage_id": "p1", "offsets": [0, 20]}, {"passage_id": "p1", "offsets": [21, 30]}],
-            "duplicate_passage",
-        ),
-        (
-            [{"passage_id": "p1", "offsets": [0, 20]}, {"passage_id": "p2", "offsets": [10, 30]}],
-            "passages_overlap",
-        ),
-    ],
-)
-def test_a_pool_source_has_distinct_passages_within_its_text(
-    passages: list[dict[str, Any]], code: str
-) -> None:
+def test_a_pools_passages_are_the_splitters() -> None:
+    (source,) = _pool().items[0].sources
+    assert source.passages == tuple(
+        Passage(passage_id=p.passage_id, offsets=p.offsets)
+        for p in split_passages(SOURCE_TEXT, CheckedText.ABSTRACT)
+    )
+    batch = export_batch(_pool(), Phase.CLAIM_EXTRACTION, "a03", "b01")
+    assert [p.passage_id for p in batch.items[0].sources[0].passages] == [P1, P2, P3]
+
+
+def test_a_pool_cannot_give_passages_of_its_own() -> None:
     source = {
         "source_id": "doi:10.0000/synthetic",
         "source_group": "sg-0001",
         "checked_text": "abstract",
         "extraction_quality": "clean",
         "text": SOURCE_TEXT,
-        "passages": passages,
+        "passages": [{"passage_id": "p1", "offsets": [0, 19]}],
     }
     with pytest.raises(ContractValidationError) as raised:
         _pool(sources=[source])
-    assert code in [p.code for p in raised.value.problems]
+    assert "extra_forbidden" in [p.code for p in raised.value.problems]
 
 
 # Import
@@ -316,11 +310,11 @@ def test_an_unknown_item_is_refused() -> None:
     [
         ({"pair": {"source_id": "doi:10.0000/other"}}, "unknown_source"),
         (
-            {"pair": {"evidence_spans": [{"passage_id": "p9", "offsets": [0, 19]}]}},
+            {"pair": {"evidence_spans": [{"passage_id": "p-unknown", "offsets": [0, 19]}]}},
             "unknown_passage",
         ),
         (
-            {"pair": {"evidence_spans": [{"passage_id": "p1", "offsets": [0, 10]}]}},
+            {"pair": {"evidence_spans": [{"passage_id": P1, "offsets": [0, 10]}]}},
             "offsets_differ",
         ),
         ({"pair": {"agreement_label": "supports"}}, "enum"),
@@ -489,7 +483,7 @@ def test_the_adjudicators_decisions_complete_the_item() -> None:
         pairs=[
             {
                 "pair_id": "G0001-c1-s1",
-                "evidence_spans": [{"passage_id": "p2", "offsets": [20, 43]}],
+                "evidence_spans": [{"passage_id": P2, "offsets": [20, 43]}],
                 "agreement_label": "partial",
                 "scope_flags": ["overgeneralisation"],
                 "reason": "Synthetic reason.",
@@ -587,7 +581,8 @@ const work = UtuxAnnotation.newWork(batch);
 const blank = JSON.parse(JSON.stringify(work));
 {fill}
 const result = UtuxAnnotation.exportWork(batch, work);
-process.stdout.write(JSON.stringify({{blank: blank, result: result}}));
+const shown = work.shown === undefined ? null : work.shown;
+process.stdout.write(JSON.stringify({{blank: blank, result: result, shown: shown}}));
 """
     done = subprocess.run(
         [_node(), "-e", script], capture_output=True, text=True, check=False, timeout=30
@@ -606,7 +601,8 @@ const item = work.items[0];
 const [c1, c2] = item.claims;
 c1.status = "verified"; c1.expert_would_review = false;
 c1.pairs[0].agreement_label = "entails";
-c1.pairs[0].evidence_spans = [{passage_id: "p2", offsets: [20, 43]}];
+c1.pairs[0].evidence_spans = [{passage_id: batch.items[0].sources[0].passages[1].passage_id,
+                                offsets: [20, 43]}];
 c2.status = "insufficient_evidence"; c2.expert_would_review = false;
 """
     output = _run_page_logic(tmp_path, batch, fill)
@@ -743,3 +739,42 @@ def test_label_agreement_is_computed_from_the_two_works_before_adjudication() ->
     assert report.evidence_spans.mean_f1 == pytest.approx(1.0)
     # Claim extraction from the raw lists of the reference claims: both listed the same two.
     assert (report.claim_extraction.first, report.claim_extraction.matched) == (2, 2)
+
+
+# Offsets are code points everywhere (M2-02, rule 16 of M2)
+
+ASTRAL = "Let \U0001d465 be large [1]. It holds."
+
+
+def test_the_page_stores_a_span_in_code_points_where_the_browser_counts_utf16(
+    tmp_path: Path,
+) -> None:
+    pool = _pool(text_unit=ASTRAL)
+    batch = export_batch(pool, Phase.CLAIM_EXTRACTION, "a03", "b01")
+    # In the browser the claim "Let x be large [1]." ends at UTF-16 unit 20;
+    # in code points it ends at 19.
+    fill = """
+const span = UtuxAnnotation.spanFromSelection(batch.items[0].text_unit, 0, 20);
+work.items[0].claims.push({span: span, text: "Let x be large.", kind: "finding",
+                           citations: ["doi:10.0000/synthetic"]});
+"""
+    output = _run_page_logic(tmp_path, batch, fill)
+    assert output["result"]["errors"] == []
+    work = read_work(batch, json.loads(output["result"]["json"]))
+    (claim,) = work.items[0].claims
+    assert claim.span == (0, 19)
+    assert ASTRAL[0:19] == "Let \U0001d465 be large [1]."
+
+
+def test_the_page_reads_passages_by_code_points(tmp_path: Path) -> None:
+    text = "Let \U0001d465 be large. Then it holds."
+    source = {**_pool().items[0].sources[0].model_dump(mode="json"), "text": text}
+    batch = export_batch(_pool(sources=[source]), Phase.CLAIM_EXTRACTION, "a03", "b01")
+    fill = """
+const source = batch.items[0].sources[0];
+work.shown = source.passages.map(function (p) {
+  return UtuxAnnotation.sliceByCodePoints(source.text, p.offsets[0], p.offsets[1]);
+});
+"""
+    output = _run_page_logic(tmp_path, batch, fill)
+    assert output["shown"] == ["Let \U0001d465 be large.", "Then it holds."]

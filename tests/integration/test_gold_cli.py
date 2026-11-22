@@ -15,6 +15,8 @@ from typer.testing import CliRunner
 
 from utux.cli import app
 from utux.evalkit.gold import read_gold_release
+from utux.schemas.claim_ledger import CheckedText
+from utux.sources.passages import split_passages
 from utux.workspace.hashing import hash_file
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
@@ -74,10 +76,17 @@ def _work(batch: dict[str, Any], items: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _passage_id(index: int) -> str:
+    """A passage id of the pool's source, from the shared splitter (M2-02)."""
+    source = json.loads(POOL.read_text(encoding="utf-8"))["items"][0]["sources"][0]
+    passages = split_passages(source["text"], CheckedText(source["checked_text"]))
+    return passages[index].passage_id
+
+
 def _labels(status: str) -> list[dict[str, Any]]:
     pair = {
         "source_id": "doi:10.0000/synthetic",
-        "evidence_spans": [{"passage_id": "p2", "offsets": [20, 43]}],
+        "evidence_spans": [{"passage_id": _passage_id(1), "offsets": [20, 43]}],
         "agreement_label": "entails",
         "scope_flags": [],
         "note": None,
