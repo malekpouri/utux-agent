@@ -86,6 +86,18 @@ Accepted by the maintainer on 2026-11-22 as written. In M2-02, offsets are
 Unicode code points everywhere, and the offline annotation page converts
 them on read and write (`docs/plan/M2.md`, Rules for M2).
 
+### The full sentence rule, 2026-11-22
+
+Added at the maintainer's request in the review of M2-02, to state the rule
+as `passages@1` applies it (`docs/passages.md`). A sentence ends at `.`, `!`
+or `?`, with any closing quotes or brackets after it, when whitespace follows
+and then a capital letter, a digit, an opening bracket or an opening quote,
+or when the text ends there. It does not end inside round or square
+brackets, after an abbreviation of the fixed list `ABBREVIATIONS` (among them
+"e.g.", "i.e.", "Fig.", "Eq.", "Vol.", "vs." and the "al." of "et al."), or
+inside a decimal number, which no whitespace follows. An author's initial,
+as in "J. Smith", ends a sentence: a known limitation, kept.
+
 ## Sources
 
 - `docs/rfc/RFC-001.md`, section 3 (S2 and S3) and section 8 (k, and the
