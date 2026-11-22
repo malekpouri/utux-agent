@@ -1,0 +1,125 @@
+{
+  "meta": {
+    "count": 3
+  },
+  "results": [
+    {
+      "id": "https://openalex.org/W0000000001",
+      "doi": "https://doi.org/10.0000/synthetic-known",
+      "display_name": "A synthetic method comparison",
+      "title": "A synthetic method comparison",
+      "publication_year": 2024,
+      "authorships": [
+        {
+          "author": {
+            "display_name": "Jane Doe"
+          }
+        },
+        {
+          "author": {
+            "display_name": "Roe"
+          }
+        }
+      ],
+      "primary_location": {
+        "source": {
+          "display_name": "Synthetic Journal"
+        },
+        "license": "cc-by"
+      },
+      "best_oa_location": {
+        "license": "cc-by"
+      },
+      "abstract_inverted_index": {
+        "We": [
+          0
+        ],
+        "compare": [
+          1
+        ],
+        "method": [
+          2,
+          5
+        ],
+        "A": [
+          3,
+          8
+        ],
+        "and": [
+          4
+        ],
+        "B": [
+          6,
+          10
+        ],
+        ".": [
+          7,
+          14
+        ],
+        "beats": [
+          9
+        ],
+        "on": [
+          11
+        ],
+        "dataset": [
+          12
+        ],
+        "X": [
+          13
+        ]
+      }
+    },
+    {
+      "id": "https://openalex.org/W0000000002",
+      "doi": "https://doi.org/10.0000/synthetic-2",
+      "display_name": "Synthetic method comparison , again",
+      "title": "Synthetic method comparison , again",
+      "publication_year": 2024,
+      "authorships": [
+        {
+          "author": {
+            "display_name": "Ann Moe"
+          }
+        }
+      ],
+      "primary_location": {
+        "source": {
+          "display_name": "Synthetic Journal"
+        },
+        "license": "cc-by"
+      },
+      "best_oa_location": {
+        "license": "cc-by"
+      },
+      "abstract_inverted_index": {
+        "Short": [
+          0
+        ],
+        "synthetic": [
+          1
+        ],
+        "abstract": [
+          2
+        ],
+        ".": [
+          3
+        ]
+      }
+    },
+    {
+      "id": "https://openalex.org/W0000000003",
+      "doi": null,
+      "display_name": "A synthetic method comparison preprint",
+      "title": "A synthetic method comparison preprint",
+      "publication_year": 2024,
+      "authorships": [],
+      "primary_location": {
+        "source": null,
+        "license": null
+      },
+      "best_oa_location": null,
+      "abstract_inverted_index": null
+    }
+  ]
+}
