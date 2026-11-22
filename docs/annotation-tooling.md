@@ -213,17 +213,16 @@ release's content hash. Record the version, the hash, the splitter version
 of the batches and a changelog with the release, and give the `test` split to the adjudicator to hold outside the
 repository (M0-15).
 
-## Importing public datasets (proposed)
+## Importing public datasets
 
 Task M0-15b. `utux gold import-public` maps a downloaded public dataset into
-`public_item` files by fixed rules. It renames each dataset's own label and
-writes, suggests or changes none. It follows [the gold v0
-strategy](eval/gold-v0-strategy.md), which is Proposed: its items are not a
-gold release.
+gold items of origin `public` by fixed rules ([gold v0
+strategy](eval/gold-v0-strategy.md), ADR-0018). It renames each dataset's own
+label and writes, suggests or changes none.
 
 ```bash
-uv run utux gold import-public scifact ~/utux-data/gold/scifact --out ~/utux-data/gold/items/scifact.jsonl
-uv run utux gold import-public sciclaimeval ~/utux-data/gold/sciclaimeval --out ~/utux-data/gold/items/sciclaimeval.jsonl
+uv run utux gold import-public scifact ~/utux-data/gold/scifact --out ~/utux-data/gold/items/scifact
+uv run utux gold import-public sciclaimeval ~/utux-data/gold/sciclaimeval --out ~/utux-data/gold/items/sciclaimeval
 ```
 
 - **Input.** The directory holds the release as downloaded
@@ -231,11 +230,16 @@ uv run utux gold import-public sciclaimeval ~/utux-data/gold/sciclaimeval --out 
 - **Splits.** Only splits with published labels are read: SciFact's `train`
   and `dev`, and SciClaimEval's `dev`. SciFact's `claims_test.jsonl` is never
   opened.
-- **Output.** The output file is refused inside any git work tree, so dataset
-  text cannot be committed by accident.
+- **Licences.** SciClaimEval samples other than CC BY 4.0 and public domain
+  are dropped (`licence_not_allowed`).
+- **Output.** The output directory gets `items.jsonl`, the gold items, and
+  `sources/<hash>.txt`, the source texts. Each item is checked against its
+  texts before writing: the hash, evidence spans inside passages, and the
+  status following from the labels. The directory is refused inside any git
+  work tree, so dataset text cannot be committed by accident.
 - **What it prints.** The number of items, then counts only: by split, status,
-  pair label, drop reason, licence and domain. It never prints a claim or a
-  text.
+  pair label, drop reason, licence, domain and source groups. It never prints
+  a claim or a text.
 
 ## Schemas
 
