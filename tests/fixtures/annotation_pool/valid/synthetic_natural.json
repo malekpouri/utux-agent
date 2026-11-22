@@ -14,30 +14,7 @@
           "source_group": "sg-0001",
           "checked_text": "abstract",
           "extraction_quality": "clean",
-          "text": "We compare A and B. A beats B on dataset X. A is slow.",
-          "passages": [
-            {
-              "passage_id": "p1",
-              "offsets": [
-                0,
-                19
-              ]
-            },
-            {
-              "passage_id": "p2",
-              "offsets": [
-                20,
-                43
-              ]
-            },
-            {
-              "passage_id": "p3",
-              "offsets": [
-                44,
-                54
-              ]
-            }
-          ]
+          "text": "We compare A and B. A beats B on dataset X. A is slow."
         }
       ],
       "hidden": null

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "gold_version": "0.1",
+  "items": [
+    {
+      "item_id": "G0001",
+      "domain": "ml",
+      "origin": "natural",
+      "hard_case": null,
+      "text_unit": "Method A outperforms method B on dataset X [1]. Method A is fast.",
+      "sources": [
+        {
+          "source_id": "doi:10.0000/synthetic",
+          "source_group": "sg-0001",
+          "checked_text": "abstract",
+          "extraction_quality": "clean",
+          "text": "We compare A and B. A beats B on dataset X. A is slow.",
+          "passages": [
+            {
+              "passage_id": "p1",
+              "offsets": [
+                0,
+                19
+              ]
+            }
+          ]
+        }
+      ],
+      "hidden": null
+    }
+  ]
+}

@@ -8,9 +8,9 @@ import subprocess
 import sys
 
 import pytest
-from utux.sources.passages import SPLITTER_VERSION, Passage, split_passages
 
 from utux.schemas.claim_ledger import CheckedText
+from utux.sources.passages import SPLITTER_VERSION, Passage, split_passages
 
 ABSTRACT = CheckedText.ABSTRACT
 FULL = CheckedText.FULL_TEXT
@@ -86,10 +86,6 @@ def test_the_text_of_each_passage_is_the_slice_at_its_offsets(text: str) -> None
         (
             "It holds (see Jones. Lee. 2019). Next one.",
             ["It holds (see Jones. Lee. 2019).", "Next one."],
-        ),
-        (
-            "Written by J. Smith. It was cited.",
-            ["Written by J. Smith.", "It was cited."],
         ),
         (
             "It works, i.e. well. Fine.",

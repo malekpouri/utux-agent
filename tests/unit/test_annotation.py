@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from utux.sources.passages import split_passages
 
 from utux.errors import ContractValidationError, GoldSetError
 from utux.evalkit.annotation import (
@@ -38,6 +37,7 @@ from utux.evalkit.annotation import (
 )
 from utux.evalkit.gold import GoldItem, GoldSplit, check_release
 from utux.schemas.claim_ledger import CheckedText
+from utux.sources.passages import split_passages
 
 TEXT = "Method A outperforms method B on dataset X [1]. Method A is fast."
 SOURCE_TEXT = "We compare A and B. A beats B on dataset X. A is slow."
@@ -248,7 +248,7 @@ def test_a_pool_cannot_give_passages_of_its_own() -> None:
     }
     with pytest.raises(ContractValidationError) as raised:
         _pool(sources=[source])
-    assert "extra_forbidden" in [p.code for p in raised.value.problems]
+    assert "unknown_key" in [p.code for p in raised.value.problems]
 
 
 # Import
