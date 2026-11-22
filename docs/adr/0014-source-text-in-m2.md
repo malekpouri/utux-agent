@@ -1,6 +1,6 @@
 # ADR-0014: Source text in M2: abstracts and structured full text only
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-22
 
 ## Context
@@ -63,6 +63,10 @@ checked against nothing (`no_text`, RFC-001 S2; `docs/plan/M2.md`, M2-03).
 - The `good` and `degraded` ratings, and the human-review reason
   `degraded_source_text`, are not produced in M2. They stay in the schemas
   and the decision rules, tested with synthetic sources.
+
+## Acceptance
+
+Accepted by the maintainer on 2026-11-22 as written.
 
 ## Sources
 

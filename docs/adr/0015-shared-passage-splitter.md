@@ -1,6 +1,6 @@
 # ADR-0015: One deterministic passage splitter, shared by the gold tooling and the verifier
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-22
 
 ## Context
@@ -79,6 +79,12 @@ ids.
   from the list. They are deterministic and shared by the reference and the
   system, so they do not bias the scores, and each is fixed in a new
   version.
+
+## Acceptance
+
+Accepted by the maintainer on 2026-11-22 as written. In M2-02, offsets are
+Unicode code points everywhere, and the offline annotation page converts
+them on read and write (`docs/plan/M2.md`, Rules for M2).
 
 ## Sources
 

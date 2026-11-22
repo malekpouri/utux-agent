@@ -1,6 +1,6 @@
 # ADR-0016: When a cited reference counts as existing
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-22
 
 ## Context
@@ -41,10 +41,10 @@ Each failed rule is a reason code: `not_found`, `title_mismatch`,
 are constants, documented, and scored on the citation-existence component of
 the gold set, as RFC-002 requires of every threshold.
 
-**This departs from the specification**, which says that title, authors and
-year must match. Rules 3 and 4 match the first author only, and allow a year
-one apart. If the maintainer accepts this ADR, section 8 of the
-specification is changed to say so, in its own commit.
+**This departed from the specification**, which said that title, authors and
+year must match: rules 3 and 4 match the first author only, and allow a year
+one apart. With this ADR's acceptance, section 8 of the specification states
+these rules.
 
 ## Alternatives rejected
 
@@ -77,7 +77,12 @@ specification is changed to say so, in its own commit.
 - An altered reference that keeps the title, the first author and a year one
   apart passes. The gold set's altered references measure how often this
   happens.
-- The specification's section 8 needs a change if this ADR is accepted.
+- Section 8 of the specification states these rules.
+
+## Acceptance
+
+Accepted by the maintainer on 2026-11-22, with the edit-distance similarity
+of rule 2. Section 8 of the specification is changed to match.
 
 ## Sources
 

@@ -1,6 +1,6 @@
 # ADR-0013: A minimal MCP client on the standard library
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-22
 
 ## Context
@@ -35,7 +35,13 @@ library, for servers that run over stdio. It covers the session opening
 subscriptions or HTTP transports. No MCP SDK is added.
 
 A server runs as a child process with an empty environment, apart from the
-variables its permission manifest names. Its tool output is size-limited and
+variables its permission manifest names. **For a server outside a container,
+the paths and hosts in its manifest are shown and approved, but not
+enforced.**
+
+**A manifest approval binds** to the manifest's hash and to the version, or
+the hash, of the server's executable. Any change of either asks for approval
+again before the server runs. Its tool output is size-limited and
 treated as data. A server that does not answer within a timeout, answers
 with a protocol version the client does not support, or breaks the protocol,
 is marked unavailable for the run.
@@ -71,6 +77,13 @@ is marked unavailable for the run.
   that the client must follow is a code change, tested like any other.
 - Every tool call writes a `tool_call` event with the hashes of its arguments
   and result, and a failure marks the tool unavailable for the run.
+
+## Acceptance
+
+Accepted by the maintainer on 2026-11-22, with two additions now in the
+decision: paths and hosts of a server outside a container are shown and
+approved but not enforced, and an approval binds to the manifest's hash and
+to the server executable's version or hash.
 
 ## Sources
 
