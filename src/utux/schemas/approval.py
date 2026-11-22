@@ -89,8 +89,10 @@ class Decision(StrEnum):
 class ExecutionLimits(ContractPart):
     """The limits of a planned execution.
 
-    Every field is required; a limit that is not set is null, and left to the
-    executor.
+    Every field is required. utux records the limit that applies: the value
+    of `utux.yaml`, else the executor's default (findings of M1-16). A null
+    limit, left to the executor, is still accepted; requests written before
+    then hold such limits.
     """
 
     cpus: Annotated[float, Field(gt=0, allow_inf_nan=False)] | None
