@@ -8,6 +8,7 @@ marked `docker`.
 
 import os
 import socket
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -253,60 +254,61 @@ def test_the_executor_is_named_docker(tmp_path: Path) -> None:
 # Docker's report of a kill for memory (M1-07 follow-up)
 
 
-def _fake_inspect(tmp_path: Path, answers: list[str]) -> Path:
-    """A docker stand-in whose `inspect` gives the answers in turn, then the last."""
-    calls = tmp_path / "calls"
-    calls.write_text("0", encoding="utf-8")
-    lines = "\n".join(f'    {n}) echo "{answer}" ;;' for n, answer in enumerate(answers))
-    script = tmp_path / "fake-docker"
-    script.write_text(
-        "#!/bin/sh\n"
-        f'n=$(cat "{calls}")\n'
-        f'echo $((n + 1)) > "{calls}"\n'
-        'case "$n" in\n'
-        f"{lines}\n"
-        f'    *) echo "{answers[-1]}" ;;\n'
-        "esac\n",
-        encoding="utf-8",
-    )
-    script.chmod(0o755)
-    return script
+class _FakeTime:
+    """A clock that moves only when the code sleeps, and the sleep that moves it."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
 
 
-def _calls(tmp_path: Path) -> int:
-    return int((tmp_path / "calls").read_text(encoding="utf-8"))
+def _inspected_at(executor: DockerExecutor, fake: _FakeTime, answers: list[str]) -> list[float]:
+    """Answer `docker inspect` in turn, then with the last answer; return the call times."""
+    times: list[float] = []
+
+    def inspect(*arguments: str) -> subprocess.CompletedProcess[str]:
+        assert arguments[0] == "inspect"
+        times.append(round(fake.now, 6))
+        answer = answers[min(len(times) - 1, len(answers) - 1)]
+        return subprocess.CompletedProcess(list(arguments), 0, f"{answer}\n", "")
+
+    executor._docker_command = inspect  # type: ignore[method-assign]
+    return times
 
 
-def test_a_late_report_after_exit_137_is_waited_for(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("utux.executors.docker.time.sleep", lambda seconds: None)
-    docker = _fake_inspect(tmp_path, ["false", "false", "true"])
-    executor = DockerExecutor(tmp_path, docker=str(docker))
+def test_a_late_report_after_exit_137_is_waited_for(tmp_path: Path) -> None:
+    fake = _FakeTime()
+    executor = DockerExecutor(tmp_path, monotonic=fake.monotonic, sleep=fake.sleep)
+    times = _inspected_at(executor, fake, ["false", "false", "true"])
     assert executor._oom_killed("utux-r001-0000", 137) is True
-    assert _calls(tmp_path) == 3
+    assert times == [0.0, 0.2, 0.4]
 
 
-def test_without_a_report_no_limit_is_named_after_about_a_second(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    waited: list[float] = []
-    monkeypatch.setattr("utux.executors.docker.time.sleep", waited.append)
-    docker = _fake_inspect(tmp_path, ["false"])
-    executor = DockerExecutor(tmp_path, docker=str(docker))
+def test_without_a_report_no_limit_is_named_after_about_a_second(tmp_path: Path) -> None:
+    # Independent of timing: the clock moves only by the sleeps (PR #42 review).
+    fake = _FakeTime()
+    executor = DockerExecutor(tmp_path, monotonic=fake.monotonic, sleep=fake.sleep)
+    times = _inspected_at(executor, fake, ["false"])
     assert executor._oom_killed("utux-r001-0000", 137) is False
-    assert 0.8 <= sum(waited) <= 1.5
-    assert _calls(tmp_path) > 1
+    # Asked six times, 0.2 seconds apart, over one second; then no limit is named.
+    assert times == [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+    assert fake.sleeps == [0.2] * 5
 
 
-def test_another_exit_status_is_not_retried(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("utux.executors.docker.time.sleep", lambda seconds: None)
-    docker = _fake_inspect(tmp_path, ["false", "true"])
-    executor = DockerExecutor(tmp_path, docker=str(docker))
+def test_another_exit_status_is_not_retried(tmp_path: Path) -> None:
+    fake = _FakeTime()
+    executor = DockerExecutor(tmp_path, monotonic=fake.monotonic, sleep=fake.sleep)
+    times = _inspected_at(executor, fake, ["false", "true"])
     assert executor._oom_killed("utux-r001-0000", 1) is False
-    assert _calls(tmp_path) == 1
+    assert times == [0.0]
+    assert fake.sleeps == []
 
 
 # Naming the memory limit in a whole run, with a fake docker

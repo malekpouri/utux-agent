@@ -71,8 +71,9 @@ DEFAULT_LIMITS = ResourceLimits(
 
 _COMMAND_TIMEOUT_SECONDS = 60.0
 _KILLED = 137
-_OOM_RETRIES = 5
+# Docker's report of a kill for memory is asked again this often, for this long.
 _OOM_RETRY_SECONDS = 0.2
+_OOM_WAIT_SECONDS = 1.0
 
 
 class _NoContainerError(Exception):
@@ -197,6 +198,8 @@ class DockerExecutor:
         docker_environment: Mapping[str, str] | None = None,
         clock: Callable[[], datetime] = _utc_now,
         output_check_seconds: float = 1.0,
+        monotonic: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         """Create the executor.
 
@@ -211,6 +214,10 @@ class DockerExecutor:
             clock: Returns the current time in UTC.
             output_check_seconds: How often the size of the output directory
                 is measured during a run.
+            monotonic: A monotonic clock in seconds, for the wait for
+                Docker's memory report. Tests pass a fake one.
+            sleep: Sleeps for a number of seconds, for that wait. Tests pass
+                one that moves the fake clock.
         """
         self._project = project
         self._cap = output_cap_bytes
@@ -220,6 +227,8 @@ class DockerExecutor:
         self._clock = clock
         self._rootless: bool | None = None
         self._output_check_seconds = output_check_seconds
+        self._monotonic = monotonic
+        self._sleep = sleep
 
     @property
     def name(self) -> str:
@@ -458,16 +467,17 @@ class DockerExecutor:
         Raises:
             _NoContainerError: The container does not exist.
         """
-        attempts = 1 + (_OOM_RETRIES if status == _KILLED else 0)
-        for attempt in range(attempts):
-            if attempt:
-                time.sleep(_OOM_RETRY_SECONDS)
+        deadline = self._monotonic() + _OOM_WAIT_SECONDS
+        while True:
             state = self._docker_command("inspect", "--format", "{{.State.OOMKilled}}", name)
             if state.returncode != 0:
                 raise _NoContainerError(name)
             if state.stdout.strip() == "true":
                 return True
-        return False
+            # Small tolerance, so that 0.2-second steps reach the one-second mark.
+            if status != _KILLED or self._monotonic() >= deadline - 1e-9:
+                return False
+            self._sleep(_OOM_RETRY_SECONDS)
 
     def _remove(self, name: str) -> None:
         removed = self._docker_command("rm", "--force", name)
