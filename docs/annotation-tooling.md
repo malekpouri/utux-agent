@@ -213,6 +213,30 @@ release's content hash. Record the version, the hash, the splitter version
 of the batches and a changelog with the release, and give the `test` split to the adjudicator to hold outside the
 repository (M0-15).
 
+## Importing public datasets (proposed)
+
+Task M0-15b. `utux gold import-public` maps a downloaded public dataset into
+`public_item` files by fixed rules. It renames each dataset's own label and
+writes, suggests or changes none. It follows [the gold v0
+strategy](eval/gold-v0-strategy.md), which is Proposed: its items are not a
+gold release.
+
+```bash
+uv run utux gold import-public scifact ~/utux-data/gold/scifact --out ~/utux-data/gold/items/scifact.jsonl
+uv run utux gold import-public sciclaimeval ~/utux-data/gold/sciclaimeval --out ~/utux-data/gold/items/sciclaimeval.jsonl
+```
+
+- **Input.** The directory holds the release as downloaded
+  ([datasets.md](eval/datasets.md)).
+- **Splits.** Only splits with published labels are read: SciFact's `train`
+  and `dev`, and SciClaimEval's `dev`. SciFact's `claims_test.jsonl` is never
+  opened.
+- **Output.** The output file is refused inside any git work tree, so dataset
+  text cannot be committed by accident.
+- **What it prints.** The number of items, then counts only: by split, status,
+  pair label, drop reason, licence and domain. It never prints a claim or a
+  text.
+
 ## Schemas
 
 The JSON Schemas of the six files (`annotation_pool`, `annotation_batch`,
