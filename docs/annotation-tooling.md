@@ -45,21 +45,15 @@ before anyone discusses the items (RFC-002, section 5). Every command prints
 fields of a gold item that are known before annotation: `item_id`, `domain`,
 `origin`, `hard_case`, `text_unit`, its `sources`, and for a perturbed or
 system-generated item its `hidden` record. Each source has `source_id`,
-`source_group`, `checked_text`, `extraction_quality`, the stored `text`, and
-its `passages`.
+`source_group`, `checked_text`, `extraction_quality` and the stored `text`.
 
-A **passage** is the unit an annotator marks as evidence: a `passage_id` and
-the `offsets` of its characters in the source's text. Passages are distinct,
-within the text and do not overlap (`duplicate_passage`, `span_out_of_range`,
-`passages_overlap`). An evidence span of a gold item is a passage's id and
-offsets, and the pair's `text_hash` is the hash of the source's text,
-computed by the tooling.
-
-**Passages are not cut by hand.** They come from the shared passage splitter
-of task M2-02 (ADR-0015 in [the M2 plan](plan/M2.md)), so that the passage ids
-of the reference labels are the ids the verifier uses. Until M2-02 is
-merged, the pool takes passages through this interface, and M2-02 connects
-the splitter to it. Do not build real items before then.
+A **passage** is the unit an annotator marks as evidence. **Passages are not
+given in the pool and not cut by hand**: they come from the shared splitter
+([Passages](passages.md), ADR-0015), by the source's `checked_text`, so that
+the passage ids of the reference labels are the ids the verifier uses. A
+pool that gives passages of its own is refused (`unknown_key`). An evidence
+span of a gold item is a passage's id and offsets, in code points, and the
+pair's `text_hash` is the hash of the source's text, computed by the tooling.
 
 ```bash
 uv run utux gold pool-check pool.json
@@ -75,7 +69,8 @@ uv run utux gold batch pool.json --phase claim_extraction --annotator a07 --batc
 Each command writes the batch and, beside it, `annotation_page.html`. A
 batch holds what the annotator may see (guideline section 3): each item's id,
 domain and text unit, and each source's text, passages, text type and
-extraction quality. It holds **no hidden record, no origin and no hard
+extraction quality. It records the version of the splitter its passages came
+from (`splitter`). It holds **no hidden record, no origin and no hard
 case**, which would tell the annotator how an item was made (guideline
 section 2, rule 4), and no source group. It holds nothing of the other
 annotator's work. A phase-2 batch also holds the reference claims, each with
@@ -92,7 +87,8 @@ browser, choose the batch file, work through the items, and press "Export
 work" to save the work file. It makes no network request: its content
 security policy blocks every one. The work is kept in the browser as a
 draft until it is exported, and restored when the same batch is opened
-again.
+again. Offsets are code points in every file; the page converts from and to
+the browser's UTF-16 units ([Passages](passages.md)).
 
 - **Phase 1**: mark a claim's span in the text unit, write the claim, choose
   its kind and the sources it cites.
@@ -213,8 +209,8 @@ uv run utux gold freeze items.jsonl --seed 17 --out gold-v0.1.jsonl
 item's split from the seed (`assign_splits`, dev share 0.3 by default), checks
 again, and writes the release once: it never writes over an existing file.
 It prints every departure from the guideline, the split sizes and the
-release's content hash. Record the version, the hash and a changelog with the
-release, and give the `test` split to the adjudicator to hold outside the
+release's content hash. Record the version, the hash, the splitter version
+of the batches and a changelog with the release, and give the `test` split to the adjudicator to hold outside the
 repository (M0-15).
 
 ## Schemas

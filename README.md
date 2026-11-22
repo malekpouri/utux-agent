@@ -201,7 +201,7 @@ See [Cost and budget](docs/cost.md).
 - [Logged model calls and `utux model ping`](docs/model-calls.md)
 - [Cost and budget: `utux cost`](docs/cost.md)
 - [Gold items, releases and the split](docs/gold-set.md)
-- [Annotation tooling](docs/annotation-tooling.md)
+- [Annotation tooling](docs/annotation-tooling.md) and [passages](docs/passages.md)
 - [Agreement, metrics and intervals](docs/evaluation-toolkit.md)
 - [Evaluation protocol, draft](docs/eval/protocol.md)
 - [Annotation guideline, draft](docs/eval/annotation-guideline.md)
