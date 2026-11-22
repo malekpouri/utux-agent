@@ -17,6 +17,7 @@ from utux.evalkit.gold import (
     GoldSplit,
     check_release,
     guideline_status,
+    load_gold_item,
     read_gold_release,
 )
 from utux.evalkit.splits import assign_splits, split_groups
@@ -311,3 +312,12 @@ def test_guideline_status_of_a_claim_without_sources() -> None:
 def test_an_item_without_a_split_is_not_frozen() -> None:
     items = _changed(_items(), "G9000", {"split": None})
     assert ("G9000.split", "split_not_set") in _problems(items)
+
+
+def test_a_perturbation_may_be_made_from_a_public_item() -> None:
+    # M0-15b review: perturbations of imported items carry the provenance.
+    valid = Path(__file__).resolve().parents[1] / "fixtures" / "gold_item" / "valid"
+    public = load_gold_item(valid / "synthetic_public_item.json")
+    perturbed = load_gold_item(valid / "synthetic_public_perturbed_item.json")
+    problems = [p for p in _problems([public, perturbed]) if p[1] != "split_not_set"]
+    assert problems == []
