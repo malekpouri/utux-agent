@@ -205,6 +205,19 @@ class Workflow(ContractPart):
     retry_cap: NonNegativeInt = 2
 
 
+class Literature(ContractPart):
+    """Settings of the literature sources.
+
+    `contact_email`: the address some APIs ask for, such as OpenAlex's
+    `mailto`. utux never requires it and sends it only when it is set here
+    (rule 8 of `docs/plan/M2.md`).
+    """
+
+    contact_email: (
+        Annotated[str, Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", strict=True)] | None
+    ) = None
+
+
 class ProjectConfig(ContractDocument):
     """The content of `utux.yaml`.
 
@@ -226,6 +239,7 @@ class ProjectConfig(ContractDocument):
     resources: Resources = Field(default_factory=Resources)
     models: Models = Field(default_factory=Models)
     workflow: Workflow = Field(default_factory=Workflow)
+    literature: Literature = Field(default_factory=Literature)
 
     @classmethod
     def from_yaml(cls, text: str, source: str = FILE_NAME) -> Self:

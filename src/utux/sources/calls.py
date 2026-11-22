@@ -16,6 +16,7 @@ from typing import TypeVar
 from pydantic import BaseModel, TypeAdapter
 
 from utux.errors import (
+    LiteratureCallRefusedError,
     LiteratureInvalidResponseError,
     LiteratureNotFoundError,
     LiteratureRateLimitError,
@@ -26,10 +27,12 @@ from utux.events.log import EventLog
 from utux.interfaces.literature_source import FetchedSource, LiteratureSource, WorkMetadata
 from utux.schemas.common import Scalar, Stage
 from utux.schemas.event import EventStatus, EventType, NewEvent
+from utux.schemas.project_config import DataPolicy
 from utux.sources.cache import ContentCache
 from utux.workspace.hashing import hash_bytes
 
 SYSTEM_ACTOR = "system:utux"
+DATA_POLICY_LOCAL_ONLY = "data_policy_local_only"
 
 STATUS_REASONS: dict[type[LiteratureSourceError], str] = {
     LiteratureUnavailableError: "literature_unavailable",
@@ -54,12 +57,22 @@ class LoggedLiteratureSource:
     """A literature source whose every call is logged and cached."""
 
     def __init__(
-        self, log: EventLog, source: LiteratureSource, cache: ContentCache | None = None
+        self,
+        log: EventLog,
+        source: LiteratureSource,
+        cache: ContentCache | None = None,
+        *,
+        policy: DataPolicy,
     ) -> None:
-        """Log the calls of `source` to `log`, keeping results in `cache` if given."""
+        """Log the calls of `source` to `log`, keeping results in `cache` if given.
+
+        Under `local_only`, a search on an external source is refused (see
+        `search`); fetch and resolve by identifier are allowed.
+        """
         self._log = log
         self._source = source
         self._cache = cache
+        self._policy = policy
 
     def _call(
         self,
@@ -99,6 +112,14 @@ class LoggedLiteratureSource:
                 )
             )
 
+        if search and self._policy is DataPolicy.LOCAL_ONLY and self._source.is_external:
+            # A query can carry project text; it does not leave the machine.
+            log(EventStatus.REFUSED, DATA_POLICY_LOCAL_ONLY)
+            raise LiteratureCallRefusedError(
+                f"the data policy local_only refuses a search on {self._source.name}, an "
+                "external source: a query can carry project text. Fetch and resolve by "
+                "identifier stay allowed"
+            )
         if self._cache is not None:
             kept = self._cache.get_response(request)
             if kept is not None:
@@ -119,7 +140,13 @@ class LoggedLiteratureSource:
     def search(
         self, query: str, limit: int, *, run_id: str | None = None, stage: Stage | None = None
     ) -> tuple[WorkMetadata, ...]:
-        """Search, logged by the hash of the query."""
+        """Search, logged by the hash of the query.
+
+        Raises:
+            LiteratureCallRefusedError: The data policy is `local_only` and
+                the source is external. No request is made, and a refused
+                `literature_call` event records it.
+        """
         return self._call(
             "search",
             query,
