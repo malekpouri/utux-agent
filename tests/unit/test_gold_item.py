@@ -519,4 +519,4 @@ def test_a_kind_both_annotators_gave_is_the_reference_kind_unless_adjudicated() 
     document = _document("synthetic_natural_item.json")
     for listed in _annotation(document)["claim_extraction"]["raw"].values():
         listed[0]["kind"] = "background"
-    assert ("annotation.claim_extraction", "differs_from_raw") in _problems(document)
+    assert ("claims", "differs_from_raw") in _problems(document)

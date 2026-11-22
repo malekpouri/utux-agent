@@ -109,6 +109,7 @@
               78
             ],
             "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9000.",
+            "kind": "finding",
             "citations": [
               "synthetic:sg-synthetic-a-paper"
             ]
@@ -121,6 +122,7 @@
               78
             ],
             "text": "Synthetic method A outperforms synthetic method B on synthetic benchmark G9000.",
+            "kind": "finding",
             "citations": [
               "synthetic:sg-synthetic-a-paper"
             ]

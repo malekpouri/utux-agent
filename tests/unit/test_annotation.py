@@ -675,7 +675,7 @@ def test_the_documented_adjudication_example_is_valid() -> None:
     text = (Path(__file__).resolve().parents[2] / "docs" / "annotation-tooling.md").read_text(
         encoding="utf-8"
     )
-    example = text.split("### 5. The adjudication file", 1)[1].split("```json\n", 1)[1]
+    example = text.split("### The adjudication file", 1)[1].split("```json\n", 1)[1]
     document = json.loads(example.split("```", 1)[0])
     assert (
         Adjudication.validate_document(document, "docs/annotation-tooling.md").adjudicator == "a01"

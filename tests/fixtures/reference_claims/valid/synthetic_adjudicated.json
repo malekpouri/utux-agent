@@ -41,6 +41,7 @@
                 47
               ],
               "text": "Method A outperforms method B on dataset X.",
+              "kind": "finding",
               "citations": [
                 "doi:10.0000/synthetic"
               ]
@@ -51,6 +52,7 @@
                 65
               ],
               "text": "Method A is fast.",
+              "kind": "method",
               "citations": []
             }
           ],
@@ -61,6 +63,7 @@
                 47
               ],
               "text": "Method A outperforms method B on dataset X.",
+              "kind": "finding",
               "citations": [
                 "doi:10.0000/synthetic"
               ]
