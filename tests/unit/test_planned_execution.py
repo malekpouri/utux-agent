@@ -2,12 +2,24 @@
 
 from pathlib import Path
 
+import pytest
+
 from utux.core.workflow import planned_execution
 from utux.executors.docker import DEFAULT_LIMITS
 from utux.schemas.project_config import DataPolicy, load_project_config
 from utux.workspace.project import init_project
 
 IMAGE = "sha256:" + "a" * 64
+
+
+@pytest.fixture(autouse=True)
+def git_identity(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config = tmp_path / "synthetic.gitconfig"
+    config.write_text(
+        "[user]\n\tname = Synthetic Person\n\temail = person@example.org\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
 
 
 def test_unset_limits_are_the_executor_defaults(tmp_path: Path) -> None:
