@@ -6,8 +6,6 @@ The source is the scripted one; everything is synthetic, and no network is used.
 from pathlib import Path
 
 import pytest
-from utux.sources.calls import LoggedLiteratureSource
-from utux.sources.scripted import ScriptedLiteratureSource, ScriptedWork, synthetic_work
 
 from utux.errors import (
     LiteratureInvalidResponseError,
@@ -19,6 +17,8 @@ from utux.events.log import EventLog
 from utux.schemas.common import Stage
 from utux.schemas.event import Event, EventStatus, EventType
 from utux.sources.cache import ContentCache
+from utux.sources.calls import LoggedLiteratureSource
+from utux.sources.scripted import ScriptedLiteratureSource, ScriptedWork, synthetic_work
 from utux.workspace.hashing import hash_bytes
 
 KNOWN = "doi:10.0000/synthetic-known"

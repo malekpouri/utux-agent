@@ -1,10 +1,10 @@
 """M2-04: the scripted literature source passes the conformance suite."""
 
 from literature_source_suite import KNOWN, Failure, LiteratureSourceConformance
-from utux.interfaces.literature_source import LiteratureSource
-from utux.sources.scripted import ScriptedLiteratureSource, ScriptedWork, synthetic_work
 
 from utux.errors import LiteratureRateLimitError, LiteratureUnavailableError
+from utux.interfaces.literature_source import LiteratureSource
+from utux.sources.scripted import ScriptedLiteratureSource, ScriptedWork, synthetic_work
 
 CATALOG = [
     synthetic_work(KNOWN, "A synthetic method comparison", text="We compare A and B."),

@@ -13,11 +13,6 @@ from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 
 import pytest
-from utux.interfaces.literature_source import (
-    FetchedSource,
-    LiteratureSource,
-    WorkMetadata,
-)
 
 from utux.errors import (
     LiteratureInvalidResponseError,
@@ -25,6 +20,11 @@ from utux.errors import (
     LiteratureRateLimitError,
     LiteratureSourceError,
     LiteratureUnavailableError,
+)
+from utux.interfaces.literature_source import (
+    FetchedSource,
+    LiteratureSource,
+    WorkMetadata,
 )
 
 KNOWN = "doi:10.0000/synthetic-known"
