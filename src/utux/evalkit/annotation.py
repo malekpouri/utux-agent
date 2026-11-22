@@ -42,6 +42,15 @@ from pydantic import Field, StrictBool, field_validator, model_validator
 from pydantic_core import InitErrorDetails
 
 from utux.errors import ContractValidationError, GoldSetError, Problem
+from utux.evalkit.agreement import (
+    AgreementReport,
+    ExtractionAgreement,
+    SpanOverlap,
+    label_agreement,
+    match_claims,
+    span_agreement,
+    span_overlap,
+)
 from utux.evalkit.gold import (
     Annotation,
     AnnotatorId,
@@ -65,6 +74,7 @@ from utux.evalkit.gold import (
     PairId,
     PairRaw,
     PerturbationRecord,
+    read_gold_release,
 )
 from utux.schemas.base import ContractDocument, ContractPart, field_problem, raise_field_problems
 from utux.schemas.claim_ledger import (
@@ -838,7 +848,7 @@ def _reference_claims(item_id: str, claims: Sequence[ListedClaim]) -> tuple[Refe
 
 def _extracted(claims: Sequence[ListedClaim]) -> tuple[ExtractedClaim, ...]:
     return tuple(
-        ExtractedClaim(span=claim.span, text=claim.text, citations=claim.citations)
+        ExtractedClaim(span=claim.span, text=claim.text, kind=claim.kind, citations=claim.citations)
         for claim in claims
     )
 
@@ -935,7 +945,6 @@ def _merge_item(
     reference: ReferenceItem,
     entries: Mapping[str, LabellingWorkItem],
     adjudication: Adjudication | None,
-    split: GoldSplit,
     gold_version: str,
 ) -> tuple[GoldItem | None, list[Disagreement]]:
     item_id = pool_item.item_id
@@ -1073,7 +1082,8 @@ def _merge_item(
         "schema_version": GoldItem.SCHEMA_VERSION,
         "item_id": item_id,
         "gold_version": gold_version,
-        "split": split.value,
+        # Set when the release is frozen (`with_splits`, `utux gold freeze`).
+        "split": None,
         "domain": pool_item.domain.value,
         "origin": pool_item.origin.value,
         "hard_case": None if pool_item.hard_case is None else pool_item.hard_case.value,
@@ -1095,7 +1105,6 @@ def merge_labelling(
     references: ReferenceClaims,
     first: LabellingWork,
     second: LabellingWork,
-    splits: Mapping[str, GoldSplit],
     adjudication: Adjudication | None = None,
 ) -> LabellingMerge:
     """Put two annotators' labels side by side and make the gold items that are settled.
@@ -1103,14 +1112,14 @@ def merge_labelling(
     At each claim and pair, the reference value is the adjudicator's when
     the adjudication gives one, else the annotators' when they agree. Where
     neither holds, the level is a disagreement and its item is not made.
-    Both annotators' labels are kept as the raw entries. `splits` gives each
-    item's split: the split is chosen once the items exist (`assign_splits`
-    and `split_report`), and set with `with_splits`.
+    Both annotators' labels are kept as the raw entries. The items have no
+    split yet: it is chosen once they exist (`assign_splits` and
+    `split_report`) and set when the release is frozen (`with_splits`).
 
     Raises:
         GoldSetError: The works are of one annotator or of two batches, are
-            not the annotators of the claim lists, a split is missing, or
-            the adjudication is of the other phase.
+            not the annotators of the claim lists, or the adjudication is of
+            the other phase.
         ContractValidationError: A made item is not a valid gold item.
     """
     _pair_of_works(first, second)
@@ -1126,16 +1135,11 @@ def merge_labelling(
                 f"{item_id} was listed by {', '.join(reference.annotators)} and labelled by "
                 f"{first.annotator} and {second.annotator}; an item has two annotators"
             )
-        split = splits.get(item_id)
-        if split is None:
-            raise GoldSetError(f"no split is given for {item_id}")
         entries = {
             work.annotator: next(item for item in work.items if item.item_id == item_id)
             for work in (first, second)
         }
-        made, found = _merge_item(
-            pool_item, reference, entries, adjudication, split, pool.gold_version
-        )
+        made, found = _merge_item(pool_item, reference, entries, adjudication, pool.gold_version)
         disagreements += found
         if made is not None:
             items.append(made)
@@ -1152,6 +1156,127 @@ def with_splits(items: Sequence[GoldItem], splits: Mapping[str, GoldSplit]) -> t
     if missing:
         raise GoldSetError(f"no split is given for {', '.join(missing)}")
     return tuple(item.model_copy(update={"split": splits[item.item_id]}) for item in items)
+
+
+def release_text(items: Sequence[GoldItem]) -> str:
+    """The items as a release file: one JSON line per item."""
+    return "".join(item.to_json_line() for item in items)
+
+
+def read_items(path: Path) -> tuple[GoldItem, ...]:
+    """Read merged items or a release, one gold item per line.
+
+    Raises:
+        ContractValidationError: A line is not a valid gold item.
+    """
+    return read_gold_release(path)
+
+
+# Agreement before adjudication
+
+
+def _settled_pairs[I: (ExtractionWorkItem, LabellingWorkItem)](
+    first: Sequence[I], second: Sequence[I]
+) -> list[tuple[I, I]]:
+    """The items both annotators worked on, leaving out those either flagged."""
+    by_id = {item.item_id: item for item in second}
+    return [
+        (item, by_id[item.item_id])
+        for item in first
+        if item.item_id in by_id and item.flag is None and by_id[item.item_id].flag is None
+    ]
+
+
+def extraction_agreement(first: ExtractionWork, second: ExtractionWork) -> ExtractionAgreement:
+    """Agreement on claim extraction between two works, before adjudication.
+
+    The claims of each item are matched as `match_claims` does (RFC-002,
+    section 7, S1). An item either annotator flagged is left out.
+
+    Raises:
+        GoldSetError: The works are of one annotator or of two batches.
+    """
+    _pair_of_works(first, second)
+    listed_first = listed_second = matched = 0
+    for a, b in _settled_pairs(first.items, second.items):
+        a_claims = [(claim.span, claim.citations) for claim in a.claims]
+        b_claims = [(claim.span, claim.citations) for claim in b.claims]
+        listed_first += len(a_claims)
+        listed_second += len(b_claims)
+        matched += match_claims(a_claims, b_claims)
+    return ExtractionAgreement(listed_first, listed_second, matched)
+
+
+def labelling_agreement(
+    pool: AnnotationPool,
+    references: ReferenceClaims,
+    first: LabellingWork,
+    second: LabellingWork,
+) -> AgreementReport:
+    """Agreement between two labelling works, before adjudication.
+
+    The measures of RFC-002, section 5, as `annotation_agreement` computes
+    them for a release: claim extraction from the two raw claim lists of the
+    reference claims, status and the review flag per claim, the agreement
+    label and each scope flag per pair, and the overlap of evidence spans on
+    the pool's source texts. An item either annotator flagged is left out.
+
+    Raises:
+        GoldSetError: The works are of one annotator or of two batches, or
+            there is no pair of labels to compare.
+    """
+    _pair_of_works(first, second)
+    texts = {s.source_id: s.text for item in pool.items for s in item.sources}
+    pairs = _settled_pairs(first.items, second.items)
+    listed_first = listed_second = matched = 0
+    statuses: list[tuple[str, str]] = []
+    reviews: list[tuple[str, str]] = []
+    labels: list[tuple[str, str]] = []
+    flags: dict[str, list[tuple[str, str]]] = {flag.value: [] for flag in ScopeFlag}
+    overlaps: list[SpanOverlap] = []
+    for a, b in pairs:
+        lists = references.item(a.item_id).claim_extraction.raw
+        a_list = [(c.span, c.citations) for c in lists.get(first.annotator, ())]
+        b_list = [(c.span, c.citations) for c in lists.get(second.annotator, ())]
+        listed_first += len(a_list)
+        listed_second += len(b_list)
+        matched += match_claims(a_list, b_list)
+        b_claims = {claim.claim_id: claim for claim in b.claims}
+        for claim in a.claims:
+            other = b_claims[claim.claim_id]
+            statuses.append((claim.status.value, other.status.value))
+            reviews.append((_yes_no(claim.expert_would_review), _yes_no(other.expert_would_review)))
+            b_pairs = {pair.source_id: pair for pair in other.pairs}
+            for pair in claim.pairs:
+                twin = b_pairs[pair.source_id]
+                labels.append((pair.agreement_label.value, twin.agreement_label.value))
+                for flag in ScopeFlag:
+                    flags[flag.value].append(
+                        (_yes_no(flag in pair.scope_flags), _yes_no(flag in twin.scope_flags))
+                    )
+                overlaps.append(
+                    span_overlap(
+                        [span.offsets for span in pair.evidence_spans],
+                        [span.offsets for span in twin.evidence_spans],
+                        texts[pair.source_id],
+                    )
+                )
+    if not labels:
+        raise GoldSetError("there is no pair of labels to compare in these works")
+    return AgreementReport(
+        claim_extraction=ExtractionAgreement(listed_first, listed_second, matched),
+        status=label_agreement(statuses, [status.value for status in GoldStatus]),
+        expert_would_review=label_agreement(reviews, ("yes", "no")),
+        agreement_label=label_agreement(labels, [label.value for label in SourceLabel]),
+        scope_flags={
+            flag: label_agreement(values, ("yes", "no")) for flag, values in flags.items()
+        },
+        evidence_spans=span_agreement(overlaps),
+    )
+
+
+def _yes_no(value: bool) -> str:
+    return "yes" if value else "no"
 
 
 # The offline page

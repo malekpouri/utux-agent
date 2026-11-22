@@ -348,11 +348,12 @@ def annotation_agreement(
         expert_would_review=label_agreement(reviews, _YES_NO),
         agreement_label=label_agreement(labels, [label.value for label in SourceLabel]),
         scope_flags={flag: label_agreement(values, _YES_NO) for flag, values in flags.items()},
-        evidence_spans=None if source_texts is None else _span_agreement(overlaps),
+        evidence_spans=None if source_texts is None else span_agreement(overlaps),
     )
 
 
-def _span_agreement(overlaps: Sequence[SpanOverlap]) -> SpanAgreement:
+def span_agreement(overlaps: Sequence[SpanOverlap]) -> SpanAgreement:
+    """Mean F1 and IoU of span overlaps, counting the pairs where they are undefined."""
     f1 = [o.f1 for o in overlaps if o.f1 is not None]
     iou = [o.iou for o in overlaps if o.iou is not None]
     return SpanAgreement(
