@@ -1,7 +1,9 @@
 # Gold items, releases and the split
 
 `utux.evalkit` holds the tooling around the gold-standard set of RFC-002. It
-reads and checks gold items and splits a release into `dev` and `test`. It
+reads and checks gold items and splits a release into `dev` and `test`. The
+tooling for annotators and the adjudicator, from batches to merged gold
+items, is in [Annotation tooling](annotation-tooling.md). It
 never creates, infers or changes a reference label: those are made by people
 only (RFC-002, section 5).
 
