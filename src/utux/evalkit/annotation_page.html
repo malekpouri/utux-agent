@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:">
+<title>utux annotation</title>
+<style>
+  :root { --ink: #1d1d1f; --muted: #5f6368; --line: #d0d4d9; --bg: #ffffff; --panel: #f6f7f9; --warn: #a3330f; --ok: #1d6b38; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink: #e8eaed; --muted: #a0a6ad; --line: #3c4043; --bg: #17181a; --panel: #202124; --warn: #ff8a65; --ok: #81c995; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 system-ui, sans-serif; color: var(--ink); background: var(--bg); }
+  header, main { max-width: 980px; margin: 0 auto; padding: 12px 16px; }
+  header { border-bottom: 1px solid var(--line); }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 18px 0 6px; }
+  h3 { font-size: 15px; margin: 14px 0 4px; }
+  .muted { color: var(--muted); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin: 8px 0; }
+  textarea, input[type=text], input[type=number] { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; width: 100%; }
+  textarea.unit { min-height: 70px; }
+  pre.source { white-space: pre-wrap; margin: 0; }
+  .passage { display: block; padding: 4px 6px; border-left: 3px solid var(--line); margin: 4px 0; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+  .errors { color: var(--warn); }
+  .done { color: var(--ok); }
+  button { font: inherit; padding: 4px 10px; }
+  nav { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>utux annotation</h1>
+  <div class="muted">This page works offline and sends nothing anywhere. Your work is kept in this browser as a draft until you export it. Follow the annotation guideline; the page suggests no label.</div>
+  <div class="row" style="margin-top:8px">
+    <label>Batch file: <input id="batch-file" type="file" accept=".json,application/json"></label>
+    <button id="export" disabled>Export work</button>
+  </div>
+  <div id="status" class="muted"></div>
+</header>
+<main id="main"></main>
+
+<script id="logic">
+"use strict";
+// Pure logic, without the page: the tests run it with node.
+var UtuxAnnotation = (function () {
+  var KINDS = ["finding", "quantitative", "method", "definition", "background"];
+  var STATUSES = ["verified", "partially_supported", "contradicted", "insufficient_evidence"];
+  var LABELS = ["entails", "partial", "neutral", "contradicts", "conflicting"];
+  var FLAGS = ["direction_mismatch", "causal_overreach", "magnitude_mismatch", "overgeneralisation",
+               "metric_mismatch", "certainty_escalation", "missing_comparator"];
+
+  // A new, empty work for a batch: every label starts unset.
+  function newWork(batch) {
+    return {
+      schema_version: 1, phase: batch.phase, batch_id: batch.batch_id,
+      batch_hash: batch.batch_hash, annotator: batch.annotator,
+      items: batch.items.map(function (item) {
+        var claims = batch.phase === "labelling" ? item.claims.map(function (claim) {
+          return { claim_id: claim.claim_id, status: null, expert_would_review: null, note: null,
+                   pairs: claim.citations.map(function (sourceId) {
+                     return { source_id: sourceId, evidence_spans: [], agreement_label: null,
+                              scope_flags: [], note: null };
+                   }) };
+        }) : [];
+        return { item_id: item.item_id, claims: claims, flag: null, minutes: null };
+      })
+    };
+  }
+
+  function note(value) {
+    return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+  }
+
+  function distinct(values) {
+    return new Set(values).size === values.length;
+  }
+
+  function checkExtraction(item, shown, errors) {
+    var sources = shown.sources.map(function (s) { return s.source_id; });
+    item.claims.forEach(function (claim, n) {
+      var at = item.item_id + ", claim " + (n + 1) + ": ";
+      var span = claim.span || [];
+      if (!(Number.isInteger(span[0]) && Number.isInteger(span[1]) && span[0] >= 0 &&
+            span[1] > span[0] && span[1] <= shown.text_unit.length)) {
+        errors.push(at + "the span must be within the text unit");
+      }
+      if (!note(claim.text)) { errors.push(at + "the claim has no text"); }
+      if (KINDS.indexOf(claim.kind) < 0) { errors.push(at + "choose a kind"); }
+      var cited = claim.citations || [];
+      if (!distinct(cited) || cited.some(function (c) { return sources.indexOf(c) < 0; })) {
+        errors.push(at + "the citations must be sources of the item, each once");
+      }
+    });
+  }
+
+  function labelsComplete(item, errors) {
+    var before = errors.length;
+    item.claims.forEach(function (claim) {
+      var at = claim.claim_id + ": ";
+      if (STATUSES.indexOf(claim.status) < 0) { errors.push(at + "choose a status"); }
+      if (typeof claim.expert_would_review !== "boolean") {
+        errors.push(at + "answer whether an expert would review this claim");
+      }
+      if (claim.pairs.length === 0 && claim.status !== null &&
+          claim.status !== "insufficient_evidence") {
+        errors.push(at + "a claim that cites no source has the status insufficient_evidence");
+      }
+      claim.pairs.forEach(function (pair) {
+        var where = at + "source " + pair.source_id + ": ";
+        if (LABELS.indexOf(pair.agreement_label) < 0) { errors.push(where + "choose a label"); }
+        if (!distinct(pair.scope_flags) ||
+            pair.scope_flags.some(function (f) { return FLAGS.indexOf(f) < 0; })) {
+          errors.push(where + "the scope flags must be distinct flags of the guideline");
+        }
+      });
+    });
+    return errors.length === before;
+  }
+
+  function cleanItem(phase, item) {
+    var minutes = Number.isInteger(item.minutes) && item.minutes >= 0 ? item.minutes : null;
+    var claims;
+    if (phase === "claim_extraction") {
+      claims = item.claims.map(function (c) {
+        return { span: c.span, text: c.text.trim(), kind: c.kind, citations: c.citations.slice() };
+      });
+    } else {
+      claims = item.claims.map(function (c) {
+        return { claim_id: c.claim_id, status: c.status, expert_would_review: c.expert_would_review,
+                 note: note(c.note),
+                 pairs: c.pairs.map(function (p) {
+                   return { source_id: p.source_id, evidence_spans: p.evidence_spans.slice(),
+                            agreement_label: p.agreement_label, scope_flags: p.scope_flags.slice(),
+                            note: note(p.note) };
+                 }) };
+      });
+    }
+    return { item_id: item.item_id, claims: claims, flag: note(item.flag), minutes: minutes };
+  }
+
+  // The work as JSON, or the reasons it cannot be exported yet.
+  function exportWork(batch, work) {
+    var errors = [];
+    var items = work.items.map(function (item, index) {
+      var shown = batch.items[index];
+      var flagged = note(item.flag) !== null;
+      if (batch.phase === "claim_extraction") {
+        checkExtraction(item, shown, errors);
+        return cleanItem(batch.phase, item);
+      }
+      var own = [];
+      var complete = labelsComplete(item, own);
+      if (flagged && !complete) {
+        // Flagged for the adjudicator: an unfinished item is exported without labels.
+        var empty = cleanItem(batch.phase, item);
+        empty.claims = [];
+        return empty;
+      }
+      Array.prototype.push.apply(errors, own);
+      return cleanItem(batch.phase, item);
+    });
+    if (errors.length) { return { errors: errors, json: null }; }
+    var out = { schema_version: 1, phase: work.phase, batch_id: work.batch_id,
+                batch_hash: work.batch_hash, annotator: work.annotator, items: items };
+    return { errors: [], json: JSON.stringify(out, null, 2) + "\n" };
+  }
+
+  return { newWork: newWork, exportWork: exportWork, KINDS: KINDS, STATUSES: STATUSES,
+           LABELS: LABELS, FLAGS: FLAGS };
+})();
+</script>
+
+<script>
+"use strict";
+(function () {
+  var A = UtuxAnnotation;
+  var batch = null;
+  var work = null;
+  var current = 0;
+  var main = document.getElementById("main");
+  var status = document.getElementById("status");
+  var exportButton = document.getElementById("export");
+
+  function key() {
+    return "utux-annotation:" + batch.batch_id + ":" + batch.annotator + ":" + batch.batch_hash;
+  }
+
+  function save() {
+    try { localStorage.setItem(key(), JSON.stringify({ work: work, current: current })); }
+    catch (e) { status.textContent = "The draft could not be kept in this browser; export often."; }
+  }
+
+  function restore() {
+    try {
+      var kept = JSON.parse(localStorage.getItem(key()) || "null");
+      if (kept && kept.work && kept.work.batch_hash === batch.batch_hash) {
+        work = kept.work; current = kept.current || 0; return true;
+      }
+    } catch (e) { /* no draft */ }
+    return false;
+  }
+
+  function el(tag, attrs, children) {
+    var node = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (name) {
+      if (name === "text") { node.textContent = attrs[name]; }
+      else if (name.slice(0, 2) === "on") { node.addEventListener(name.slice(2), attrs[name]); }
+      else { node.setAttribute(name, attrs[name]); }
+    });
+    (children || []).forEach(function (child) { if (child) { node.appendChild(child); } });
+    return node;
+  }
+
+  // A group of radio buttons; none is on until the annotator chooses.
+  function choice(name, values, value, onPick) {
+    return el("div", { class: "row" }, values.map(function (v) {
+      var input = el("input", { type: "radio", name: name, value: String(v) });
+      input.checked = value === v;
+      input.addEventListener("change", function () { onPick(v); save(); });
+      return el("label", {}, [input, document.createTextNode(" " + String(v))]);
+    }));
+  }
+
+  function toggles(values, chosen, onChange) {
+    return el("div", { class: "row" }, values.map(function (v) {
+      var input = el("input", { type: "checkbox", value: v });
+      input.checked = chosen.indexOf(v) >= 0;
+      input.addEventListener("change", function () {
+        var next = chosen.filter(function (c) { return c !== v; });
+        if (input.checked) { next.push(v); }
+        onChange(next); save();
+      });
+      return el("label", {}, [input, document.createTextNode(" " + v)]);
+    }));
+  }
+
+  function textField(value, onInput, multi) {
+    var input = el(multi ? "textarea" : "input", multi ? {} : { type: "text" });
+    input.value = value || "";
+    input.addEventListener("input", function () { onInput(input.value); save(); });
+    return input;
+  }
+
+  function sourcePanel(source) {
+    var passages = source.passages.map(function (p) {
+      return el("span", { class: "passage" }, [
+        el("span", { class: "muted", text: p.passage_id + "  " }),
+        document.createTextNode(source.text.slice(p.offsets[0], p.offsets[1]))
+      ]);
+    });
+    return el("div", { class: "panel" }, [
+      el("h3", { text: source.source_id }),
+      el("div", { class: "muted", text: "Text: " + source.checked_text + ". Extraction quality: " + source.extraction_quality + "." }),
+      el("div", {}, passages)
+    ]);
+  }
+
+  function extractionView(shown, item) {
+    var unit = el("textarea", { class: "unit", readonly: "readonly" });
+    unit.value = shown.text_unit;
+    var list = el("div");
+    function draw() {
+      list.innerHTML = "";
+      item.claims.forEach(function (claim, n) {
+        var box = el("div", { class: "panel" }, [
+          el("h3", { text: "Claim " + (n + 1) + "  [" + claim.span[0] + ", " + claim.span[1] + "]: “" + shown.text_unit.slice(claim.span[0], claim.span[1]) + "”" }),
+          el("label", { text: "Claim, self-contained" }), textField(claim.text, function (v) { claim.text = v; }, true),
+          el("div", { text: "Kind" }), choice("kind-" + n, A.KINDS, claim.kind, function (v) { claim.kind = v; }),
+          el("div", { text: "Cites" }), toggles(shown.sources.map(function (s) { return s.source_id; }), claim.citations, function (next) { claim.citations = next; }),
+          el("button", { text: "Remove this claim", onclick: function () { item.claims.splice(n, 1); save(); draw(); } })
+        ]);
+        list.appendChild(box);
+      });
+    }
+    draw();
+    var add = el("button", { text: "Add a claim from the marked span", onclick: function () {
+      if (unit.selectionEnd <= unit.selectionStart) { status.textContent = "Mark the span of the claim in the text unit first."; return; }
+      item.claims.push({ span: [unit.selectionStart, unit.selectionEnd], text: "", kind: null, citations: [] });
+      save(); draw();
+    } });
+    return [el("h2", { text: "Text unit" }), unit, add, el("h2", { text: "Your claims" }), list,
+            el("h2", { text: "Sources" })].concat(shown.sources.map(sourcePanel));
+  }
+
+  function labellingView(shown, item) {
+    var sources = {};
+    shown.sources.forEach(function (s) { sources[s.source_id] = s; });
+    var parts = [el("h2", { text: "Text unit" }), el("div", { class: "panel", text: shown.text_unit })];
+    item.claims.forEach(function (claim, n) {
+      var reference = shown.claims[n];
+      parts.push(el("h2", { text: claim.claim_id + " (" + reference.kind + "): " + reference.text }));
+      claim.pairs.forEach(function (pair, m) {
+        var source = sources[pair.source_id];
+        var spans = source.passages.map(function (p) {
+          var input = el("input", { type: "checkbox" });
+          input.checked = pair.evidence_spans.some(function (s) { return s.passage_id === p.passage_id; });
+          input.addEventListener("change", function () {
+            pair.evidence_spans = pair.evidence_spans.filter(function (s) { return s.passage_id !== p.passage_id; });
+            if (input.checked) { pair.evidence_spans.push({ passage_id: p.passage_id, offsets: p.offsets.slice() }); }
+            save();
+          });
+          return el("label", { class: "passage" }, [input, document.createTextNode(" " + p.passage_id + ": " + source.text.slice(p.offsets[0], p.offsets[1]))]);
+        });
+        parts.push(el("div", { class: "panel" }, [
+          el("h3", { text: "Source " + pair.source_id + " (" + source.checked_text + ", " + source.extraction_quality + ")" }),
+          el("div", { text: "1. Evidence: mark every passage that bears on the claim" }), el("div", {}, spans),
+          el("div", { text: "2. Agreement label" }), choice("label-" + n + "-" + m, A.LABELS, pair.agreement_label, function (v) { pair.agreement_label = v; }),
+          el("div", { text: "3. Scope flags" }), toggles(A.FLAGS, pair.scope_flags, function (next) { pair.scope_flags = next; }),
+          el("div", { text: "Note" }), textField(pair.note, function (v) { pair.note = v; })
+        ]));
+      });
+      parts.push(el("div", { class: "panel" }, [
+        el("div", { text: "4. Status of the claim" }), choice("status-" + n, A.STATUSES, claim.status, function (v) { claim.status = v; }),
+        el("div", { text: "5. Would an expert review this claim?" }), choice("review-" + n, [true, false], claim.expert_would_review, function (v) { claim.expert_would_review = v; }),
+        el("div", { text: "Note" }), textField(claim.note, function (v) { claim.note = v; })
+      ]));
+    });
+    return parts;
+  }
+
+  function draw() {
+    main.innerHTML = "";
+    var shown = batch.items[current];
+    var item = work.items[current];
+    var nav = el("nav", {}, [
+      el("button", { text: "Previous", onclick: function () { if (current > 0) { current -= 1; save(); draw(); } } }),
+      el("span", { text: "Item " + (current + 1) + " of " + batch.items.length + ": " + shown.item_id + " (" + shown.domain + ")" }),
+      el("button", { text: "Next", onclick: function () { if (current < batch.items.length - 1) { current += 1; save(); draw(); } } })
+    ]);
+    var minutes = el("input", { type: "number", min: "0" });
+    minutes.value = item.minutes === null ? "" : String(item.minutes);
+    minutes.addEventListener("input", function () { var v = parseInt(minutes.value, 10); item.minutes = isNaN(v) ? null : v; save(); });
+    var header = el("div", { class: "panel" }, [
+      el("div", { class: "muted", text: "Phase: " + batch.phase + ". Annotator: " + batch.annotator + ". Batch: " + batch.batch_id + "." }),
+      el("label", { text: "Minutes spent on this item" }), minutes,
+      el("label", { text: "If the item itself is broken (wrong source, unreadable text), say why here instead of labelling it" }),
+      textField(item.flag, function (v) { item.flag = v; })
+    ]);
+    var body = batch.phase === "claim_extraction" ? extractionView(shown, item) : labellingView(shown, item);
+    [nav, header].concat(body).forEach(function (part) { main.appendChild(part); });
+  }
+
+  document.getElementById("batch-file").addEventListener("change", function (event) {
+    var file = event.target.files[0];
+    if (!file) { return; }
+    var reader = new FileReader();
+    reader.onload = function () {
+      try { batch = JSON.parse(reader.result); }
+      catch (e) { status.textContent = "This file is not JSON."; return; }
+      if (!batch.batch_hash || !batch.items) { status.textContent = "This file is not a utux batch."; return; }
+      var restored = restore();
+      if (!restored) { work = A.newWork(batch); current = 0; save(); }
+      status.textContent = restored ? "Your draft of this batch was restored." : "A new batch was opened.";
+      exportButton.disabled = false;
+      draw();
+    };
+    reader.readAsText(file);
+  });
+
+  exportButton.addEventListener("click", function () {
+    var result = A.exportWork(batch, work);
+    if (result.json === null) {
+      status.className = "errors";
+      status.textContent = "Not exported yet: " + result.errors.slice(0, 8).join("; ") + (result.errors.length > 8 ? "; and more" : "");
+      return;
+    }
+    status.className = "done";
+    status.textContent = "Exported. Send the file to the adjudicator.";
+    var blob = new Blob([result.json], { type: "application/json" });
+    var link = el("a", { href: URL.createObjectURL(blob), download: "work-" + batch.batch_id + "-" + batch.annotator + "-" + batch.phase + ".json" });
+    document.body.appendChild(link); link.click(); link.remove();
+  });
+})();
+</script>
+</body>
+</html>
