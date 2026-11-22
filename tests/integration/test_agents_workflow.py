@@ -74,9 +74,9 @@ def test_every_model_call_logs_its_prompt_version(project: Path) -> None:
     run_workflow(project, services(project))
     calls = _events(project, EventType.MODEL_CALL)
     assert [e.prompt_version for e in calls] == [
-        "methodologist@2",
-        "implementer@2",
-        "analyst@3",
+        "methodologist@3",
+        "implementer@3",
+        "analyst@4",
     ]
 
 
@@ -295,3 +295,14 @@ def test_a_stage_that_fails_names_the_trace_of_its_last_answer(project: Path) ->
     assert (traces / f"{calls[1].event_id}.txt").read_text(encoding="utf-8") == "still not json"
     # Traces stay on the machine: git ignores them.
     assert ".utux/traces/" in (project / ".gitignore").read_text(encoding="utf-8")
+
+
+def test_the_retry_of_an_analysis_names_the_refused_word_and_sentence(project: Path) -> None:
+    switch_gates_off(project)
+    bad = Raw("analyst", json.dumps({"text": "The fit is three times better: [R0001]."}))
+    run_services = services(project, (METHOD, CODE, bad))
+    run_workflow(project, run_services)
+    _, retry = _provider(run_services).of("analyst")
+    asked = retry.messages[-1].content
+    assert "'three'" in asked
+    assert '"The fit is three times better: [R0001]."' in asked

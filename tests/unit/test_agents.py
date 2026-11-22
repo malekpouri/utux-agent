@@ -49,7 +49,7 @@ def _record(record_id: str, value: float, metric: str = "r2") -> ResultRecord:
 
 @pytest.mark.parametrize(
     ("role", "version"),
-    [("methodologist", 2), ("implementer", 2), ("analyst", 3)],
+    [("methodologist", 3), ("implementer", 3), ("analyst", 4)],
 )
 def test_each_role_has_a_versioned_prompt_in_the_pack(role: str, version: int) -> None:
     prompt = load_prompt(PROMPTS, role)
@@ -252,8 +252,8 @@ def test_anything_but_exactly_one_fenced_block_is_left_as_it_is(answer: str) -> 
         "About half of them: [R0001].",
         "A rise of ten per cent: [R0001].",
         "Ninety PERCENT fit: [R0001].",
-        "One run gave [R0001].",
         "A thousand points: [R0001].",
+        "Eleven of the points fit: [R0001].",
     ],
 )
 def test_a_number_word_outside_a_reference_is_rejected(text: str) -> None:
@@ -281,3 +281,74 @@ def test_the_analyst_prompt_says_configuration_numbers_belong_in_method_md() -> 
     text = load_prompt(PROMPTS, "analyst").text
     assert "method.md" in text
     assert "folds" in text
+
+
+# Findings of M1-16: small number words
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Of the two models, the first fits better: [R0001].",
+        "One run gave [R0001].",
+        "All three models agree: [R0001].",
+        "Zero errors were reported beside [R0001].",
+        "Ten of them, and [R0001].",
+    ],
+)
+def test_zero_to_ten_are_allowed_as_words(text: str) -> None:
+    check_analysis_text(text, {"R0001"})
+
+
+@pytest.mark.parametrize(
+    ("text", "word"),
+    [
+        ("A rise of two percent: [R0001].", "two"),
+        ("A rise of two per cent: [R0001].", "two"),
+        ("Two percentage points: [R0001].", "Two"),
+        ("It is three times better: [R0001].", "three"),
+        ("A five-fold gain: [R0001].", "five"),
+        ("A five fold gain: [R0001].", "five"),
+        ("Up by four points: [R0001].", "four"),
+        ("Up by one point: [R0001].", "one"),
+        ("Eleven models: [R0001].", "Eleven"),
+        ("Twice as good: [R0001].", "Twice"),
+    ],
+)
+def test_a_small_number_word_before_a_unit_or_a_multiple_is_refused(text: str, word: str) -> None:
+    with pytest.raises(AgentOutputError, match=repr(word)):
+        check_analysis_text(text, {"R0001"})
+
+
+def test_the_refusal_names_the_word_and_its_sentence() -> None:
+    text = "Both models fit well: [R0001]. The tree is three times slower. That is all."
+    with pytest.raises(AgentOutputError) as refused:
+        check_analysis_text(text, {"R0001"})
+    message = str(refused.value)
+    assert "'three'" in message
+    assert '"The tree is three times slower."' in message
+
+
+def test_the_analyst_prompt_keeps_to_the_fields_of_each_record() -> None:
+    text = load_prompt(PROMPTS, "analyst").text
+    assert "both models" in text
+    assert "two models" in text
+    for field in ("metric", "model", "dataset", "split", "unit"):
+        assert field in text
+    assert "never add a split, setting or condition the record does not state" in text
+
+
+def test_the_methodologist_prompt_asks_for_one_number_per_metric() -> None:
+    text = load_prompt(PROMPTS, "methodologist").text
+    assert "one number that answers the research question" in text
+    assert "accuracy_comparison" in text
+    assert "shape" in text
+
+
+def test_the_implementer_prompt_names_none_tolerance_split_and_random_state() -> None:
+    text = load_prompt(PROMPTS, "implementer").text
+    assert "None, not null" in text
+    assert "tolerance" in text
+    assert "cv5" in text
+    assert "never train" in text
+    assert "random_state" in text
