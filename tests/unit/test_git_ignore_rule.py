@@ -34,6 +34,7 @@ FILES = [
     (".utux/checkpoints.sqlite-journal", True),
     (".utux/lock", True),
     (".utux/staging/methodology/method.md", True),
+    (".utux/traces/e-000012.txt", True),
     (".utux/settings-snapshot.yaml", False),
     (".utux/meta/method-v003.json", False),
     (".method.md.tmp", True),

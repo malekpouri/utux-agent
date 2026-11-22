@@ -22,6 +22,7 @@ from workflow_scripts import (
     METHOD,
     METHOD_MD,
     QUESTION,
+    Raw,
     Reply,
     configure_models,
     services,
@@ -657,3 +658,15 @@ def test_log_repair_refuses_a_lock_that_is_held_or_cannot_be_checked(
     assert "locked" in output
     assert (project / ".utux" / "lock").exists()
     assert (project / "events.jsonl").read_bytes() == before
+
+
+def test_status_shows_the_trace_beside_the_error(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    switch_gates_off(project)
+    _script(monkeypatch, (Raw("methodologist", "not json"), Raw("methodologist", "not json")))
+    assert _utux("run", str(project))[0] == 1
+    code, output = _utux("status", str(project))
+    assert code == 0, output
+    calls = _events(project, EventType.MODEL_CALL)
+    assert f"invalid_structured_output; trace .utux/traces/{calls[-1].event_id}.txt" in output
