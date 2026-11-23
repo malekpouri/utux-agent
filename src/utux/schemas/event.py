@@ -77,7 +77,7 @@ _DATA_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.PROJECT_CREATED: ("utux_version",),
     EventType.SETTING_CHANGED: ("key", "old_value", "new_value"),
     EventType.LOG_REPAIRED: ("fragment_file", "fragment_hash", "fragment_bytes"),
-    EventType.MODEL_CALL: ("provider", "is_external"),
+    EventType.MODEL_CALL: ("provider", "is_external", "estimated_cost_usd"),
     EventType.BUDGET_WARNING: ("spent_usd", "total_usd"),
     EventType.STAGE_START: ("node",),
     EventType.STAGE_END: ("node",),
@@ -97,6 +97,8 @@ _DATA_KEYS: dict[EventType, tuple[str, ...]] = {
 # existed stay valid. `trace` of `error` came with the findings of M1-16.
 _MAY_BE_ABSENT: dict[EventType, tuple[str, ...]] = {
     EventType.ERROR: ("trace",),
+    # Written only by the gold tooling (ADR-0019); pipeline calls leave it out.
+    EventType.MODEL_CALL: ("estimated_cost_usd",),
 }
 
 # Keys of `data` whose value must be non-empty text.
@@ -190,6 +192,12 @@ _CODE_KEYS: dict[EventType, tuple[str, ...]] = {
 # zero or more.
 _USD_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.BUDGET_WARNING: ("spent_usd", "total_usd"),
+    EventType.MODEL_CALL: ("estimated_cost_usd",),
+}
+
+# Keys of `_USD_KEYS` that may also be null.
+_NULLABLE_USD_KEYS: dict[EventType, tuple[str, ...]] = {
+    EventType.MODEL_CALL: ("estimated_cost_usd",),
 }
 
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -447,7 +455,7 @@ def _check_data_keys(value: dict[str, Scalar], info: ValidationInfo) -> dict[str
                     }
                 )
     for key in _USD_KEYS.get(kind, ()):
-        if key in value:
+        if key in value and not (value[key] is None and key in _NULLABLE_USD_KEYS.get(kind, ())):
             amount = value[key]
             if (
                 not isinstance(amount, int | float)
