@@ -4,14 +4,20 @@ Every reference and work here is synthetic. Expected similarities are worked
 out by hand in the comments.
 """
 
+from pathlib import Path
+
 import pytest
+from pydantic import ValidationError
 
 from utux.errors import LiteratureNotFoundError, LiteratureUnavailableError
+from utux.events.log import EventLog
 from utux.interfaces.literature_source import WorkMetadata
+from utux.schemas.event import EventStatus, EventType, NewEvent
 from utux.schemas.source_record import Author
 from utux.verification.existence import (
     TITLE_SIMILARITY,
     YEAR_TOLERANCE,
+    BibliographyCheck,
     ExistenceReason,
     Reference,
     check_bibliography,
@@ -19,6 +25,7 @@ from utux.verification.existence import (
     claims_to_unverify,
     first_author_matches,
     normalise,
+    record_bibliography_check,
     resolve_reference,
     title_similarity,
 )
@@ -88,9 +95,21 @@ def test_title_similarity_is_one_minus_edit_distance_over_the_longer_length() ->
         # A display name is searched for the family name as whole words.
         ("Doe", Author(display_name="Jane Doe"), True),
         ("van der Berg", Author(display_name="Anna van der Berg"), True),
+        # The whole-word rule holds after the amendment of ADR-0016.
         ("Berg", Author(display_name="Anna Bergman"), False),
-        ("Müller", Author(display_name="Hans Muller"), False),
-        ("García", Author(display_name="José García-López"), False),
+        ("Bergman", Author(display_name="Anna Berg"), False),
+        # Diacritics are folded, and ü, ö, ä also match ue, oe, ae (maintainer, PR #57).
+        ("Müller", Author(display_name="Hans Muller"), True),
+        ("Müller", Author(display_name="Hans Mueller"), True),
+        ("Mueller", Author(display_name="Hans Müller"), True),
+        ("Schröder", Author(family="Schroeder"), True),
+        ("Bär", Author(family="Baer"), True),
+        ("Müller", Author(display_name="Hans Miller"), False),
+        # Hyphens are word boundaries.
+        ("García", Author(display_name="José García-López"), True),
+        ("García", Author(family="García-López"), True),
+        ("Garcia-Lopez", Author(family="García López"), True),
+        ("López", Author(family="Lopez"), True),
         # The family field, where given, decides, even if the display name differs.
         ("Doe", Author(family="Doe", display_name="Someone Else"), True),
         ("Else", Author(family="Doe", display_name="Someone Else"), False),
@@ -214,6 +233,8 @@ def test_a_reference_that_no_service_could_answer_is_not_judged() -> None:
     assert result.exists is None
     assert result.reasons == ()
     assert result.incomplete is True
+    # A distinct reason, never one of the four rules (maintainer, PR #57).
+    assert result.incomplete_reason == "existence_check_incomplete"
 
 
 def test_one_service_down_and_the_other_without_the_work_is_still_incomplete() -> None:
@@ -250,3 +271,123 @@ def test_unresolved_references_are_removed_and_their_claims_become_unverified() 
 def test_reference_keys_are_unique() -> None:
     with pytest.raises(ValueError, match="doe2024"):
         check_bibliography([_reference(), _reference()], _sources())  # type: ignore[arg-type]
+
+
+# The report and the event log (maintainer, PR #57) -----------------------------------
+
+
+def _checked() -> BibliographyCheck:
+    outage = {"doi:10.0000/down": LiteratureUnavailableError("synthetic outage")}
+    sources = _sources(
+        crossref=_Source("crossref", {DOI: _work()}, outage),
+        openalex=_Source("openalex", errors=outage),
+    )
+    references = [
+        _reference(key="real"),
+        _reference(key="invented", identifier="doi:10.0000/nowhere"),
+        _reference(key="wrong", year=1990, title="Something else entirely"),
+        _reference(key="down", identifier="doi:10.0000/down"),
+    ]
+    return check_bibliography(references, sources)  # type: ignore[arg-type]
+
+
+def test_the_report_gives_an_incomplete_check_its_own_reason() -> None:
+    check = _checked()
+    assert check.incomplete == ("down",)
+    report = check.report()
+    assert report["incomplete"] == {"down": "existence_check_incomplete"}
+    assert report["removed"] == {
+        "invented": ["not_found"],
+        "wrong": ["title_mismatch", "year_mismatch"],
+    }
+    assert report["kept"] == ["real", "down"]
+
+
+def test_each_reference_check_is_a_verification_result_event(tmp_path: Path) -> None:
+    log = EventLog(tmp_path / "events.jsonl")
+    record_bibliography_check(log, _checked())
+    events = [(e.status, e.status_reason, dict(e.data)) for e in log]
+    check = "citation_existence"
+    assert events == [
+        (
+            EventStatus.OK,
+            None,
+            {
+                "check": check,
+                "reference": "real",
+                "outcome": "exists",
+                "reasons": None,
+                "resolved_by": "crossref",
+            },
+        ),
+        (
+            EventStatus.OK,
+            None,
+            {
+                "check": check,
+                "reference": "invented",
+                "outcome": "removed",
+                "reasons": "not_found",
+                "resolved_by": None,
+            },
+        ),
+        (
+            EventStatus.OK,
+            None,
+            {
+                "check": check,
+                "reference": "wrong",
+                "outcome": "removed",
+                "reasons": "title_mismatch year_mismatch",
+                "resolved_by": "crossref",
+            },
+        ),
+        (
+            EventStatus.ERROR,
+            "existence_check_incomplete",
+            {
+                "check": check,
+                "reference": "down",
+                "outcome": "incomplete",
+                "reasons": None,
+                "resolved_by": None,
+            },
+        ),
+    ]
+    assert all(e.type is EventType.VERIFICATION_RESULT for e in log)
+
+
+@pytest.mark.parametrize(
+    ("status", "reason", "data", "code"),
+    [
+        # A removed reference names its failed rules; nothing else does.
+        ("ok", None, {"outcome": "removed", "reasons": None}, "reasons_required"),
+        ("ok", None, {"outcome": "exists", "reasons": "not_found"}, "reasons_not_allowed"),
+        ("ok", None, {"outcome": "removed", "reasons": "made_up"}, "unknown_reason"),
+        # An incomplete check is an error with its own reason, never ok.
+        ("ok", None, {"outcome": "incomplete"}, "outcome_status_mismatch"),
+        ("error", "not_found", {"outcome": "incomplete"}, "outcome_status_mismatch"),
+        ("error", "existence_check_incomplete", {"outcome": "exists"}, "outcome_status_mismatch"),
+        ("ok", None, {"outcome": "maybe"}, "unknown_outcome"),
+    ],
+)
+def test_an_inconsistent_verification_result_is_refused(
+    status: str, reason: str | None, data: dict[str, object], code: str
+) -> None:
+    fields: dict[str, object] = {
+        "check": "citation_existence",
+        "reference": "doe2024",
+        "outcome": "exists",
+        "reasons": None,
+        "resolved_by": None,
+    }
+    fields.update(data)
+    with pytest.raises(ValidationError) as caught:
+        NewEvent(
+            actor="system:utux",
+            type=EventType.VERIFICATION_RESULT,
+            status=EventStatus(status),
+            status_reason=reason,
+            data=fields,
+        )
+    assert code in {error["type"] for error in caught.value.errors()}
