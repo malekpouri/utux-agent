@@ -10,6 +10,9 @@ from pathlib import Path
 import pytest
 from provider_fakes import SYNTHETIC_KEY, ScriptedTransport, response
 from synthetic_gold_corpus import synthetic_corpus
+
+from utux.errors import ContractValidationError, ModelProviderError
+from utux.evalkit.gold import Confirmation, GoldItem, GoldStatus, PerturbationRecord
 from utux.evalkit.model_perturb import (
     CHECK_PROMPT,
     GEMINI_BASE_URL,
@@ -23,9 +26,6 @@ from utux.evalkit.model_perturb import (
     load_prompt,
 )
 from utux.evalkit.perturb import PerturbationType
-
-from utux.errors import ContractValidationError, ModelProviderError
-from utux.evalkit.gold import Confirmation, GoldItem, GoldStatus, PerturbationRecord
 from utux.events.log import EventLog
 from utux.interfaces.model_provider import Message, MessageRole
 from utux.providers.scripted import ScriptedModelProvider, ScriptedReply
@@ -191,7 +191,7 @@ def test_a_cap_too_small_for_one_call_sends_nothing(
         EventLog(tmp_path / "events.jsonl"), provider, max_cost_usd=0.001, today=lambda: TODAY
     )
     run = build_model_perturbations(items, texts, caller, seed=3, per_type=1)
-    assert (run.items, run.stopped_by_cap, provider.requests) == ((), True, [])
+    assert (run.items, run.stopped_by_cap, len(provider.requests)) == ((), True, 0)
 
 
 # Gemini through the OpenAI-compatible client, on a recorded answer -------------------

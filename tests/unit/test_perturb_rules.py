@@ -10,12 +10,6 @@ from pathlib import Path
 
 import pytest
 from synthetic_gold_corpus import item, synthetic_corpus
-from utux.evalkit.perturb import (
-    HEDGES,
-    METRIC_GROUPS,
-    PerturbationType,
-    build_rule_perturbations,
-)
 
 from utux.evalkit.gold import (
     Confirmation,
@@ -25,6 +19,12 @@ from utux.evalkit.gold import (
     Origin,
     PerturbationRecord,
     check_release,
+)
+from utux.evalkit.perturb import (
+    HEDGES,
+    METRIC_GROUPS,
+    PerturbationType,
+    build_rule_perturbations,
 )
 from utux.schemas.claim_ledger import ScopeFlag, SourceLabel
 
