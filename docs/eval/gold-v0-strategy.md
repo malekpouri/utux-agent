@@ -216,9 +216,11 @@ Gemini never:
 - Grounding with Google Search is not used: it stores prompts for 30 days on
   either tier.
 
-**Open: NC data.** The decisions do not say whether SciFact items, treated
-as CC BY-NC 2.0, may be sent to Gemini on the paid tier to write their
-perturbations. Until the maintainer says so, no NC item is sent to any model.
+- [x] **NC data to Gemini** (second review, 2026-11-22).
+  - **Allowed:** for non-commercial research evaluation, on the paid tier named above.
+  - **Licence:** a perturbation derived from a SciFact item carries its licence, CC BY-NC 2.0, and the same redistribution limit (`provenance.text_redistributable` false).
+  - **The uncited-abstract perturbation** is built deterministically, with no model.
+  - **Model-written perturbations** prefer ML items from SciClaimEval.
 
 - [x] **Gemini's role** approved. One model version is pinned from Google's current documentation, and only an API tier whose terms say inputs are not used for training is used. Both are named above.
 
@@ -240,8 +242,8 @@ audit does not change labels.
 **v0: about 300 claims.**
 - About 150 SciFact items: 50 each of `verified`, `contradicted` and
   `insufficient_evidence`.
-- About 100 SciClaimEval items, 50 `verified` and 50 `contradicted`,
-  favouring ML.
+- About 100 SciClaimEval items, 50 `verified` and 50 `contradicted`, all
+  ML (second review).
 - About 50 perturbations.
 - Drawn by a fixed seed and stratified by status and domain.
 
@@ -251,11 +253,17 @@ audit does not change labels.
 - **The v0 plan:** 288 ML SciClaimEval items are available, so all 100
   SciClaimEval items can be ML. Imported items are then 100 of 250 ML, 40%,
   20 points below.
-- **Perturbations:** if all 50 are made from ML items, v0 is 150 of 300 ML,
-  50%, 10 points below. If they follow the imported mix, it is 120 of 300,
-  40%.
+- **Perturbations** are made from ML items wherever the type allows (second
+  review), targeting about 50% ML:
+  - if all 50 are made from ML items, v0 is 150 of 300 ML, 50%, which leaves
+    a gap of 10 points from RFC-002's 60%;
+  - the uncited-abstract perturbation can only be made from SciFact, which is
+    biomedicine. Each one lowers the ML share by a third of a point; with 10
+    of them, v0 is 140 of 300 ML, 46.7%, 13.3 points below.
 
 The gap is reported with every result.
+
+- [x] **Domain balance** (second review, 2026-11-22): all 100 SciClaimEval items in v0 are ML, and perturbations are made from ML items where the type allows, targeting about 50% ML. The remaining gap from RFC-002's 60% is at least 10 points, as above.
 
 - [x] **Sizes** approved: about 300 as proposed, favouring ML items in the SciClaimEval share; the domain balance and its gap from RFC-002's 60% ML are reported (above).
 
@@ -277,6 +285,11 @@ The gap is reported with every result.
 - [x] **Contamination.** Headline metrics are computed over all items, with per-origin results mandatory. The H3 thresholds must also hold on the perturbed subset.
 - [x] **Item schema:** option (a), one gold item schema with a provenance block (RFC-002 section 4). A `public` item has `provenance`, `annotation` null, empty `raw` entries, no adjudication, and `kind` and `expert_would_review` null. A perturbation of it keeps the provenance.
 - [x] **Source groups:** SciFact by cited abstract, SciClaimEval by `paper_id`, carried by the converter.
+
+### Second review, 2026-11-22
+
+- [x] **The locked protocol.** `docs/eval/protocol.md` is not edited. The rule that the H3 thresholds must also hold on the perturbed subset is listed under "Pending for v0.1" in RFC-002's changelog, to be applied at the v0.1 lock after the pilot.
+- [x] **The release rule** that a perturbation may be made from a public item (`check_release`) is approved.
 
 ## 11. Issue text for the SciFact repository
 
