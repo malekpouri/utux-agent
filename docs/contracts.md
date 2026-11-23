@@ -38,7 +38,7 @@ beside it.
 | `extraction_quality` | `clean`, `good`, `degraded` or null | Quality rating of the stored text |
 | `storage_permitted` | boolean | Whether the licence lets utux store the text |
 | `title` | text or null | The resolved title |
-| `authors` | list of `family` (text) and `given` (text or null) | The resolved authors, in order; empty when none were given |
+| `authors` | list of `family` (text or null), `given` (text or null) and `display_name` (text or null); `family` or `display_name` is given | The resolved authors, in order; empty when none were given. A display name is the whole name, never split |
 | `year` | integer from 1000 to 2999, or null | The year of publication |
 | `venue` | text or null | The journal, conference or repository |
 

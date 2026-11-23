@@ -18,8 +18,11 @@ Any method can also raise `LiteratureUnavailableError` (retryable),
 
 **Identifiers carry their scheme**: `doi:…`, `arxiv:…`, `pmid:…`.
 
-**`WorkMetadata`** holds `identifier`, `title`, `authors` (each a `family`
-and a `given` name), `year`, `venue` and `url`. What the source does not
+**`WorkMetadata`** holds `identifier`, `title`, `authors`, `year`, `venue`
+and `url`. Each author has a `family` and a `given` name where the service
+gives them separately, or a `display_name`, the whole name, which is never
+split; at least one of `family` and `display_name` (ADR-0017, amended in
+M2-06). What the source does not
 give is null, or empty for the authors; it is never guessed.
 
 **`FetchedSource`** holds `metadata`, `text`, `checked_text` (`abstract` or
@@ -72,10 +75,9 @@ than 60 seconds), and answers of at most 10 MB. Both are keyless by default.
 | Contact email | never sent: OpenAlex's current documentation does not say it helps | never sent |
 | Key | none by default; with `OPENALEX_API_KEY` set, sent only as `Authorization: Bearer`, and requests may go 30 a second | none |
 
-**Authors.** Both services give each author as one name. The last word is
-taken as the family name and the rest as the given name, a rule that is
-wrong for some names, such as "van der Berg"; ADR-0016 compares the first
-author's family name.
+**Authors.** Both services give each author as one name, which is kept
+whole as `display_name` (M2-06). ADR-0016's first-author rule looks for the
+cited family name in it as whole words.
 
 **An OpenAlex abstract** is rebuilt from its inverted index, which maps each
 word to its positions; the positions must cover 0 to n - 1 exactly once each,
@@ -102,3 +104,23 @@ The live smoke tests reach both services and are run by the maintainer only:
 ```bash
 uv run pytest -m live tests/integration/test_literature_live.py
 ```
+
+## Crossref
+
+Task M2-06. `CrossrefSource` resolves `doi:` identifiers through the
+[Crossref REST API](https://www.crossref.org/documentation/retrieve-metadata/rest-api/access-and-authentication/),
+with no key.
+
+- **Contact email.** Crossref's documentation (last updated 2025-10-16)
+  recommends a `mailto` for its "polite" pool: higher limits, and contact
+  before any block. So `literature.contact_email`, when set, is sent to
+  Crossref as `mailto` (rule 8).
+- **Limits kept.** DOI lookups 5 a second, or 10 with a contact email;
+  queries 1 a second, or 3 with one; one request at a time.
+- **Authors.** Crossref's separate `family` and `given` names are kept; an
+  organisation's `name` becomes a `display_name`.
+- **Year.** From `issued`, else `published-print`, else `published-online`.
+- **Text.** The deposited JATS abstract as plain text, without its heading
+  (`extraction_method` `crossref_jats_abstract`, `source_version`
+  `index_abstract`). An abstract that is absent, holds a document type or
+  entity declaration, or does not parse gives no text.
