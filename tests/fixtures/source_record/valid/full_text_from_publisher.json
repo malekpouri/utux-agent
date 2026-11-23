@@ -17,11 +17,13 @@
   "authors": [
     {
       "family": "Doe",
-      "given": "Jane"
+      "given": "Jane",
+      "display_name": null
     },
     {
       "family": "Roe",
-      "given": null
+      "given": null,
+      "display_name": null
     }
   ],
   "year": 2024,

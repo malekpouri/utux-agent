@@ -17,7 +17,8 @@
   "authors": [
     {
       "family": "Moe",
-      "given": "Ann"
+      "given": "Ann",
+      "display_name": null
     }
   ],
   "year": 2023,

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Annotated, ClassVar, Self
 
 from pydantic import Field, StrictBool, model_validator
+from pydantic_core import PydanticCustomError
 
 from utux.schemas.base import ContractDocument, ContractPart, field_problem, raise_field_problems
 from utux.schemas.claim_ledger import CheckedText, ExtractionQuality
@@ -35,10 +36,25 @@ class SourceVersion(StrEnum):
 
 
 class Author(ContractPart):
-    """One author, as the resolver gives the name."""
+    """One author, as the resolver gives the name.
 
-    family: NonEmptyText
+    A service that gives the family name separately, such as Crossref, fills
+    `family` and `given`. A service that gives one name per author, such as
+    OpenAlex or arXiv, fills `display_name`, which is never split into parts
+    (M2-06). At least one of `family` and `display_name` is given.
+    """
+
+    family: NonEmptyText | None = None
     given: NonEmptyText | None = None
+    display_name: NonEmptyText | None = None
+
+    @model_validator(mode="after")
+    def _has_a_name(self) -> Self:
+        if self.family is None and self.display_name is None:
+            raise PydanticCustomError(
+                "author_name_required", "an author has a family name or a display name"
+            )
+        return self
 
 
 _TEXT_FIELDS = ("text_hash", "extraction_method", "extraction_tool_version", "extraction_quality")
