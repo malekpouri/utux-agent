@@ -96,6 +96,17 @@ search on an external source is refused before any request, since a query
 can carry project text; fetch and resolve by identifier stay allowed
 (M2-05).
 
+### Author names, 2026-11-22
+
+Amended at the maintainer's decision in M2-06. Point 3 gave each author a
+family and a given name. An author now has `family` and `given`, as Crossref
+gives them, or a `display_name`, the whole name as OpenAlex and arXiv give
+it, or both; at least one of `family` and `display_name`. A display name is
+never split into parts: the first-author rule of ADR-0016 compares the cited
+family name with `family` where it is given, and otherwise looks for it as
+whole words in `display_name` (`docs/plan/M2.md`, M2-06). The source record
+keeps `schema_version` 1, as no release has written source records.
+
 ## Sources
 
 - `docs/spec.md`, section 5 ("Six pluggable interfaces", row

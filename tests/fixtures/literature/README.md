@@ -8,3 +8,5 @@ never reach the network (rule 6 of `docs/plan/M2.md`).
 `arxiv/search_attention.xml` answers a natural title query (PR #54 review). Its title is the
 real paper's title, so that the query has stop words and the word "all"; its id, date, author
 and abstract are synthetic.
+
+`crossref/` holds synthetic answers in the shape of the Crossref REST API (`/works/{doi}`, `/works?query=`), M2-06: a work with a JATS abstract, a person and an organisation as authors, and a search result.

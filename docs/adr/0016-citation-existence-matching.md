@@ -84,6 +84,28 @@ these rules.
 Accepted by the maintainer on 2026-11-22, with the edit-distance similarity
 of rule 2. Section 8 of the specification is changed to match.
 
+### Names and incomplete checks, 2026-11-23
+
+Amended at the maintainer's decisions in the review of M2-06 (pull request
+#57).
+
+- **Author names.** Rule 3 compares names in more forms than rule 2's
+  normalisation:
+  - hyphens are word boundaries;
+  - diacritics are folded (Unicode NFKD, the combining marks dropped);
+  - ü, ö and ä are also accepted as ue, oe and ae.
+
+  So "Müller" matches "Muller" and "Mueller", and "García" matches
+  "García-López". The whole-word rule stands: "Berg" does not match
+  "Bergman". The cited family name must appear as whole words in the
+  service's family name where one is given, and otherwise in its display
+  name, which is never split. Titles keep rule 2's normalisation.
+- **Incomplete checks.** When no service answers and none says the work does
+  not exist, the check is incomplete. The reference stays, its claims stay
+  `unverified`, and the event and the report record the reason
+  `existence_check_incomplete`, which is never one of the four codes of a
+  failed rule.
+
 ## Sources
 
 - `docs/spec.md`, section 8 ("Verification checks", citation existence).

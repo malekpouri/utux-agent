@@ -16,7 +16,8 @@
   "authors": [
     {
       "family": "Doe",
-      "given": "Jane"
+      "given": "Jane",
+      "display_name": null
     }
   ],
   "year": 2024,

@@ -4,8 +4,8 @@ The arXiv API answers in Atom XML and asks for at most one request every
 three seconds, on one connection at a time (its terms of use; rule 7
 assessment in pull request #54); the client keeps to that. It needs no key.
 It resolves arXiv ids only, `arxiv:<id>`, and its text is the abstract,
-from the entry's `summary`, with runs of whitespace made one space. Authors
-are split as for OpenAlex: the last word of a name is the family name.
+from the entry's `summary`, with runs of whitespace made one space. Each
+author's name is kept whole, as for OpenAlex.
 
 A feed that holds a document type or an entity declaration is refused
 before it is parsed, so that no entity is ever expanded.
@@ -84,11 +84,11 @@ def _clean(text: str | None) -> str | None:
     return joined or None
 
 
-def _author(name: str | None) -> Author | None:
-    parts = (name or "").split()
-    if not parts:
+def _author(name: object) -> Author | None:
+    # One name per author: kept whole, never split into family and given (M2-06).
+    if not isinstance(name, str) or not " ".join(name.split()):
         return None
-    return Author(family=parts[-1], given=" ".join(parts[:-1]) or None)
+    return Author(display_name=" ".join(name.split()))
 
 
 class ArxivSource:

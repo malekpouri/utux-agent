@@ -137,9 +137,9 @@ class HttpClient:
         self._lock = threading.Lock()
         self._last: float | None = None
 
-    def _wait_turn(self) -> None:
+    def _wait_turn(self, interval: float) -> None:
         if self._last is not None:
-            wait = self._last + self._interval - self._monotonic()
+            wait = self._last + interval - self._monotonic()
             if wait > 0:
                 self._sleep(wait)
         self._last = self._monotonic()
@@ -152,8 +152,12 @@ class HttpClient:
             wait = float(2**attempt)
         return min(wait, self.MAX_WAIT_SECONDS)
 
-    def get(self, url: str) -> bytes:
+    def get(self, url: str, *, min_interval_seconds: float | None = None) -> bytes:
         """The body of a successful answer to a GET of `url`.
+
+        `min_interval_seconds`, when given, replaces the client's interval
+        before this request, for a service whose limits differ by kind of
+        request.
 
         Raises:
             LiteratureNotFoundError: The answer was `404`.
@@ -170,7 +174,9 @@ class HttpClient:
         )
         with self._lock:
             for attempt in range(self.MAX_ATTEMPTS):
-                self._wait_turn()
+                self._wait_turn(
+                    self._interval if min_interval_seconds is None else min_interval_seconds
+                )
                 try:
                     response: HttpResponse | None = self._transport(request)
                 except OSError as error:
