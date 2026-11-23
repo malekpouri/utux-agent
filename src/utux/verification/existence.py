@@ -121,8 +121,15 @@ class ExistenceResult:
 
 
 def normalise(text: str) -> str:
-    """Unicode NFKC, case folding, punctuation removed, runs of whitespace made one space."""
-    folded = unicodedata.normalize("NFKC", text).casefold()
+    """NFKC, diacritics folded, case folding, punctuation removed, whitespace runs made one space.
+
+    Diacritics are folded by NFKD with the combining marks dropped (ADR-0016,
+    amended after PR #57), so "Müller" becomes "muller". The ue, oe, ae
+    transliterations are for author names only (`name_forms`).
+    """
+    decomposed = unicodedata.normalize("NFKD", unicodedata.normalize("NFKC", text))
+    stripped = "".join(char for char in decomposed if not unicodedata.combining(char))
+    folded = unicodedata.normalize("NFC", stripped).casefold()
     kept = "".join(char for char in folded if not unicodedata.category(char).startswith("P"))
     return " ".join(kept.split())
 
