@@ -242,3 +242,32 @@ def test_unknown_metadata_may_be_null_or_empty() -> None:
         _record(title=None, authors=[], year=None, venue=None), "record"
     )
     assert (record.title, record.authors, record.year, record.venue) == (None, (), None, None)
+
+
+# Author names (M2-06: display names are not split)
+
+
+def test_an_author_has_a_family_name_a_display_name_or_both() -> None:
+    from utux.schemas.source_record import Author
+
+    assert Author(family="Doe", given="Jane").display_name is None
+    assert Author(display_name="Jane Doe").family is None
+    assert Author(family="Doe", display_name="Jane Doe").given is None
+
+
+@pytest.mark.parametrize(
+    ("fields", "code"),
+    [
+        ({}, "author_name_required"),
+        ({"given": "Jane"}, "author_name_required"),
+        ({"display_name": ""}, "string_too_short"),
+    ],
+)
+def test_an_author_without_a_name_is_refused(fields: dict[str, str], code: str) -> None:
+    from pydantic import ValidationError
+
+    from utux.schemas.source_record import Author
+
+    with pytest.raises(ValidationError) as caught:
+        Author(**fields)
+    assert code in {error["type"] for error in caught.value.errors()}

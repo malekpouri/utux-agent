@@ -1,0 +1,45 @@
+{
+  "status": "ok",
+  "message-type": "work",
+  "message-version": "1.0.0",
+  "message": {
+    "DOI": "10.0000/synthetic-known",
+    "type": "journal-article",
+    "title": [
+      "A synthetic method comparison"
+    ],
+    "author": [
+      {
+        "given": "Jane",
+        "family": "Doe",
+        "sequence": "first",
+        "affiliation": []
+      },
+      {
+        "name": "Synthetic Consortium",
+        "sequence": "additional",
+        "affiliation": []
+      }
+    ],
+    "container-title": [
+      "Synthetic Journal"
+    ],
+    "URL": "https://doi.org/10.0000/synthetic-known",
+    "issued": {
+      "date-parts": [
+        [
+          2024,
+          3,
+          1
+        ]
+      ]
+    },
+    "abstract": "<jats:title>Abstract</jats:title><jats:p>We compare method A and method B.\n  A beats B on dataset X.</jats:p>",
+    "license": [
+      {
+        "URL": "https://creativecommons.org/licenses/by/4.0/",
+        "content-version": "vor"
+      }
+    ]
+  }
+}

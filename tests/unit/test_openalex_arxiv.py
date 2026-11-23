@@ -92,8 +92,11 @@ def test_openalex_fetch_gives_the_abstract_and_the_metadata() -> None:
         2024,
         "Synthetic Journal",
     )
-    # OpenAlex gives one display name; its last word is taken as the family name.
-    assert [(a.family, a.given) for a in work.authors] == [("Doe", "Jane"), ("Roe", None)]
+    # OpenAlex gives one display name per author; it is kept whole (M2-06).
+    assert [(a.family, a.given, a.display_name) for a in work.authors] == [
+        (None, None, "Jane Doe"),
+        (None, None, "Roe"),
+    ]
 
 
 def test_openalex_search_names_works_by_doi_or_openalex_id() -> None:
@@ -142,7 +145,10 @@ def test_arxiv_fetch_gives_the_abstract_and_the_metadata() -> None:
         "Synthetic Journal 1 (2024)",
     )
     assert work.url == "https://arxiv.org/abs/0000.00001v2"
-    assert [(a.family, a.given) for a in work.authors] == [("Doe", "Jane"), ("Roe", None)]
+    assert [(a.family, a.given, a.display_name) for a in work.authors] == [
+        (None, None, "Jane Doe"),
+        (None, None, "Roe"),
+    ]
 
 
 def test_arxiv_refuses_a_feed_with_a_document_type_or_entities() -> None:
