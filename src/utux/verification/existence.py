@@ -7,10 +7,11 @@ A reference exists when all of these hold:
    the fallback for every scheme;
 2. its title matches: after `normalise`, one minus the Levenshtein distance
    divided by the length of the longer title is at least `TITLE_SIMILARITY`;
-3. the first author's family name matches. Where the service gives a
-   separate family name, the two are compared after `normalise`; where it
-   gives only a display name, the family name must appear in it as whole
-   words. A display name is never split;
+3. the first author's family name matches: it appears as whole words in the
+   service's family name where one is given, and otherwise in its display
+   name, which is never split. Names are compared in the forms of
+   `name_forms`: diacritics folded, ü, ö, ä also as ue, oe, ae, and hyphens
+   as word boundaries (ADR-0016, amended in PR #57). Titles keep `normalise`;
 4. the years differ by at most `YEAR_TOLERANCE`.
 
 Each failed rule is a reason: `not_found`, `title_mismatch`,
@@ -31,8 +32,11 @@ from enum import StrEnum
 from typing import Protocol
 
 from utux.errors import LiteratureNotFoundError, LiteratureSourceError
+from utux.events.log import EventLog
 from utux.interfaces.literature_source import WorkMetadata
+from utux.schemas.event import EventStatus, EventType, NewEvent
 from utux.schemas.source_record import Author
+from utux.sources.calls import SYSTEM_ACTOR
 
 TITLE_SIMILARITY = 0.9
 """The least title similarity of a match (ADR-0016)."""
@@ -55,6 +59,13 @@ class ExistenceReason(StrEnum):
     TITLE_MISMATCH = "title_mismatch"
     AUTHOR_MISMATCH = "author_mismatch"
     YEAR_MISMATCH = "year_mismatch"
+
+
+INCOMPLETE_REASON = "existence_check_incomplete"
+"""Why a check is incomplete; never one of the `ExistenceReason` codes of a failed rule."""
+
+CHECK_NAME = "citation_existence"
+"""The `check` of its `verification_result` events."""
 
 
 class Resolver(Protocol):
@@ -85,7 +96,8 @@ class Reference:
 class ExistenceResult:
     """The verdict on one reference.
 
-    `exists` is None, with `incomplete` true, when no service could answer.
+    `exists` is None, with `incomplete` true and `incomplete_reason`
+    `existence_check_incomplete`, when no service could answer.
     `resolved_by` names the service whose record was compared.
     """
 
@@ -94,6 +106,18 @@ class ExistenceResult:
     reasons: tuple[ExistenceReason, ...]
     resolved_by: str | None
     incomplete: bool = False
+
+    @property
+    def incomplete_reason(self) -> str | None:
+        """`existence_check_incomplete` for an incomplete check, else None."""
+        return INCOMPLETE_REASON if self.incomplete else None
+
+    @property
+    def outcome(self) -> str:
+        """`exists`, `removed` or `incomplete`."""
+        if self.incomplete:
+            return "incomplete"
+        return "exists" if self.exists else "removed"
 
 
 def normalise(text: str) -> str:
@@ -127,21 +151,52 @@ def title_similarity(first: str, second: str) -> float:
     return 1 - _levenshtein(a, b) / longest
 
 
+_TRANSLITERATIONS = str.maketrans(
+    {"ü": "ue", "ö": "oe", "ä": "ae", "Ü": "Ue", "Ö": "Oe", "Ä": "Ae"}
+)
+
+
+def name_forms(name: str) -> set[tuple[str, ...]]:
+    """The words of a name in each accepted form (ADR-0016, amended in PR #57).
+
+    Hyphens are word boundaries. Diacritics are folded (Unicode NFKD, the
+    combining marks dropped), and ü, ö, ä are also written ue, oe, ae, so
+    "Müller" has the forms "muller" and "mueller". Then case folding, and
+    punctuation removed as by `normalise`.
+    """
+
+    def words(text: str) -> tuple[str, ...]:
+        spaced = "".join(
+            " " if unicodedata.category(char) == "Pd" else char
+            for char in unicodedata.normalize("NFKC", text)
+        )
+        decomposed = unicodedata.normalize("NFKD", spaced)
+        folded = "".join(char for char in decomposed if not unicodedata.combining(char))
+        return tuple(normalise(folded).split())
+
+    composed = unicodedata.normalize("NFC", name)
+    forms = {words(composed), words(composed.translate(_TRANSLITERATIONS))}
+    return {form for form in forms if form}
+
+
+def _contains(words: tuple[str, ...], part: tuple[str, ...]) -> bool:
+    return any(words[i : i + len(part)] == part for i in range(len(words) - len(part) + 1))
+
+
 def first_author_matches(family: str, author: Author) -> bool:
     """Whether the cited family name matches the service's first author.
 
-    The service's own family name decides where it is given. Otherwise the
-    cited family name must appear as whole words in the display name.
+    The cited family name must appear as whole words in the service's
+    family name where it is given, and otherwise in its display name. Both
+    sides are compared in every form of `name_forms`: "Müller" matches
+    "Muller" and "Mueller", and "García" matches "García-López", but "Berg"
+    does not match "Bergman".
     """
-    cited = normalise(family).split()
-    if not cited:
+    cited = name_forms(family)
+    service = author.family if author.family is not None else author.display_name
+    if not cited or service is None:
         return False
-    if author.family is not None:
-        return normalise(author.family).split() == cited
-    if author.display_name is None:
-        return False
-    words = normalise(author.display_name).split()
-    return any(words[i : i + len(cited)] == cited for i in range(len(words) - len(cited) + 1))
+    return any(_contains(words, part) for words in name_forms(service) for part in cited)
 
 
 def check_reference(reference: Reference, work: WorkMetadata) -> ExistenceResult:
@@ -210,6 +265,18 @@ class BibliographyCheck:
     removed: Mapping[str, tuple[ExistenceReason, ...]]
     incomplete: tuple[str, ...]
 
+    def report(self) -> dict[str, object]:
+        """The check as a JSON object: kept keys, removed keys with their rules, incomplete keys.
+
+        An incomplete check gives its own reason, `existence_check_incomplete`,
+        never a rule's.
+        """
+        return {
+            "kept": [reference.key for reference in self.kept],
+            "removed": {key: [r.value for r in reasons] for key, reasons in self.removed.items()},
+            "incomplete": dict.fromkeys(self.incomplete, INCOMPLETE_REASON),
+        }
+
 
 def check_bibliography(
     references: Sequence[Reference], sources: Mapping[str, Resolver]
@@ -246,3 +313,32 @@ def claims_to_unverify(
     """
     affected = set(check.removed) | set(check.incomplete)
     return tuple(sorted(claim for claim, keys in citations.items() if affected.intersection(keys)))
+
+
+def record_bibliography_check(
+    log: EventLog, check: BibliographyCheck, *, run_id: str | None = None
+) -> None:
+    """Write one `verification_result` event per reference, in bibliography order.
+
+    A completed check is `ok`, with the outcome `exists` or `removed` and,
+    for a removed reference, its failed rules as space-separated codes. An
+    incomplete check is `error` with `status_reason`
+    `existence_check_incomplete`, so it is never read as a failed rule.
+    """
+    for result in check.results:
+        log.append(
+            NewEvent(
+                actor=SYSTEM_ACTOR,
+                type=EventType.VERIFICATION_RESULT,
+                status=EventStatus.ERROR if result.incomplete else EventStatus.OK,
+                status_reason=result.incomplete_reason,
+                run_id=run_id,
+                data={
+                    "check": CHECK_NAME,
+                    "reference": result.key,
+                    "outcome": result.outcome,
+                    "reasons": " ".join(r.value for r in result.reasons) or None,
+                    "resolved_by": result.resolved_by,
+                },
+            )
+        )
