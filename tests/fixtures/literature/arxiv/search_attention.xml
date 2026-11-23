@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+  <title>Synthetic arXiv query for a natural title</title>
+  <entry>
+    <id>http://arxiv.org/abs/0000.00004v1</id>
+    <published>2017-06-12T00:00:00Z</published>
+    <title>Attention Is All You Need</title>
+    <summary>A synthetic abstract for a recorded search test.</summary>
+    <author><name>Jane Doe</name></author>
+  </entry>
+</feed>

@@ -52,3 +52,53 @@ wraps it:
 | `LiteratureRateLimitError` | `rate_limited` |
 | `LiteratureNotFoundError` | `not_found` |
 | `LiteratureInvalidResponseError` | `invalid_response` |
+
+## OpenAlex and arXiv
+
+Task M2-05. Both use the standard library's HTTP, with `utux.sources.http.HttpClient`:
+a user agent that names utux and its version, one request at a time, a
+minimum interval between requests, at most three attempts for a `429`, a
+`5xx` or a network failure (waiting for `Retry-After` when given, never more
+than 60 seconds), and answers of at most 10 MB. Both are keyless by default.
+
+| | `OpenAlexSource` | `ArxivSource` |
+| --- | --- | --- |
+| Identifiers | `doi:`, `pmid:`, `openalex:` | `arxiv:` |
+| Interval between requests | 0.1 s (10 a second, the limit without a key) | 3 s (arXiv's terms of use) |
+| Text | the abstract, rebuilt exactly from the inverted index, words joined by single spaces | the abstract (`summary`), runs of whitespace made one space |
+| `source_version` | `index_abstract` | `preprint` |
+| `extraction_method` | `openalex_inverted_index` | `arxiv_api_atom` |
+| Licence | the open-access location's licence, if given | not given by the API |
+| Contact email | never sent: OpenAlex's current documentation does not say it helps | never sent |
+| Key | none by default; with `OPENALEX_API_KEY` set, sent only as `Authorization: Bearer`, and requests may go 30 a second | none |
+
+**Authors.** Both services give each author as one name. The last word is
+taken as the family name and the rest as the given name, a rule that is
+wrong for some names, such as "van der Berg"; ADR-0016 compares the first
+author's family name.
+
+**An OpenAlex abstract** is rebuilt from its inverted index, which maps each
+word to its positions; the positions must cover 0 to n - 1 exactly once each,
+or the answer is invalid.
+
+**An arXiv search** sends the query as a phrase in the title, or a phrase
+in all fields, or all its content words, sorted by relevance:
+`ti:"attention is all you need" OR all:"attention is all you need" OR
+(all:attention AND all:need)`. Words are lowercased so that none is read as
+`AND`, `OR` or `ANDNOT`, and stop words and field prefixes such as `all` are
+left out of the word clause, where they would match nothing. The syntax is
+that of the [arXiv API user manual](https://info.arxiv.org/help/api/user-manual.html),
+section 5.1 (fields, Boolean operators, quotes, parentheses) and section
+3.1.1.3 (`sortBy`); the manual says nothing about stop words.
+
+**An arXiv feed** that holds a document type or an entity declaration is
+refused before it is parsed, so no entity is ever expanded.
+
+Under `local_only`, a search on either is refused; fetch and resolve stay
+allowed ([The data policy](data-policy.md)).
+
+The live smoke tests reach both services and are run by the maintainer only:
+
+```bash
+uv run pytest -m live tests/integration/test_literature_live.py
+```

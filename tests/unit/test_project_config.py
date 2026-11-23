@@ -337,3 +337,26 @@ def test_the_credentials_of_a_local_server_url_are_not_repeated_in_the_error() -
     with pytest.raises(ContractValidationError) as caught:
         ProjectConfig.from_yaml(text)
     assert "secret" not in str(caught.value)
+
+
+# The optional contact email of literature APIs (M2-05, rule 8 of M2)
+
+
+def test_the_contact_email_is_unset_by_default() -> None:
+    assert _minimal().literature.contact_email is None
+
+
+@pytest.mark.parametrize("email", ["synthetic@example.org", "a.b+c@example.co.uk"])
+def test_a_contact_email_may_be_set(email: str) -> None:
+    text = (FIXTURES / "valid" / "minimal.yaml").read_text(encoding="utf-8")
+    config = ProjectConfig.from_yaml(text + f"literature:\n  contact_email: {email}\n")
+    assert config.literature.contact_email == email
+
+
+@pytest.mark.parametrize("email", ["not an email", "a@b", "@example.org", ""])
+def test_a_contact_email_must_look_like_one(email: str) -> None:
+    text = (FIXTURES / "valid" / "minimal.yaml").read_text(encoding="utf-8")
+    text += f'literature:\n  contact_email: "{email}"\n'
+    with pytest.raises(ContractValidationError) as raised:
+        ProjectConfig.from_yaml(text)
+    assert [p.field for p in raised.value.problems] == ["literature.contact_email"]

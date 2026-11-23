@@ -50,11 +50,18 @@ EXPECTED_ERROR: dict[Failure, type[LiteratureSourceError]] = {
 
 
 class LiteratureSourceConformance(ABC):
-    """Tests that every `LiteratureSource` implementation must pass."""
+    """Tests that every `LiteratureSource` implementation must pass.
+
+    A source that does not resolve DOIs, such as arXiv, sets `known` and
+    `unknown` to identifiers of its own scheme.
+    """
+
+    known = KNOWN
+    unknown = UNKNOWN
 
     @abstractmethod
     def make_source(self) -> LiteratureSource:
-        """A source whose catalog holds the work `KNOWN`, with a stored text,
+        """A source whose catalog holds the work `known`, with a stored text,
         and at least three works that a search for `QUERY` finds."""
 
     @abstractmethod
@@ -87,14 +94,14 @@ class LiteratureSourceConformance(ABC):
     # Results
 
     def test_resolve_gives_the_metadata_of_the_identifier(self) -> None:
-        work = self.make_source().resolve(KNOWN)
+        work = self.make_source().resolve(self.known)
         assert isinstance(work, WorkMetadata)
-        assert work.identifier == KNOWN
+        assert work.identifier == self.known
 
     def test_fetch_gives_the_metadata_and_the_text(self) -> None:
-        fetched = self.make_source().fetch(KNOWN)
+        fetched = self.make_source().fetch(self.known)
         assert isinstance(fetched, FetchedSource)
-        assert fetched.metadata.identifier == KNOWN
+        assert fetched.metadata.identifier == self.known
         assert fetched.text is not None
         assert fetched.checked_text is not None
 
@@ -119,13 +126,13 @@ class LiteratureSourceConformance(ABC):
     @pytest.mark.parametrize("call", ["resolve", "fetch"])
     def test_an_unknown_identifier_is_not_found(self, call: str) -> None:
         with pytest.raises(LiteratureNotFoundError):
-            getattr(self.make_source(), call)(UNKNOWN)
+            getattr(self.make_source(), call)(self.unknown)
 
     @pytest.mark.parametrize("failure", list(Failure))
     @pytest.mark.parametrize("call", ["resolve", "fetch", "search"])
     def test_upstream_failures_raise_typed_errors(self, failure: Failure, call: str) -> None:
         source = self.make_failing(failure)
-        arguments: tuple[object, ...] = (QUERY, 3) if call == "search" else (KNOWN,)
+        arguments: tuple[object, ...] = (QUERY, 3) if call == "search" else (self.known,)
         with pytest.raises(EXPECTED_ERROR[failure]):
             getattr(source, call)(*arguments)
 
@@ -134,5 +141,5 @@ class LiteratureSourceConformance(ABC):
     def test_calls_from_several_threads_at_once(self) -> None:
         source = self.make_source()
         with ThreadPoolExecutor(max_workers=8) as pool:
-            works = list(pool.map(lambda _: source.resolve(KNOWN), range(40)))
-        assert all(work.identifier == KNOWN for work in works)
+            works = list(pool.map(lambda _: source.resolve(self.known), range(40)))
+        assert all(work.identifier == self.known for work in works)

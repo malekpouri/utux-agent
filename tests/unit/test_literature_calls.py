@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from utux.errors import (
+    LiteratureCallRefusedError,
     LiteratureInvalidResponseError,
     LiteratureNotFoundError,
     LiteratureRateLimitError,
@@ -16,12 +17,14 @@ from utux.errors import (
 from utux.events.log import EventLog
 from utux.schemas.common import Stage
 from utux.schemas.event import Event, EventStatus, EventType
+from utux.schemas.project_config import DataPolicy
 from utux.sources.cache import ContentCache
 from utux.sources.calls import LoggedLiteratureSource
 from utux.sources.scripted import ScriptedLiteratureSource, ScriptedWork, synthetic_work
 from utux.workspace.hashing import hash_bytes
 
 KNOWN = "doi:10.0000/synthetic-known"
+ALLOWED = DataPolicy.EXTERNAL_ALLOWED
 CATALOG = [synthetic_work(KNOWN, "A synthetic study", text="We compare A and B.")]
 
 
@@ -34,7 +37,9 @@ def _events(tmp_path: Path) -> list[Event]:
 
 
 def test_a_resolve_is_logged_with_its_identifier(tmp_path: Path) -> None:
-    logged = LoggedLiteratureSource(_log(tmp_path), ScriptedLiteratureSource(CATALOG))
+    logged = LoggedLiteratureSource(
+        _log(tmp_path), ScriptedLiteratureSource(CATALOG), policy=ALLOWED
+    )
     work = logged.resolve(KNOWN, run_id="e-000004", stage=Stage.EXPERIMENT)
     assert work.identifier == KNOWN
     (event,) = _events(tmp_path)
@@ -53,7 +58,9 @@ def test_a_resolve_is_logged_with_its_identifier(tmp_path: Path) -> None:
 
 def test_a_search_is_logged_by_the_hash_of_its_query_only(tmp_path: Path) -> None:
     query = "synthetic study of a private topic"
-    logged = LoggedLiteratureSource(_log(tmp_path), ScriptedLiteratureSource(CATALOG))
+    logged = LoggedLiteratureSource(
+        _log(tmp_path), ScriptedLiteratureSource(CATALOG), policy=ALLOWED
+    )
     logged.search(query, 5)
     (event,) = _events(tmp_path)
     assert event.data["operation"] == "search"
@@ -64,7 +71,9 @@ def test_a_search_is_logged_by_the_hash_of_its_query_only(tmp_path: Path) -> Non
 
 def test_a_second_call_is_answered_by_the_cache_and_says_so(tmp_path: Path) -> None:
     source = ScriptedLiteratureSource(CATALOG)
-    logged = LoggedLiteratureSource(_log(tmp_path), source, ContentCache(tmp_path / "cache"))
+    logged = LoggedLiteratureSource(
+        _log(tmp_path), source, ContentCache(tmp_path / "cache"), policy=ALLOWED
+    )
     first = logged.fetch(KNOWN)
     again = logged.fetch(KNOWN)
     assert first == again
@@ -72,7 +81,7 @@ def test_a_second_call_is_answered_by_the_cache_and_says_so(tmp_path: Path) -> N
     assert [e.data["cache_hit"] for e in _events(tmp_path)] == [False, True]
     # Another project's caller finds it in the shared cache too.
     other = LoggedLiteratureSource(
-        EventLog(tmp_path / "other.jsonl"), source, ContentCache(tmp_path / "cache")
+        EventLog(tmp_path / "other.jsonl"), source, ContentCache(tmp_path / "cache"), policy=ALLOWED
     )
     assert other.fetch(KNOWN) == first
     assert source.calls == 1
@@ -91,7 +100,9 @@ def test_a_failed_call_is_logged_with_its_reason_and_raised(
     tmp_path: Path, error: Exception, reason: str
 ) -> None:
     source = ScriptedLiteratureSource(CATALOG, every_call=ScriptedWork.failing(error))
-    logged = LoggedLiteratureSource(_log(tmp_path), source, ContentCache(tmp_path / "cache"))
+    logged = LoggedLiteratureSource(
+        _log(tmp_path), source, ContentCache(tmp_path / "cache"), policy=ALLOWED
+    )
     with pytest.raises(type(error)):
         logged.resolve(KNOWN)
     (event,) = _events(tmp_path)
@@ -101,8 +112,43 @@ def test_a_failed_call_is_logged_with_its_reason_and_raised(
 
 
 def test_an_unknown_identifier_is_not_found_and_logged(tmp_path: Path) -> None:
-    logged = LoggedLiteratureSource(_log(tmp_path), ScriptedLiteratureSource(CATALOG))
+    logged = LoggedLiteratureSource(
+        _log(tmp_path), ScriptedLiteratureSource(CATALOG), policy=ALLOWED
+    )
     with pytest.raises(LiteratureNotFoundError):
         logged.resolve("doi:10.0000/none")
     (event,) = _events(tmp_path)
     assert event.status_reason == "not_found"
+
+
+# local_only (M2-05): a search can carry project text; an identifier names a cited work
+
+
+def test_under_local_only_an_external_search_is_refused_before_any_request(
+    tmp_path: Path,
+) -> None:
+    source = ScriptedLiteratureSource(CATALOG, is_external=True)
+    logged = LoggedLiteratureSource(
+        _log(tmp_path), source, ContentCache(tmp_path / "cache"), policy=DataPolicy.LOCAL_ONLY
+    )
+    with pytest.raises(LiteratureCallRefusedError, match="local_only"):
+        logged.search("synthetic study", 5)
+    assert source.calls == 0
+    (event,) = _events(tmp_path)
+    assert (event.status, event.status_reason) == (EventStatus.REFUSED, "data_policy_local_only")
+    assert event.data["operation"] == "search"
+    assert event.data["cache_hit"] is False
+
+
+def test_under_local_only_fetch_and_resolve_by_identifier_stay_allowed(tmp_path: Path) -> None:
+    source = ScriptedLiteratureSource(CATALOG, is_external=True)
+    logged = LoggedLiteratureSource(_log(tmp_path), source, policy=DataPolicy.LOCAL_ONLY)
+    assert logged.resolve(KNOWN).identifier == KNOWN
+    assert logged.fetch(KNOWN).text is not None
+    assert [e.status for e in _events(tmp_path)] == [EventStatus.OK, EventStatus.OK]
+
+
+def test_under_local_only_a_local_source_may_search(tmp_path: Path) -> None:
+    source = ScriptedLiteratureSource(CATALOG, is_external=False)
+    logged = LoggedLiteratureSource(_log(tmp_path), source, policy=DataPolicy.LOCAL_ONLY)
+    assert logged.search("synthetic study", 5)
