@@ -22,12 +22,13 @@ same reference claims. Each annotator's own entries are kept at every level.
 | `gold_version` | the release, `major.minor`, for example `1.0` |
 | `split` | `dev` or `test`, or null until the release is frozen; `check_release` requires one (`split_not_set`) |
 | `domain` | `ml` or `biomedicine` |
-| `origin` | `natural`, `perturbed` or `system_generated` |
+| `origin` | `natural`, `perturbed`, `system_generated` or `public` |
 | `hard_case` | null, or one of `abstract_vs_full_text`, `number_wrong_context`, `conflict_within_source`, `true_but_not_in_source`, `attributed_prior_work`, `heavy_paraphrase`, `negation_or_hedge` (RFC-002, section 3) |
 | `text_unit` | non-empty text |
 | `claims` | one or more claims |
-| `annotation` | see below |
+| `annotation` | see below; null for an item with `provenance` |
 | `hidden` | see below |
+| `provenance` | for a public item and a perturbation of one; see below. Absent otherwise |
 
 ### Claims and pairs
 
@@ -109,16 +110,45 @@ entries, and `adjudicated` may be true where the raw entries agree.
 
 - A perturbed item has its construction record: `target_error` and
   `secondary_errors` (codes), `error_class` (`single_error` or
-  `multi_error`), `confirmed_by` (an annotator id) and `source_item`, the
-  natural item it was made from, which is not the item itself.
+  `multi_error`), `confirmation` (`deterministic`, `model_check` or `audit`),
+  `confirmed_by` (an annotator id for `audit`, null otherwise:
+  `confirmed_by_required`, `confirmed_by_not_allowed`) and `source_item`, the
+  natural or public item it was made from, which is not the item itself.
 - A system-generated item has `{"generated_by": <code>}`, the code of the
   system and configuration that produced it, for example
   `utux-0.1.0-default`.
-- A natural item has no `hidden` key at all; `"hidden": null` is rejected
-  (`hidden_not_allowed`). A perturbed or system-generated item without its
+- A natural or public item has no `hidden` key at all; `"hidden": null` is
+  rejected (`hidden_not_allowed`). A perturbed or system-generated item without its
   record gives `hidden_required`.
 
 The hidden record is never shown to annotators or to the system.
+
+### Public items and provenance
+
+A `public` item comes from a public dataset with expert labels (RFC-002,
+section 2; [gold v0 strategy](eval/gold-v0-strategy.md)). Instead of
+annotators, it has a `provenance` block:
+
+- `dataset`: `scifact` or `sciclaimeval`;
+- `dataset_split`: `train` or `dev`;
+- `original_id`: the dataset's own id;
+- `licence`;
+- `text_redistributable`: whether a release may carry the source texts;
+- `evidence_modified`: whether the dataset's authors altered the evidence;
+- `not_scored`: the steps whose metrics leave the item out, `S2` or `S4`.
+
+An item with provenance:
+- has `annotation` null (`annotation_not_allowed`);
+- has empty `raw` entries (`raw_not_allowed`);
+- has nothing adjudicated (`adjudication_not_allowed`);
+- may have `kind` and `expert_would_review` null.
+
+A public item without provenance gives `provenance_required`. An item of
+another origin with provenance gives `provenance_not_allowed`, except a
+perturbation of a public item. An item without provenance needs its
+annotation (`annotation_required`), its kinds (`kind_required`) and its
+review flags (`review_flag_required`). Agreement measures leave public items
+out.
 
 Problems are reported with the field and a code, as for every contract
 (`docs/schema-conventions.md`). The JSON Schema of a gold item is exported as

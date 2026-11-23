@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "item_id": "G1000004",
+  "gold_version": "0.1",
+  "split": null,
+  "domain": "biomedicine",
+  "origin": "public",
+  "hard_case": null,
+  "text_unit": "Synthetic drug A lowers blood pressure.",
+  "claims": [
+    {
+      "claim_id": "G1000004-c1",
+      "text": "Synthetic drug A lowers blood pressure.",
+      "span": [
+        0,
+        39
+      ],
+      "kind": null,
+      "pairs": [
+        {
+          "pair_id": "G1000004-c1-s1",
+          "source_id": "scifact-doc-101",
+          "source_group": "scifact-doc-101",
+          "text_hash": "sha256:b085e9c00a802c19189bdb79f4fab7fb9092823dbd5986c52cc293920c95bd06",
+          "checked_text": "abstract",
+          "extraction_quality": "clean",
+          "evidence_spans": [
+            {
+              "passage_id": "p-b085e9c0-000039",
+              "offsets": [
+                39,
+                84
+              ]
+            }
+          ],
+          "agreement_label": "entails",
+          "scope_flags": [],
+          "raw": {},
+          "adjudicated": true,
+          "adjudication_reason": "Synthetic."
+        },
+        {
+          "pair_id": "G1000004-c1-s2",
+          "source_id": "scifact-doc-103",
+          "source_group": "scifact-doc-103",
+          "text_hash": "sha256:b38af8e8e5966660dcc47e4944bf9ec26a16a8a8a90b283723f58791b082cd09",
+          "checked_text": "abstract",
+          "extraction_quality": "clean",
+          "evidence_spans": [],
+          "agreement_label": "neutral",
+          "scope_flags": [],
+          "raw": {},
+          "adjudicated": false,
+          "adjudication_reason": null
+        }
+      ],
+      "status": "verified",
+      "expert_would_review": null,
+      "raw": {},
+      "adjudicated": false,
+      "adjudication_reason": null,
+      "ambiguous": false
+    }
+  ],
+  "annotation": null,
+  "provenance": {
+    "dataset": "scifact",
+    "dataset_split": "train",
+    "original_id": "4",
+    "licence": "CC BY-NC 2.0",
+    "text_redistributable": false,
+    "evidence_modified": false,
+    "not_scored": [
+      "S4"
+    ]
+  }
+}
