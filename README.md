@@ -35,7 +35,8 @@ claim verification and the reviewers come later. What works:
   frozen release, with an offline annotation page
   ([Annotation tooling](docs/annotation-tooling.md)). They never write a label.
   `utux gold import-public` maps SciFact and SciClaimEval into items for the
-  [gold v0 strategy](docs/eval/gold-v0-strategy.md), by fixed rules.
+  [gold v0 strategy](docs/eval/gold-v0-strategy.md), by fixed rules; `utux gold
+  perturb`, `sample` and `audit` build v0 ([runbook](docs/eval/gold-v0-runbook.md)).
 - `utux cache clear` empties the machine-wide cache of API responses and
   source texts ([Stored sources and the cache](docs/sources.md)).
 - `utux run`, `utux approve`, `utux status` and `utux unlock` drive a run
