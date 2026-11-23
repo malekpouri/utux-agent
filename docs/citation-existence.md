@@ -23,12 +23,17 @@ A reference exists when all four hold:
    folding, punctuation removed, runs of whitespace made one space. One
    minus the Levenshtein distance divided by the length of the longer title
    is at least `TITLE_SIMILARITY`, 0.9.
-3. **The first author's family name matches.** Where the service gives a
-   separate family name, as Crossref does, the two are compared after
-   normalisation. Where it gives only a display name, as OpenAlex and arXiv
-   do, the cited family name must appear in it as whole words: "van der
-   Berg" matches "Anna van der Berg", and "Berg" does not match "Anna
-   Bergman". A display name is never split.
+3. **The first author's family name matches.** The cited family name must
+   appear as whole words in the service's family name where one is given, as
+   by Crossref, and otherwise in its display name, as from OpenAlex and
+   arXiv; a display name is never split.
+   - **Name forms.** Names are compared with hyphens as word boundaries,
+     diacritics folded (NFKD, combining marks dropped), and ü, ö, ä also as
+     ue, oe, ae (ADR-0016, amended).
+   - **Examples.** "Müller" matches "Muller" and "Mueller", "García" matches
+     "José García-López", and "van der Berg" matches "Anna van der Berg".
+     "Berg" does not match "Anna Bergman".
+   - Titles keep rule 2's normalisation.
 4. **The years differ by at most** `YEAR_TOLERANCE`, one, to allow a
    preprint and its published version.
 
@@ -46,6 +51,19 @@ rule.
   unavailable, rate limited or gave an invalid answer, and none said the
   work does not exist. An outage is not evidence that a reference is
   invented, so these are kept.
+
+An incomplete check has its own reason, `existence_check_incomplete`, never
+one of the four codes of a failed rule. It appears in `BibliographyCheck.report()`:
+
+```json
+{"kept": ["real", "down"],
+ "removed": {"invented": ["not_found"], "wrong": ["title_mismatch", "year_mismatch"]},
+ "incomplete": {"down": "existence_check_incomplete"}}
+```
+
+`record_bibliography_check` writes one `verification_result` event per
+reference ([The event log](event-log.md)): status `ok` with the outcome
+`exists` or `removed`, or `error` with `existence_check_incomplete`.
 
 `claims_to_unverify` gives the claims that cite a removed or incomplete
 reference. Their status becomes `unverified` (specification section 8), the
