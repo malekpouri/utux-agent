@@ -13,9 +13,8 @@ It resolves DOIs, PubMed ids and OpenAlex ids:
 - `openalex:<W…>` as `/works/<W…>`.
 
 The text it gives is the abstract, rebuilt exactly from OpenAlex's inverted
-index (`rebuild_abstract`). OpenAlex gives each author as one display name;
-the last word is taken as the family name and the rest as the given name, a
-rule that is wrong for some names, such as "van der Berg".
+index (`rebuild_abstract`). OpenAlex gives each author as one display name,
+which is kept whole in `Author.display_name` (M2-06).
 
 The contact email of `utux.yaml` is never sent to OpenAlex: its current
 documentation does not say that it helps.
@@ -79,11 +78,10 @@ def rebuild_abstract(index: object) -> str | None:
 
 
 def _author(name: object) -> Author | None:
-    if not isinstance(name, str) or not name.strip():
+    # One name per author: kept whole, never split into family and given (M2-06).
+    if not isinstance(name, str) or not " ".join(name.split()):
         return None
-    parts = name.split()
-    given = " ".join(parts[:-1]) or None
-    return Author(family=parts[-1], given=given)
+    return Author(display_name=" ".join(name.split()))
 
 
 def _identifier(work: Mapping[str, Any]) -> str:
