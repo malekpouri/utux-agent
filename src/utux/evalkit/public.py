@@ -42,6 +42,7 @@ from utux.evalkit.gold import (
     Origin,
     Provenance,
     PublicDataset,
+    read_gold_release,
 )
 from utux.schemas.claim_ledger import CheckedText, ExtractionQuality, SourceLabel
 from utux.schemas.json_io import parse_json
@@ -603,6 +604,37 @@ def _inside_git_work_tree(path: Path) -> bool:
     return any((directory / ".git").exists() for directory in path.resolve().parents)
 
 
+def ensure_outside_git(path: Path) -> None:
+    """Refuse a path for dataset-derived output inside any git work tree.
+
+    Raises:
+        GoldSetError: The path is inside a git work tree.
+    """
+    if _inside_git_work_tree(path):
+        raise GoldSetError(
+            f"{path} is inside a git work tree; write dataset items outside any repository"
+        )
+
+
+def load_imported(directories: Sequence[Path]) -> tuple[tuple[GoldItem, ...], dict[str, str]]:
+    """The items and source texts of `write_public_import` directories.
+
+    Raises:
+        GoldSetError: A directory has no `items.jsonl`.
+        ContractValidationError: An item is not valid.
+    """
+    items: list[GoldItem] = []
+    texts: dict[str, str] = {}
+    for directory in directories:
+        path = directory / "items.jsonl"
+        if not path.is_file():
+            raise GoldSetError(f"{path} is missing; run utux gold import-public first")
+        items += read_gold_release(path)
+        for source in sorted((directory / "sources").glob("*.txt")):
+            texts[f"sha256:{source.stem}"] = source.read_text(encoding="utf-8")
+    return tuple(items), texts
+
+
 def write_public_import(directory: Path, result: PublicImport) -> None:
     """Write `items.jsonl` and `sources/<hash>.txt` into a directory outside any git work tree.
 
@@ -612,10 +644,7 @@ def write_public_import(directory: Path, result: PublicImport) -> None:
     Raises:
         GoldSetError: The directory is inside a git work tree.
     """
-    if _inside_git_work_tree(directory):
-        raise GoldSetError(
-            f"{directory} is inside a git work tree; write dataset items outside any repository"
-        )
+    ensure_outside_git(directory)
     sources = directory / "sources"
     sources.mkdir(parents=True, exist_ok=True)
     for text_hash, text in result.texts.items():
