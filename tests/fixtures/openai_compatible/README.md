@@ -23,3 +23,5 @@ with it is set in the tests. Model names, ids and amounts are invented.
 | `error_rate_limited.json` | The body of a 429 response |
 | `error_unavailable.json` | The body of a 503 response |
 | `error_in_ok_response.json` | A 200 response whose body holds an `error` object instead of `choices`. Whether OpenRouter sends such bodies, and in this shape, is not confirmed |
+
+`gemini_completion.json` is a synthetic answer in the shape of the Gemini API's OpenAI-compatible endpoint (M0-15c): token usage and no cost.

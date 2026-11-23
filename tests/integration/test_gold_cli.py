@@ -325,3 +325,96 @@ def test_import_public_refuses_an_output_inside_a_git_work_tree(tmp_path: Path) 
     )
     assert code == 1
     assert "git work tree" in output
+
+
+# M0-15c: perturb, sample and audit on the synthetic corpus, counts only.
+
+
+def _imported(tmp_path: Path) -> list[str]:
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "unit"))
+    from synthetic_gold_corpus import _sciclaimeval, _scifact
+
+    from utux.evalkit.gold import PublicDataset
+    from utux.evalkit.public import import_public, write_public_import
+
+    data = tmp_path / "data"
+    out = []
+    for dataset, make in (
+        (PublicDataset.SCIFACT, _scifact),
+        (PublicDataset.SCICLAIMEVAL, _sciclaimeval),
+    ):
+        directory = tmp_path / "items" / dataset.value
+        write_public_import(directory, import_public(dataset, make(data)))
+        out += ["--imported", str(directory)]
+    return out
+
+
+def test_sample_then_rule_perturbations_then_the_v0_sample(tmp_path: Path) -> None:
+    imported = _imported(tmp_path)
+    sizes = ["--scifact-per-status", "1", "--sciclaimeval-per-status", "1", "--perturbations", "3"]
+    code, output = _gold("sample", *imported, *sizes, "--seed", "11", "--out", str(tmp_path / "s"))
+    assert code == 0, output
+    parents = tmp_path / "s" / "parents.jsonl"
+    assert len(read_gold_release(parents)) == 5
+    code, output = _gold(
+        "perturb",
+        *imported,
+        "--parents",
+        str(parents),
+        "--method",
+        "rules",
+        "--seed",
+        "7",
+        "--out",
+        str(tmp_path / "p"),
+    )
+    assert code == 0, output
+    assert "Drug" not in output
+    assert "Alpha" not in output
+    rules = tmp_path / "p" / "perturbed-rules.jsonl"
+    code, output = _gold(
+        "sample",
+        *imported,
+        *sizes,
+        "--perturbed",
+        str(rules),
+        "--seed",
+        "11",
+        "--out",
+        str(tmp_path / "v0"),
+    )
+    assert code == 0, output
+    release = read_gold_release(tmp_path / "v0" / "v0.jsonl")
+    assert all(item.split is not None for item in release)
+    assert (tmp_path / "v0" / "sample-record.json").is_file()
+    assert any((tmp_path / "v0" / "sources").iterdir())
+    assert "Drug" not in output
+    assert "Alpha" not in output
+
+
+def test_gemini_perturbations_refuse_to_start_without_the_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    imported = _imported(tmp_path)
+    code, output = _gold(
+        "perturb",
+        *imported,
+        "--method",
+        "gemini",
+        "--max-cost-usd",
+        "1",
+        "--out",
+        str(tmp_path / "g"),
+    )
+    assert code == 1
+    assert "GEMINI_API_KEY" in output
+
+
+def test_gemini_perturbations_need_a_cost_cap(tmp_path: Path) -> None:
+    imported = _imported(tmp_path)
+    code, output = _gold("perturb", *imported, "--method", "gemini", "--out", str(tmp_path / "g"))
+    assert code != 0
+    assert "max-cost-usd" in output
