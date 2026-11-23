@@ -90,6 +90,7 @@ _DATA_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.CODE_EXECUTION: ("execution_run_id", "image_digest", "exit_status", "stopped_by"),
     EventType.ERROR: ("trace",),
     EventType.LITERATURE_CALL: ("source", "operation", "identifier", "query_hash", "cache_hit"),
+    EventType.VERIFICATION_RESULT: ("check", "reference", "outcome", "reasons", "resolved_by"),
 }
 
 # Keys of `data` that may be absent: events of the type written before the key
@@ -114,6 +115,7 @@ _TEXT_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.LOCK_REMOVED: ("host", "command", "started_at"),
     EventType.CODE_EXECUTION: ("execution_run_id", "image_digest"),
     EventType.LITERATURE_CALL: ("source",),
+    EventType.VERIFICATION_RESULT: ("reference",),
 }
 
 # Keys of `data` whose value must be true or false.
@@ -157,6 +159,7 @@ _OPTIONAL_TEXT_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.APPROVAL_ANSWERED: ("feedback",),
     EventType.ERROR: ("trace",),
     EventType.LITERATURE_CALL: ("identifier",),
+    EventType.VERIFICATION_RESULT: ("reasons", "resolved_by"),
 }
 
 # Keys of `data` whose value must be a stable code, as `status_reason`, or null.
@@ -180,6 +183,7 @@ _COUNT_KEYS: dict[EventType, tuple[str, ...]] = {
 # Keys of `data` whose value must be a stable code: lower-case letters, digits and _.
 _CODE_KEYS: dict[EventType, tuple[str, ...]] = {
     EventType.ROUTE_BACK: ("finding",),
+    EventType.VERIFICATION_RESULT: ("check",),
 }
 
 # Keys of `data` whose value must be an amount in US dollars: a number of
@@ -211,6 +215,61 @@ def _check_model(value: str | None, info: ValidationInfo) -> str | None:
     if value is None and info.data.get("type") is EventType.MODEL_CALL:
         raise PydanticCustomError("model_required", "a model_call event must name its model")
     return value
+
+
+EXISTENCE_OUTCOMES = ("exists", "removed", "incomplete")
+"""The outcomes of a citation existence `verification_result` (M2-06)."""
+EXISTENCE_REASONS = ("not_found", "title_mismatch", "author_mismatch", "year_mismatch")
+"""The failed rules of ADR-0016, the only `reasons` of a removed reference."""
+EXISTENCE_INCOMPLETE = "existence_check_incomplete"
+
+
+def _problem(code: str, message: str, key: str) -> InitErrorDetails:
+    return {"type": PydanticCustomError(code, message), "loc": (key,), "input": None}
+
+
+def _verification_problems(
+    value: dict[str, Scalar], status: object, reason: object
+) -> list[InitErrorDetails]:
+    """A citation existence result: its outcome fits its status, and only a removal has rules.
+
+    An incomplete check is `error` with `existence_check_incomplete`, never
+    `ok` and never a rule's code, so it cannot be read as a failed rule.
+    """
+    outcome, reasons = value.get("outcome"), value.get("reasons")
+    if outcome not in EXISTENCE_OUTCOMES:
+        return [_problem("unknown_outcome", "must be exists, removed or incomplete", "outcome")]
+    errors: list[InitErrorDetails] = []
+    incomplete = (status, reason) == (EventStatus.ERROR, EXISTENCE_INCOMPLETE)
+    finished = (status, reason) == (EventStatus.OK, None)
+    if (outcome == "incomplete" and not incomplete) or (outcome != "incomplete" and not finished):
+        errors.append(
+            _problem(
+                "outcome_status_mismatch",
+                "an incomplete check is error with existence_check_incomplete; "
+                "a finished one is ok without a reason",
+                "outcome",
+            )
+        )
+    if outcome == "removed" and reasons is None:
+        errors.append(
+            _problem("reasons_required", "a removed reference names its rules", "reasons")
+        )
+    elif outcome != "removed" and reasons is not None:
+        errors.append(
+            _problem("reasons_not_allowed", "only a removed reference has reasons", "reasons")
+        )
+    elif isinstance(reasons, str) and any(
+        code not in EXISTENCE_REASONS for code in reasons.split(" ")
+    ):
+        errors.append(
+            _problem(
+                "unknown_reason",
+                "must be codes of ADR-0016 separated by single spaces",
+                "reasons",
+            )
+        )
+    return errors
 
 
 def _literature_problems(value: dict[str, Scalar]) -> list[InitErrorDetails]:
@@ -361,6 +420,10 @@ def _check_data_keys(value: dict[str, Scalar], info: ValidationInfo) -> dict[str
             )
     if kind is EventType.LITERATURE_CALL:
         errors += _literature_problems(value)
+    if kind is EventType.VERIFICATION_RESULT and value.get("check") == "citation_existence":
+        errors += _verification_problems(
+            value, info.data.get("status"), info.data.get("status_reason")
+        )
     for key in _BOOLEAN_KEYS.get(kind, ()):
         if key in value and not isinstance(value[key], bool):
             errors.append(
