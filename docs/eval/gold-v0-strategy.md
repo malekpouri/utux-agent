@@ -264,6 +264,7 @@ audit does not change labels.
 The gap is reported with every result.
 
 - [x] **Domain balance** (second review, 2026-11-22): all 100 SciClaimEval items in v0 are ML, and perturbations are made from ML items where the type allows, targeting about 50% ML. The remaining gap from RFC-002's 60% is at least 10 points, as above.
+- [x] **The uncited-abstract perturbation** (third review, 2026-11-22): built from SciFact as planned, capped at 10 items. v0 at about 47% ML (140 of 300) is accepted for v0, and the gap of about 13 points from RFC-002's 60% is reported. Raising the ML share is a goal for v1, not a blocker.
 
 - [x] **Sizes** approved: about 300 as proposed, favouring ML items in the SciClaimEval share; the domain balance and its gap from RFC-002's 60% ML are reported (above).
 
