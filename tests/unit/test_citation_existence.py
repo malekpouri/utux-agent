@@ -4,15 +4,19 @@ Every reference and work here is synthetic. Expected similarities are worked
 out by hand in the comments.
 """
 
+import json
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
 
-from utux.errors import LiteratureNotFoundError, LiteratureUnavailableError
+from utux.errors import (
+    ContractValidationError,
+    LiteratureNotFoundError,
+    LiteratureUnavailableError,
+)
 from utux.events.log import EventLog
 from utux.interfaces.literature_source import WorkMetadata
-from utux.schemas.event import EventStatus, EventType, NewEvent
+from utux.schemas.event import Event, EventStatus, EventType
 from utux.schemas.source_record import Author
 from utux.verification.existence import (
     TITLE_SIMILARITY,
@@ -372,22 +376,14 @@ def test_each_reference_check_is_a_verification_result_event(tmp_path: Path) -> 
     ],
 )
 def test_an_inconsistent_verification_result_is_refused(
-    status: str, reason: str | None, data: dict[str, object], code: str
+    tmp_path: Path, status: str, reason: str | None, data: dict[str, object], code: str
 ) -> None:
-    fields: dict[str, object] = {
-        "check": "citation_existence",
-        "reference": "doe2024",
-        "outcome": "exists",
-        "reasons": None,
-        "resolved_by": None,
-    }
-    fields.update(data)
-    with pytest.raises(ValidationError) as caught:
-        NewEvent(
-            actor="system:utux",
-            type=EventType.VERIFICATION_RESULT,
-            status=EventStatus(status),
-            status_reason=reason,
-            data=fields,
-        )
-    assert code in {error["type"] for error in caught.value.errors()}
+    log = EventLog(tmp_path / "events.jsonl")
+    record_bibliography_check(log, _checked())
+    document = json.loads((tmp_path / "events.jsonl").read_text().splitlines()[0])
+    Event.validate_document(document, "synthetic")
+    document.update(status=status, status_reason=reason)
+    document["data"].update(data)
+    with pytest.raises(ContractValidationError) as caught:
+        Event.validate_document(document, "synthetic")
+    assert code in {problem.code for problem in caught.value.problems}

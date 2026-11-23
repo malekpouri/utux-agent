@@ -521,6 +521,7 @@ def test_types_without_defined_keys_accept_only_an_empty_object() -> None:
             EventType.CODE_EXECUTION,
             EventType.ERROR,
             EventType.LITERATURE_CALL,
+            EventType.VERIFICATION_RESULT,
             EventType.LOCK_REMOVED,
             EventType.APPROVAL_REQUESTED,
             EventType.APPROVAL_ANSWERED,
