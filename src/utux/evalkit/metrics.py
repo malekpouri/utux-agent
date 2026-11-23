@@ -385,3 +385,41 @@ def metrics_only(items: Sequence[GoldItem], predictions: Predictions) -> dict[st
     is printed or logged.
     """
     return evaluate(items, predictions).to_json()
+
+
+@dataclass(frozen=True)
+class ExistenceMetrics:
+    """The citation existence metrics of RFC-002, section 7.
+
+    `precision` and `recall` are those of detecting invalid references;
+    `false_alarm_rate` is the share of real references flagged as invalid.
+    """
+
+    precision: Rate
+    recall: Rate
+    false_alarm_rate: Rate
+
+    def to_json(self) -> dict[str, object]:
+        """Return the three rates as a JSON object."""
+        return {
+            "precision": self.precision.to_json(),
+            "recall": self.recall.to_json(),
+            "false_alarm_rate": self.false_alarm_rate.to_json(),
+        }
+
+
+def existence_metrics(outcomes: Sequence[tuple[bool, bool]]) -> ExistenceMetrics:
+    """Score the citation existence check (RFC-002, section 7).
+
+    Each outcome is (the system flags the reference as invalid, the reference
+    is invalid in the gold set).
+    """
+    flagged_invalid = sum(1 for flagged, invalid in outcomes if flagged and invalid)
+    flagged_real = sum(1 for flagged, invalid in outcomes if flagged and not invalid)
+    invalid = sum(1 for _, is_invalid in outcomes if is_invalid)
+    real = len(outcomes) - invalid
+    return ExistenceMetrics(
+        precision=Rate(flagged_invalid, flagged_invalid + flagged_real),
+        recall=Rate(flagged_invalid, invalid),
+        false_alarm_rate=Rate(flagged_real, real),
+    )
