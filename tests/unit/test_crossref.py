@@ -9,11 +9,11 @@ import json
 from pathlib import Path
 
 import pytest
-from utux.sources.crossref import CrossrefSource
 
 from utux.errors import LiteratureNotFoundError
 from utux.schemas.claim_ledger import CheckedText
 from utux.schemas.source_record import Author, SourceVersion
+from utux.sources.crossref import CrossrefSource
 from utux.sources.http import HttpResponse, RecordedTransport
 
 RECORDED = Path(__file__).resolve().parents[1] / "fixtures" / "literature" / "crossref"

@@ -5,6 +5,10 @@ out by hand in the comments.
 """
 
 import pytest
+
+from utux.errors import LiteratureNotFoundError, LiteratureUnavailableError
+from utux.interfaces.literature_source import WorkMetadata
+from utux.schemas.source_record import Author
 from utux.verification.existence import (
     TITLE_SIMILARITY,
     YEAR_TOLERANCE,
@@ -18,10 +22,6 @@ from utux.verification.existence import (
     resolve_reference,
     title_similarity,
 )
-
-from utux.errors import LiteratureNotFoundError, LiteratureUnavailableError
-from utux.interfaces.literature_source import WorkMetadata
-from utux.schemas.source_record import Author
 
 DOI = "doi:10.0000/synthetic-known"
 

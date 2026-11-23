@@ -3,9 +3,9 @@
 from pathlib import Path
 
 from literature_source_suite import Failure, LiteratureSourceConformance
-from utux.sources.crossref import CrossrefSource
 
 from utux.interfaces.literature_source import LiteratureSource
+from utux.sources.crossref import CrossrefSource
 from utux.sources.http import HttpResponse, RecordedTransport
 
 RECORDED = Path(__file__).resolve().parents[1] / "fixtures" / "literature" / "crossref"
