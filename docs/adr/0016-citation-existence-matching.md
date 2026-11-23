@@ -99,7 +99,10 @@ Amended at the maintainer's decisions in the review of M2-06 (pull request
   "García-López". The whole-word rule stands: "Berg" does not match
   "Bergman". The cited family name must appear as whole words in the
   service's family name where one is given, and otherwise in its display
-  name, which is never split. Titles keep rule 2's normalisation.
+  name, which is never split.
+- **Titles** (2026-11-23, after PR #57): rule 2's normalisation also folds
+  diacritics (NFKD, combining marks dropped), so "Müller-type" matches
+  "Muller-type". The ue, oe and ae transliterations are for names only.
 - **Incomplete checks.** When no service answers and none says the work does
   not exist, the check is incomplete. The reference stays, its claims stay
   `unverified`, and the event and the report record the reason
