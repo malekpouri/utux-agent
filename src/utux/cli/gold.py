@@ -5,12 +5,15 @@ logic of their own and never write, suggest or change a label.
 """
 
 import json
+import os
+from collections import Counter
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
-from utux.errors import ContractValidationError, UtuxError
+from utux.errors import ContractValidationError, ModelAuthenticationError, UtuxError
 from utux.evalkit.agreement import AgreementReport, ExtractionAgreement, LabelAgreement
 from utux.evalkit.annotation import (
     ExtractionWork,
@@ -32,9 +35,26 @@ from utux.evalkit.annotation import (
     with_splits,
     write_annotation_page,
 )
-from utux.evalkit.gold import PublicDataset, check_release
-from utux.evalkit.public import import_public, summarize, write_public_import
+from utux.evalkit.audit import export_audit, score_audit
+from utux.evalkit.gold import GoldItem, PublicDataset, check_release, read_gold_release
+from utux.evalkit.model_perturb import (
+    GEMINI_KEY_VARIABLE,
+    CappedCaller,
+    build_model_perturbations,
+    gemini_provider,
+)
+from utux.evalkit.perturb import MAX_UNCITED, build_rule_perturbations
+from utux.evalkit.public import (
+    ensure_outside_git,
+    import_public,
+    load_imported,
+    summarize,
+    write_public_import,
+)
+from utux.evalkit.sample import DEV_SHARE as SAMPLE_DEV_SHARE
+from utux.evalkit.sample import SampleSizes, sample_v0, select_imported
 from utux.evalkit.splits import assign_splits, split_report
+from utux.events.log import EventLog
 from utux.workspace.atomic import atomic_write_text
 from utux.workspace.hashing import hash_file
 
@@ -366,3 +386,189 @@ def import_public_dataset(
         raise _fail(error) from error
     typer.echo(f"Wrote {_count(len(result.items), 'item')} to {out}")
     typer.echo(json.dumps(summarize(result), indent=2, sort_keys=True))
+
+
+# M0-15c: perturbations, the v0 sample and the audit. Every command prints
+# counts only, never an item, a text or a label.
+
+Imported = Annotated[
+    list[Path],
+    typer.Option("--imported", help="A directory written by import-public; give each one."),
+]
+
+
+def _write_items(path: Path, items: Sequence[GoldItem]) -> None:
+    ensure_outside_git(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(path, release_text(items))
+
+
+def _parent_ids(parents: Path | None) -> list[str] | None:
+    return None if parents is None else [item.item_id for item in read_gold_release(parents)]
+
+
+@gold_app.command("perturb")
+def perturb(
+    imported: Imported,
+    method: Annotated[str, typer.Option("--method", help="rules, or gemini (ADR-0019).")],
+    out: Annotated[Path, typer.Option("--out", help="The directory to write into.")],
+    parents: Annotated[
+        Path | None, typer.Option("--parents", help="Only these parents: parents.jsonl of sample.")
+    ] = None,
+    seed: Annotated[int, typer.Option("--seed", help="The seed of the parent order.")] = 7,
+    max_uncited: Annotated[
+        int, typer.Option("--max-uncited", help="The cap on uncited abstracts.")
+    ] = MAX_UNCITED,
+    max_cost_usd: Annotated[
+        float | None,
+        typer.Option("--max-cost-usd", help="gemini: the cap, at the higher price (ADR-0019)."),
+    ] = None,
+    per_type: Annotated[
+        int, typer.Option("--per-type", help="gemini: checked items wanted per type.")
+    ] = 15,
+) -> None:
+    """Build perturbations whose labels follow from their construction."""
+    if method not in ("rules", "gemini"):
+        raise typer.BadParameter("must be rules or gemini", param_hint="--method")
+    if method == "gemini" and max_cost_usd is None:
+        raise typer.BadParameter("gemini needs a cost cap", param_hint="--max-cost-usd")
+    try:
+        ensure_outside_git(out)
+        items, texts = load_imported(imported)
+        allowed = _parent_ids(parents)
+        if method == "rules":
+            run = build_rule_perturbations(
+                items, texts, seed=seed, parents=allowed, max_uncited=max_uncited
+            )
+            extra: dict[str, object] = {}
+        else:
+            if not os.environ.get(GEMINI_KEY_VARIABLE, "").strip():
+                raise ModelAuthenticationError(
+                    f"{GEMINI_KEY_VARIABLE} is not set; the key is read only from it, and "
+                    "nothing was sent"
+                )
+            out.mkdir(parents=True, exist_ok=True)
+            caller = CappedCaller(
+                EventLog(out / "events.jsonl"), gemini_provider(), max_cost_usd=max_cost_usd or 0.0
+            )
+            run = build_model_perturbations(
+                items, texts, caller, seed=seed, per_type=per_type, parents=allowed
+            )
+            extra = {
+                "estimated_cost_usd (an estimate, ADR-0019)": round(caller.estimated_usd, 4),
+                "counted_against_cap_usd": round(caller.spent_cap_usd, 4),
+            }
+        path = out / f"perturbed-{method}.jsonl"
+        _write_items(path, run.items)
+    except UtuxError as error:
+        raise _fail(error) from error
+    typer.echo(f"Wrote {_count(len(run.items), 'item')} to {path}")
+    typer.echo(json.dumps({**run.summary(), **extra}, indent=2, sort_keys=True))
+
+
+@gold_app.command("sample")
+def sample(
+    imported: Imported,
+    seed: Annotated[int, typer.Option("--seed", help="The seed of the sample; record it.")],
+    out: Annotated[Path, typer.Option("--out", help="The directory to write into.")],
+    perturbed: Annotated[
+        list[Path] | None,
+        typer.Option("--perturbed", help="Files written by perturb; without them, parents only."),
+    ] = None,
+    scifact_per_status: Annotated[int, typer.Option("--scifact-per-status")] = 50,
+    sciclaimeval_per_status: Annotated[int, typer.Option("--sciclaimeval-per-status")] = 50,
+    perturbations: Annotated[int, typer.Option("--perturbations")] = 50,
+    max_uncited: Annotated[int, typer.Option("--max-uncited")] = MAX_UNCITED,
+    dev_share: Annotated[float, typer.Option("--dev-share")] = SAMPLE_DEV_SHARE,
+) -> None:
+    """Draw the v0 sample by a fixed seed; with --perturbed, add them and split by group."""
+    sizes = SampleSizes(scifact_per_status, sciclaimeval_per_status, perturbations, max_uncited)
+    try:
+        ensure_outside_git(out)
+        items, texts = load_imported(imported)
+        if not perturbed:
+            parents = select_imported(items, sizes, seed=seed)
+            _write_items(out / "parents.jsonl", parents)
+            typer.echo(f"Wrote {_count(len(parents), 'parent')} to {out / 'parents.jsonl'}")
+            counts = Counter(
+                f"{i.provenance.dataset.value if i.provenance else '?'} "
+                f"{i.domain.value} {i.claims[0].status.value}"
+                for i in parents
+            )
+            typer.echo(
+                json.dumps({"seed": seed, "parents": dict(sorted(counts.items()))}, indent=2)
+            )
+            return
+        children = [child for path in perturbed for child in read_gold_release(path)]
+        drawn = sample_v0(items, children, sizes, seed=seed, dev_share=dev_share)
+        _write_items(out / "v0.jsonl", drawn.items)
+        used = {p.text_hash for item in drawn.items for c in item.claims for p in c.pairs}
+        (out / "sources").mkdir(parents=True, exist_ok=True)
+        for text_hash in sorted(used):
+            atomic_write_text(
+                out / "sources" / f"{text_hash.removeprefix('sha256:')}.txt", texts[text_hash]
+            )
+        record = {
+            **drawn.report(),
+            "inputs": {
+                str(p): hash_file(p) for p in [*(d / "items.jsonl" for d in imported), *perturbed]
+            },
+            "release_hash": hash_file(out / "v0.jsonl"),
+        }
+        atomic_write_text(out / "sample-record.json", json.dumps(record, indent=2) + "\n")
+    except UtuxError as error:
+        raise _fail(error) from error
+    typer.echo(f"Wrote {_count(len(drawn.items), 'item')} to {out / 'v0.jsonl'}")
+    typer.echo(json.dumps(drawn.report(), indent=2, sort_keys=True))
+
+
+audit_app = typer.Typer(help="The maintainer's blind audit of gold v0.")
+gold_app.add_typer(audit_app, name="audit")
+
+
+def _release_texts(release: Path) -> dict[str, str]:
+    return {
+        f"sha256:{path.stem}": path.read_text(encoding="utf-8")
+        for path in sorted((release.parent / "sources").glob("*.txt"))
+    }
+
+
+@audit_app.command("export")
+def audit_export(
+    release: Annotated[Path, typer.Option("--release", help="v0.jsonl written by sample.")],
+    seed: Annotated[int, typer.Option("--seed", help="The seed of the audit; record it.")],
+    out: Annotated[Path, typer.Option("--out", help="The directory to write into.")],
+) -> None:
+    """Write the blind sheet of 30 items, and its key."""
+    try:
+        ensure_outside_git(out)
+        sheet, key = export_audit(read_gold_release(release), _release_texts(release), seed=seed)
+        out.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(out / "audit-sheet.csv", sheet)
+        atomic_write_text(out / "audit-key.json", json.dumps(key, indent=2) + "\n")
+    except UtuxError as error:
+        raise _fail(error) from error
+    typer.echo(f"Wrote {_count(len(key), 'row')} to {out / 'audit-sheet.csv'}")
+    typer.echo(f"Wrote the key to {out / 'audit-key.json'}; do not open it before scoring.")
+
+
+@audit_app.command("score")
+def audit_score(
+    release: Annotated[Path, typer.Option("--release", help="v0.jsonl written by sample.")],
+    key: Annotated[Path, typer.Option("--key", help="audit-key.json.")],
+    sheet: Annotated[Path, typer.Option("--sheet", help="The filled audit-sheet.csv.")],
+    annotator: Annotated[str, typer.Option("--annotator", help="Your pseudonymous id, a01.")],
+    out: Annotated[Path, typer.Option("--out", help="The release to write, with upgrades.")],
+) -> None:
+    """Score the filled sheet: Cohen's kappa, and confirmed items upgraded to audit."""
+    try:
+        keys = json.loads(key.read_text(encoding="utf-8"))
+        result = score_audit(
+            read_gold_release(release), keys, sheet.read_text(encoding="utf-8"), annotator=annotator
+        )
+        _write_items(out, result.items)
+    except UtuxError as error:
+        raise _fail(error) from error
+    typer.echo(json.dumps(result.report(), indent=2, sort_keys=True))
+    if result.below_floor:
+        typer.echo("Kappa is below 0.6, or cannot be computed: review the label mapping.")
