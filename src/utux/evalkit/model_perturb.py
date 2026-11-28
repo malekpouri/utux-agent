@@ -1,7 +1,7 @@
 """Model-written perturbations with Gemini, under a cost cap (M0-15c, ADR-0019).
 
-Gemini writes four types of perturbation (hedge removal, direction,
-overgeneralisation, missing comparator; causal overreach is on hold) and
+Gemini writes five types of perturbation (hedge removal, direction, causal
+overreach, overgeneralisation, missing comparator) and
 checks each one in a separate call that only flags disagreement. It never
 gives a label: the label follows from the type, as for the rule-made types
 (`utux.evalkit.perturb`). An item whose check disagrees,
@@ -33,7 +33,6 @@ from utux.errors import ModelAuthenticationError, ModelProviderError, UtuxError
 from utux.evalkit.gold import Confirmation, Domain, GoldItem
 from utux.evalkit.perturb import (
     MODEL_TYPES,
-    ON_HOLD,
     PerturbationRun,
     PerturbationType,
     Skip,
@@ -347,11 +346,6 @@ def build_model_perturbations(
     group shuffled by `seed`. A type stops after `per_type` successes or
     `max_tries` attempts. The run stops when the cap refuses a call.
     """
-    held = [kind.value for kind in types if kind in ON_HOLD]
-    if held:
-        raise ValueError(
-            f"{', '.join(held)} is on hold until its status is decided (RFC-001, section 4)"
-        )
     allowed = None if parents is None else set(parents)
     candidates = sorted(
         (i for i in items if is_parent(i) and (allowed is None or i.item_id in allowed)),
