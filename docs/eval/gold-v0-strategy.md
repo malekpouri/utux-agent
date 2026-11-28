@@ -165,11 +165,11 @@ the target error and the confirmation.
 | --- | --- | --- | --- | --- |
 | Attach the claim to an abstract of the same corpus that it does not cite | `insufficient_evidence`, pair `neutral` | | The abstract is not cited and has no rationale for the claim | `deterministic` |
 | Change a number so that it differs from every number of the evidence | `contradicted` | `magnitude_mismatch` | The new number appears nowhere in the source text | `deterministic` |
-| Remove a hedge | | `certainty_escalation` | The removed hedge word was in the claim | `deterministic` |
 | Swap the metric or outcome | | `metric_mismatch` | The new metric is not in the source text | `deterministic` |
-| Alter the title, first author or year of a real reference (citation existence) | per ADR-0016 | | The altered field differs | `deterministic` |
+| Alter the title, first author or year of a real reference (citation existence) | per ADR-0016 | | The altered field differs (see the citation existence items below) | `deterministic` |
 | Reverse the direction of the effect | `contradicted` | `direction_mismatch` | none | `model_check`, audited by sample |
-| Turn a correlation into a causal statement | | `causal_overreach` | none | `model_check`, audited by sample |
+| Remove a hedge (model-written, PR #59 review) | `verified` (minor flag) | `certainty_escalation` | A hedge of the fixed list is in the parent claim and absent from the perturbed claim | `model_check`, audited by sample |
+| Turn a correlation into a causal statement | **on hold**, see below | `causal_overreach` | none | not built |
 | Widen the population, dataset or conditions | `partially_supported` | `overgeneralisation` | none | `model_check`, audited by sample |
 | Drop the comparator | | `missing_comparator` | none | `model_check`, audited by sample |
 
@@ -177,6 +177,28 @@ the target error and the confirmation.
   - Types with a deterministic check enter v0 directly.
   - Types without one (direction, causal, overgeneralisation, missing comparator) enter only if Gemini's check raises no disagreement, and they are sampled in the audit.
   - Each item records its confirmation: `deterministic`, `model_check` or `audit` (`hidden.confirmation`; `confirmed_by` names the person only for `audit`).
+
+### Third review, 2026-11-28 (pull request #59)
+
+- [x] **Hedge removal** moves to the model-written types, with a deterministic post-check. A hedge of a fixed list must be in the parent claim and absent from the perturbed claim, or the item is dropped and counted (`hedge_not_removed`). The list holds the adverbs (possibly, probably, potentially, perhaps, presumably, apparently, seemingly, conceivably, plausibly, arguably), the modal verbs (may, might, could) and the hedging verbs (suggests, suggest, suggested, appears to, appear to, appeared to, seems to, seem to, seemed to). A parent with no hedge is skipped before any call (`no_hedge`). No rule-made modal rewrites.
+- [x] **Citation existence items** use the existing OpenAlex title search, with no new source. A SciFact title is accepted only when exactly one result has the identical normalised title; otherwise it is dropped and counted (`no_identical_title`, `ambiguous_title`, and `missing_author`, `missing_year`, `search_failed`). The command makes network calls and is the maintainer's to run (runbook). Each real reference gives a real item and one altered copy, title, first author and year in turn. The cited family name is the last word of the first author's display name, a construction rule only.
+- [x] **The status rule for flag-only perturbations** follows RFC-001's flag severity table (RFC-001, S4) and its adjustment for scope flags (RFC-001, section 4):
+
+  | Flag | RFC-001 severity | RFC-001 effect on an entailed claim | Status given here |
+  | --- | --- | --- | --- |
+  | `certainty_escalation` | Minor | No change to the status | `verified` |
+  | `missing_comparator` | Minor | No change to the status | `verified` |
+  | `metric_mismatch` | Major | `verified` is downgraded to `partially_supported` | `partially_supported` |
+  | `overgeneralisation` | Major | `verified` is downgraded to `partially_supported` | `partially_supported` |
+  | `causal_overreach` | Critical | `insufficient_evidence` until a human has reviewed the claim | **differs**: the guideline's rule gives `partially_supported` |
+
+  These match exactly, except causal overreach. RFC-001 gives a claim with a critical flag `insufficient_evidence` until a human review, while the guideline's rule (section 5.4) gives `partially_supported`. As decided, the difference is reported, not decided: causal overreach is on hold and not built.
+
+  Number change and direction reversal also carry critical flags. Their label, `contradicts` and `contradicted`, is the one the strategy and RFC-002 section 2 give them, not RFC-001's status for a system output, which waits for a human review. This is reported for the record.
+- [x] **Thinking and the cap.**
+  - Every Gemini request sets `thinking_level` `low` and `max_tokens` 2048. `gemini-3.8-flash` takes a thinking level, `low`, `medium` or `high`, and documents no numeric thinking budget. `max_output_tokens` "applies to the combined total of thinking tokens and output tokens" as "a hard cutoff" ([thinking](https://aistudio.google.com/docs/thinking), read 2026-11-28).
+  - Before each call, its worst-case cost at the cap price is reserved against `--max-cost-usd`: the input bounded by its bytes, and 2048 output tokens. The call is refused if the reservation would pass the cap.
+  - The runbook starts with a small run (`--per-type 2`).
 
 ## 7. Gemini's role
 
