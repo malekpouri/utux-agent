@@ -60,14 +60,14 @@ RFC-001's severity table (strategy, third review):
 - a minor flag (`certainty_escalation`, `missing_comparator`) leaves an
   entailed claim `verified`;
 - a major flag (`metric_mismatch`, `overgeneralisation`) gives
-  `partially_supported`.
-
-Causal overreach, a critical flag, is on hold until its status is decided.
+  `partially_supported`;
+- a critical flag on a supporting pair (`causal_overreach`) gives
+  `insufficient_evidence`, as RFC-001 section 4 does before a human review.
 
 ## 3. Model-written perturbations, with Gemini
 
-Hedge removal, direction, overgeneralisation and missing comparator; causal
-overreach is on hold. Gemini writes each item and checks it in a separate
+Hedge removal, direction, causal overreach, overgeneralisation and missing
+comparator. Gemini writes each item and checks it in a separate
 call that only flags disagreement.
 - **Dropped and counted:** flagged items, and hedge removals that leave every
   hedge of the parent in place (`hedge_not_removed`).

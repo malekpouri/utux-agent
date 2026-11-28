@@ -175,15 +175,14 @@ RULE_TYPES = (
 MODEL_TYPES = (
     PerturbationType.HEDGE_REMOVAL,
     PerturbationType.DIRECTION,
+    PerturbationType.CAUSAL,
     PerturbationType.OVERGENERALISATION,
     PerturbationType.MISSING_COMPARATOR,
 )
 """The model-written types. Hedge removal moved here, with a deterministic
-post-check (maintainer, PR #59 review). Causal overreach is left out until its
-status is decided: its critical flag gives `insufficient_evidence` under
-RFC-001, section 4, and `partially_supported` under the guideline's rule."""
-
-ON_HOLD = (PerturbationType.CAUSAL,)
+post-check (maintainer, PR #59 review). Causal overreach keeps the parent's
+label and adds its critical flag, so its status is `insufficient_evidence`,
+as RFC-001 section 4 gives before a human review (maintainer, 2026-11-28)."""
 
 
 @dataclass(frozen=True)

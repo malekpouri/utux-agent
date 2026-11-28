@@ -961,9 +961,12 @@ def guideline_status(labels: Sequence[str], flags: Sequence[Collection[str]]) ->
        `insufficient_evidence`.
     4. Every pair that is not `neutral` is `entails`, at least one is, and no
        pair has a major or critical flag: `verified`.
-    5. A pair `entails` or `partial`: `partially_supported`.
-    6. A pair `contradicts`: `contradicted`.
-    7. Otherwise (every pair `neutral`): `insufficient_evidence`.
+    5. A pair `entails` or `partial` with a critical flag:
+       `insufficient_evidence`, as RFC-001 section 4 holds it for a human
+       review (maintainer, 2026-11-28).
+    6. A pair `entails` or `partial`: `partially_supported`.
+    7. A pair `contradicts`: `contradicted`.
+    8. Otherwise (every pair `neutral`): `insufficient_evidence`.
 
     This checks reference labels made by people; it never sets one.
     """
@@ -979,6 +982,11 @@ def guideline_status(labels: Sequence[str], flags: Sequence[Collection[str]]) ->
         and all(label in ("entails", "neutral") for label in labels)
     ):
         return GoldStatus.VERIFIED
+    if any(
+        label in supports and any(FLAG_SEVERITY[ScopeFlag(f)] is Severity.CRITICAL for f in pair)
+        for label, pair in zip(labels, flags, strict=True)
+    ):
+        return GoldStatus.INSUFFICIENT_EVIDENCE
     if supports & set(labels):
         return GoldStatus.PARTIALLY_SUPPORTED
     if "contradicts" in labels:
