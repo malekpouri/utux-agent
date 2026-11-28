@@ -418,3 +418,48 @@ def test_gemini_perturbations_need_a_cost_cap(tmp_path: Path) -> None:
     code, output = _gold("perturb", *imported, "--method", "gemini", "--out", str(tmp_path / "g"))
     assert code != 0
     assert "max-cost-usd" in output
+
+
+def test_existence_items_search_titles_and_write_items(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The command makes network calls through OpenAlex; here a synthetic
+    # search stands in for it.
+    from utux.cli import gold as gold_cli
+    from utux.interfaces.literature_source import WorkMetadata
+    from utux.schemas.source_record import Author
+
+    class _Search:
+        name = "openalex"
+        is_external = True
+
+        def search(self, query: str, limit: int) -> tuple[WorkMetadata, ...]:
+            number = abs(hash(query)) % 1000
+            return (
+                WorkMetadata(
+                    identifier=f"doi:10.0000/synthetic-{number}",
+                    title=query,
+                    authors=(Author(display_name=f"Ann Synthetic{number}"),),
+                    year=2010 + number % 10,
+                ),
+            )
+
+    monkeypatch.setattr(gold_cli, "_openalex_search", lambda log: _Search())
+    imported = _imported(tmp_path)
+    code, output = _gold("sample", *imported, "--scifact-per-status", "1",
+                         "--sciclaimeval-per-status", "1", "--seed", "11",
+                         "--out", str(tmp_path / "s"))  # fmt: skip
+    assert code == 0, output
+    code, output = _gold(
+        "existence-items", "--scifact", str(tmp_path / "data" / "scifact"),
+        "--release", str(tmp_path / "s" / "parents.jsonl"), "--seed", "4",
+        "--out", str(tmp_path / "e"),
+    )  # fmt: skip
+    assert code == 0, output
+    from utux.evalkit.existence_items import ExistenceItem
+
+    lines = (tmp_path / "e" / "existence-items.jsonl").read_text().splitlines()
+    items = [ExistenceItem.from_json(line) for line in lines]
+    assert items
+    assert any(not item.expected_exists for item in items)
+    assert "Synthetic" not in output
