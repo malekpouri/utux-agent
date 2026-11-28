@@ -17,15 +17,18 @@ from utux.evalkit.model_perturb import (
     CHECK_PROMPT,
     GEMINI_BASE_URL,
     GEMINI_MODEL,
+    MAX_OUTPUT_TOKENS,
+    THINKING_LEVEL,
     WRITER_PROMPT,
     CappedCaller,
+    CostCapReachedError,
     build_model_perturbations,
     cap_cost_usd,
     estimated_cost_usd,
     gemini_provider,
     load_prompt,
 )
-from utux.evalkit.perturb import PerturbationType
+from utux.evalkit.perturb import MODEL_TYPES, PerturbationType
 from utux.events.log import EventLog
 from utux.interfaces.model_provider import Message, MessageRole
 from utux.providers.scripted import ScriptedModelProvider, ScriptedReply
@@ -251,3 +254,123 @@ def test_estimated_cost_usd_is_a_number_of_zero_or_more_or_null(tmp_path: Path) 
         Event.validate_document(
             {**document, "data": {**document["data"], "estimated_cost_usd": -1.0}}, "s"
         )
+
+
+# Hedge removal, model-written with a deterministic post-check (PR #59 review)
+
+
+def test_hedge_removal_is_written_by_the_model_and_checked_by_rule(
+    tmp_path: Path, corpus: tuple[tuple[GoldItem, ...], dict[str, str]]
+) -> None:
+    items, texts = corpus
+    provider = ScriptedModelProvider(
+        [
+            _reply({"claim": "Drug A lowered blood pressure by 12 percent in mice."}),
+            _reply({"disagree": False}),
+        ],
+        name="gemini",
+    )
+    caller = CappedCaller(
+        EventLog(tmp_path / "events.jsonl"), provider, max_cost_usd=5.0, today=lambda: TODAY
+    )
+    run = build_model_perturbations(
+        items, texts, caller, seed=3, per_type=1, types=(PerturbationType.HEDGE_REMOVAL,)
+    )
+    (child,) = run.items
+    assert isinstance(child.hidden, PerturbationRecord)
+    assert child.hidden.source_item == "G10000001"
+    assert child.hidden.confirmation is Confirmation.MODEL_CHECK
+    (claim,) = child.claims
+    (pair,) = claim.pairs
+    assert pair.scope_flags == (ScopeFlag.CERTAINTY_ESCALATION,)
+    # A minor flag leaves verified unchanged (RFC-001, section 4).
+    assert claim.status is GoldStatus.VERIFIED
+    # Parents without a hedge are skipped without a call: two calls in all.
+    assert len(provider.requests) == 2
+    assert run.skipped[(PerturbationType.HEDGE_REMOVAL, "no_hedge")] >= 1
+
+
+def test_a_hedge_left_in_the_claim_drops_the_item_before_the_check(
+    tmp_path: Path, corpus: tuple[tuple[GoldItem, ...], dict[str, str]]
+) -> None:
+    items, texts = corpus
+    provider = ScriptedModelProvider(
+        [_reply({"claim": "Drug A potentially lowered blood pressure by 12 percent."})],
+        name="gemini",
+    )
+    caller = CappedCaller(
+        EventLog(tmp_path / "events.jsonl"), provider, max_cost_usd=5.0, today=lambda: TODAY
+    )
+    run = build_model_perturbations(
+        items, texts, caller, seed=3, per_type=1, types=(PerturbationType.HEDGE_REMOVAL,)
+    )
+    assert run.items == ()
+    assert run.skipped[(PerturbationType.HEDGE_REMOVAL, "hedge_not_removed")] == 1
+    assert len(provider.requests) == 1
+
+
+# Causal overreach waits for a decision (RFC-001, section 4) -----------------------
+
+
+def test_causal_overreach_is_not_built_until_its_status_is_decided(
+    tmp_path: Path, corpus: tuple[tuple[GoldItem, ...], dict[str, str]]
+) -> None:
+    items, texts = corpus
+    assert PerturbationType.CAUSAL not in MODEL_TYPES
+    with pytest.raises(ValueError, match="causal"):
+        build_model_perturbations(
+            items,
+            texts,
+            _caller(tmp_path, []),
+            seed=3,
+            per_type=1,
+            types=(PerturbationType.CAUSAL,),
+        )
+
+
+# Thinking and the reservation (PR #59 review) --------------------------------------
+
+
+def test_every_gemini_request_sets_the_thinking_level_and_the_output_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", SYNTHETIC_KEY)
+    transport = ScriptedTransport(response(200, "gemini_completion.json"))
+    caller = CappedCaller(
+        EventLog(tmp_path / "events.jsonl"),
+        gemini_provider(transport=transport),
+        max_cost_usd=1.0,
+        today=lambda: TODAY,
+    )
+    caller.call((Message(role=MessageRole.USER, content="Synthetic."),), CHECK_PROMPT)
+    ((request, _),) = transport.calls
+    body = json.loads(request.body)
+    assert body["max_tokens"] == MAX_OUTPUT_TOKENS == 2048
+    assert body["extra_body"] == {"google": {"thinking_config": {"thinking_level": THINKING_LEVEL}}}
+    assert THINKING_LEVEL == "low"
+
+
+def test_each_call_reserves_its_worst_case_at_the_cap_price(tmp_path: Path) -> None:
+    messages = (Message(role=MessageRole.USER, content="x" * 984),)
+    caller = _caller(tmp_path, [_reply("x", 10, 10)])
+    # 984 bytes and 16 for the message bound the input at 1,000 tokens; the
+    # output, thinking included, is cut off at 2,048 tokens.
+    reservation = caller.reservation_usd(messages)
+    assert reservation == pytest.approx(cap_cost_usd(1000, MAX_OUTPUT_TOKENS))
+    exact = CappedCaller(
+        EventLog(tmp_path / "exact.jsonl"),
+        ScriptedModelProvider([_reply("x", 10, 10)], name="gemini"),
+        max_cost_usd=reservation,
+        today=lambda: TODAY,
+    )
+    exact.call(messages, WRITER_PROMPT)
+    # After the call, the actual cost replaces the reservation.
+    assert exact.spent_cap_usd == pytest.approx(cap_cost_usd(10, 10))
+    too_small = CappedCaller(
+        EventLog(tmp_path / "small.jsonl"),
+        ScriptedModelProvider([], name="gemini"),
+        max_cost_usd=reservation * 0.999,
+        today=lambda: TODAY,
+    )
+    with pytest.raises(CostCapReachedError):
+        too_small.call(messages, WRITER_PROMPT)

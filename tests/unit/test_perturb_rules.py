@@ -21,8 +21,10 @@ from utux.evalkit.gold import (
     check_release,
 )
 from utux.evalkit.perturb import (
+    HEDGE_WORDS,
     HEDGES,
     METRIC_GROUPS,
+    RULE_TYPES,
     PerturbationType,
     build_rule_perturbations,
 )
@@ -50,6 +52,10 @@ def _record(child: GoldItem) -> PerturbationRecord:
 def test_the_lists_are_fixed_and_documented() -> None:
     assert "potentially" in HEDGES
     assert "perhaps" in HEDGES
+    # Modal and hedging verbs count for the model-written type's check.
+    for word in ("may", "might", "could", "suggests", "appears to"):
+        assert word in HEDGE_WORDS
+    assert set(HEDGES) <= set(HEDGE_WORDS)
     assert METRIC_GROUPS["ml"][:2] == ("accuracy", "precision")
     assert all(word == word.lower() for word in HEDGES)
 
@@ -98,18 +104,12 @@ def test_a_child_carries_its_parents_licence_and_redistribution_limit(
         assert NotScored.S4 not in child.provenance.not_scored
 
 
-def test_hedge_removal_flags_certainty_escalation_and_keeps_the_guidelines_status(
+def test_hedge_removal_is_not_a_rule_type_any_more(
     corpus: tuple[tuple[GoldItem, ...], dict[str, str]],
 ) -> None:
-    (child,) = _children(corpus, PerturbationType.HEDGE_REMOVAL)
-    (claim,) = child.claims
-    assert claim.text == "Drug A lowered blood pressure by 12 percent in mice."
-    (pair,) = claim.pairs
-    assert pair.agreement_label is SourceLabel.ENTAILS
-    assert pair.scope_flags == (ScopeFlag.CERTAINTY_ESCALATION,)
-    # A minor flag leaves an entailed claim verified (guideline, section 5.4).
-    assert claim.status is GoldStatus.VERIFIED
-    assert _record(child).target_error == "certainty_escalation"
+    # Moved to the model-written types (maintainer, PR #59 review).
+    assert PerturbationType.HEDGE_REMOVAL not in RULE_TYPES
+    assert _children(corpus, PerturbationType.HEDGE_REMOVAL) == []
 
 
 def test_a_metric_swap_uses_a_metric_absent_from_the_source(
@@ -163,7 +163,6 @@ def test_only_verified_parents_are_perturbed_and_skips_are_counted(
     run = build_rule_perturbations(items, texts, seed=7)
     parents = {_record(child).source_item for child in run.items}
     assert all(item(items, p).claims[0].status is GoldStatus.VERIFIED for p in parents)
-    assert run.skipped[(PerturbationType.HEDGE_REMOVAL, "no_hedge")] >= 1
     assert run.skipped[(PerturbationType.NUMBER_CHANGE, "no_number_in_evidence")] >= 1
     assert run.skipped[(PerturbationType.METRIC_SWAP, "no_metric")] >= 1
 
