@@ -1,9 +1,10 @@
 """Model-written perturbations with Gemini, under a cost cap (M0-15c, ADR-0019).
 
-Gemini writes four types of perturbation (direction, causal, overgeneralisation,
-missing comparator) and checks each one in a separate call that only flags
-disagreement. It never gives a label: the label follows from the type, as for
-the rule-made types (`utux.evalkit.perturb`). An item whose check disagrees,
+Gemini writes four types of perturbation (hedge removal, direction,
+overgeneralisation, missing comparator; causal overreach is on hold) and
+checks each one in a separate call that only flags disagreement. It never
+gives a label: the label follows from the type, as for the rule-made types
+(`utux.evalkit.perturb`). An item whose check disagrees,
 or whose answers are not clean, is dropped and counted; the others get
 `confirmation: model_check`.
 
@@ -32,10 +33,12 @@ from utux.errors import ModelAuthenticationError, ModelProviderError, UtuxError
 from utux.evalkit.gold import Confirmation, Domain, GoldItem
 from utux.evalkit.perturb import (
     MODEL_TYPES,
+    ON_HOLD,
     PerturbationRun,
     PerturbationType,
     Skip,
     evidence_text,
+    hedges_in,
     is_parent,
     make_child,
 )
@@ -84,9 +87,23 @@ CAP_PRICE = Price(date(2026, 1, 1), 1.50, 7.50)
 WRITER_PROMPT = "perturb-writer@1"
 CHECK_PROMPT = "perturb-check@1"
 MAX_OUTPUT_TOKENS = 2048
+"""Set on every request. For Gemini, `max_output_tokens` "applies to the
+combined total of thinking tokens and output tokens" and is "a hard cutoff"
+([thinking](https://aistudio.google.com/docs/thinking), read 2026-11-28), so it
+bounds each call's output, thinking included."""
+
+THINKING_LEVEL = "low"
+"""Set on every request. `gemini-3.8-flash` takes a thinking level, `low`,
+`medium` (the default) or `high`, and documents no numeric thinking budget
+([thinking](https://aistudio.google.com/docs/thinking), read 2026-11-28). It is
+sent as `thinking_config` in the `extra_body` of the OpenAI-compatible request
+([OpenAI compatibility](https://aistudio.google.com/docs/openai))."""
 TIMEOUT_SECONDS = 120.0
 
 INSTRUCTIONS: Mapping[PerturbationType, str] = {
+    PerturbationType.HEDGE_REMOVAL: "remove the hedge (such as may, might, could, suggests, "
+    "appears to, possibly) so that the claim states its finding as established fact, changing "
+    "the verb form only as grammar needs.",
     PerturbationType.DIRECTION: "reverse the direction of the effect the claim states "
     "(for example, increases becomes decreases, better becomes worse).",
     PerturbationType.CAUSAL: "turn the association or correlation the claim states into a "
@@ -98,6 +115,7 @@ INSTRUCTIONS: Mapping[PerturbationType, str] = {
 }
 
 EXPECTED: Mapping[PerturbationType, str] = {
+    PerturbationType.HEDGE_REMOVAL: "states as established fact what the evidence hedges.",
     PerturbationType.DIRECTION: "is contradicted by it: the effect goes the other way.",
     PerturbationType.CAUSAL: "claims a causal link where the evidence reports an association.",
     PerturbationType.OVERGENERALISATION: "states more broadly than the evidence supports.",
@@ -133,6 +151,9 @@ def gemini_provider(transport: Transport | None = None) -> OpenAICompatibleProvi
         name=PROVIDER_NAME,
         base_url=GEMINI_BASE_URL,
         api_key_env=GEMINI_KEY_VARIABLE,
+        extra_body={
+            "extra_body": {"google": {"thinking_config": {"thinking_level": THINKING_LEVEL}}}
+        },
         transport=transport,
     )
 
@@ -196,6 +217,16 @@ class CappedCaller:
             )
         )
 
+    def reservation_usd(self, messages: Sequence[Message]) -> float:
+        """The call's worst-case cost at the cap price, reserved before it is sent.
+
+        A token is at least one byte, so the bytes of the messages, with 16 for
+        each, bound the input tokens; `MAX_OUTPUT_TOKENS` cuts off the output,
+        thinking included.
+        """
+        bound_in = sum(len(m.content.encode("utf-8")) + 16 for m in messages)
+        return cap_cost_usd(bound_in, MAX_OUTPUT_TOKENS)
+
     def call(self, messages: Sequence[Message], prompt_version: str) -> ModelResponse:
         """One call, logged.
 
@@ -211,9 +242,7 @@ class CappedCaller:
             timeout_seconds=TIMEOUT_SECONDS,
             max_output_tokens=MAX_OUTPUT_TOKENS,
         )
-        # A token is at least one byte, so the bytes bound the input tokens.
-        bound_in = sum(len(m.content.encode("utf-8")) + 16 for m in messages)
-        if self.spent_cap_usd + cap_cost_usd(bound_in, MAX_OUTPUT_TOKENS) > self._cap:
+        if self.spent_cap_usd + self.reservation_usd(messages) > self._cap:
             self._event(request, EventStatus.REFUSED, prompt_version, reason=REFUSED_BUDGET)
             raise CostCapReachedError(
                 f"the next call could pass the cap of {self._cap} USD "
@@ -263,6 +292,10 @@ def _perturb_one(
     parent: GoldItem, kind: PerturbationType, texts: Mapping[str, str], caller: CappedCaller
 ) -> GoldItem:
     original = parent.claims[0].text
+    hedged = hedges_in(original) if kind is PerturbationType.HEDGE_REMOVAL else set()
+    if kind is PerturbationType.HEDGE_REMOVAL and not hedged:
+        # Nothing to remove: skipped by rule, before any call.
+        raise Skip("no_hedge")
     writer = load_prompt(WRITER_PROMPT).format(instruction=INSTRUCTIONS[kind], claim=original)
     answer = _json_answer(caller.call(_user(writer), WRITER_PROMPT).content)
     if isinstance(answer, dict) and answer.get("not_applicable") is True:
@@ -275,6 +308,9 @@ def _perturb_one(
         raise Skip("unchanged")
     if len(claim) > 2 * len(original) + 40:
         raise Skip("invalid_answer")
+    if kind is PerturbationType.HEDGE_REMOVAL and not hedged - hedges_in(claim):
+        # The deterministic post-check: a hedge of the parent must be gone.
+        raise Skip("hedge_not_removed")
     child = make_child(parent, kind, claim, None, Confirmation.MODEL_CHECK)
     evidence = "\n".join(
         evidence_text(pair, texts) for pair in parent.claims[0].pairs if pair.evidence_spans
@@ -311,6 +347,11 @@ def build_model_perturbations(
     group shuffled by `seed`. A type stops after `per_type` successes or
     `max_tries` attempts. The run stops when the cap refuses a call.
     """
+    held = [kind.value for kind in types if kind in ON_HOLD]
+    if held:
+        raise ValueError(
+            f"{', '.join(held)} is on hold until its status is decided (RFC-001, section 4)"
+        )
     allowed = None if parents is None else set(parents)
     candidates = sorted(
         (i for i in items if is_parent(i) and (allowed is None or i.item_id in allowed)),
