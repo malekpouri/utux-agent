@@ -169,7 +169,7 @@ the target error and the confirmation.
 | Alter the title, first author or year of a real reference (citation existence) | per ADR-0016 | | The altered field differs (see the citation existence items below) | `deterministic` |
 | Reverse the direction of the effect | `contradicted` | `direction_mismatch` | none | `model_check`, audited by sample |
 | Remove a hedge (model-written, PR #59 review) | `verified` (minor flag) | `certainty_escalation` | A hedge of the fixed list is in the parent claim and absent from the perturbed claim | `model_check`, audited by sample |
-| Turn a correlation into a causal statement | **on hold**, see below | `causal_overreach` | none | not built |
+| Turn a correlation into a causal statement | `insufficient_evidence` (critical flag, RFC-001 section 4) | `causal_overreach` | none | `model_check`, audited by sample |
 | Widen the population, dataset or conditions | `partially_supported` | `overgeneralisation` | none | `model_check`, audited by sample |
 | Drop the comparator | | `missing_comparator` | none | `model_check`, audited by sample |
 
@@ -190,11 +190,13 @@ the target error and the confirmation.
   | `missing_comparator` | Minor | No change to the status | `verified` |
   | `metric_mismatch` | Major | `verified` is downgraded to `partially_supported` | `partially_supported` |
   | `overgeneralisation` | Major | `verified` is downgraded to `partially_supported` | `partially_supported` |
-  | `causal_overreach` | Critical | `insufficient_evidence` until a human has reviewed the claim | **differs**: the guideline's rule gives `partially_supported` |
+  | `causal_overreach` | Critical | `insufficient_evidence` until a human has reviewed the claim | `insufficient_evidence` (decided 2026-11-28) |
 
-  These match exactly, except causal overreach. RFC-001 gives a claim with a critical flag `insufficient_evidence` until a human review, while the guideline's rule (section 5.4) gives `partially_supported`. As decided, the difference is reported, not decided: causal overreach is on hold and not built.
+  These match exactly, except causal overreach. RFC-001 gives a claim with a critical flag `insufficient_evidence` until a human review, while the guideline's rule (section 5.4) gave `partially_supported`. As decided, the difference was reported, not decided, and causal overreach was held.
 
-  Number change and direction reversal also carry critical flags. Their label, `contradicts` and `contradicted`, is the one the strategy and RFC-002 section 2 give them, not RFC-001's status for a system output, which waits for a human review. This is reported for the record.
+  **Decided 2026-11-28 (maintainer):** causal overreach follows RFC-001. The reference label is `insufficient_evidence` with the critical flag `causal_overreach`, because the gold label is what a correct system must output before a human review. The guideline conflicted with RFC-001, which takes precedence; it is not covered by the `eval-protocol-v0` lock, so it was corrected (guideline section 5.4, rule 5). Causal overreach is now built as a model-written type.
+
+  Number change and direction reversal also carry critical flags. They keep `contradicts` and `contradicted` (maintainer, 2026-11-28), the label the strategy and RFC-002 section 2 give them; the guideline's rule 5 applies to supporting pairs only.
 - [x] **Thinking and the cap.**
   - Every Gemini request sets `thinking_level` `low` and `max_tokens` 2048. `gemini-3.8-flash` takes a thinking level, `low`, `medium` or `high`, and documents no numeric thinking budget. `max_output_tokens` "applies to the combined total of thinking tokens and output tokens" as "a hard cutoff" ([thinking](https://aistudio.google.com/docs/thinking), read 2026-11-28).
   - Before each call, its worst-case cost at the cap price is reserved against `--max-cost-usd`: the input bounded by its bytes, and 2048 output tokens. The call is refused if the reservation would pass the cap.

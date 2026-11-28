@@ -195,7 +195,9 @@ adjudicator, who may depart from a guideline rule with a written reason.
 to a claim's pairs, in order: no sources, or a `conflicting` pair, or
 support together with contradiction give `insufficient_evidence`; every
 non-`neutral` pair `entails`, at least one, with no major or critical flag,
-gives `verified`; then any support gives `partially_supported`, any
+gives `verified`; then support with a critical flag gives
+`insufficient_evidence` (RFC-001 section 4); then any support gives
+`partially_supported`, any
 contradiction `contradicted`, and otherwise `insufficient_evidence`. It
 checks labels made by people and never sets one.
 
