@@ -61,12 +61,14 @@ The annotators agree; nothing is adjudicated.
 | Evidence span | "Inference is 1.4 times faster than Method Beta on the same hardware." | same | same |
 | Agreement label | `contradicts` | `partial` | `contradicts` |
 | Scope flags | `magnitude_mismatch` | `magnitude_mismatch` | `magnitude_mismatch` |
-| Status | `contradicted` | `partially_supported` | `contradicted` |
+| Status | `contradicted` | `insufficient_evidence` | `contradicted` |
 | Expert would review | no | yes | no |
 
-a91 read "faster" as partly supported. The guideline's table in section 5.3
-maps `magnitude_mismatch` to `contradicts`: "twice as fast" cannot be true if
-the source measured 1.4 times. The adjudicator sets `contradicts`, so the
+a91 read "faster" as partly supported. With a critical flag on a `partial`
+pair, the status rules give a91 `insufficient_evidence` (guideline section
+5.4, rule 5; the rule changed in guideline 0.1 on 2026-11-28). The
+guideline's table in section 5.3 maps `magnitude_mismatch` to `contradicts`:
+"twice as fast" cannot be true if the source measured 1.4 times. The adjudicator sets `contradicts`, so the
 status rules of section 5.4 give `contradicted`, and records why. The pair
 and the claim are both marked `adjudicated`.
 
@@ -241,7 +243,7 @@ indentation.
           "note": null
         },
         "a91": {
-          "status": "partially_supported",
+          "status": "insufficient_evidence",
           "expert_would_review": true,
           "note": null
         }
