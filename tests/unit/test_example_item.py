@@ -10,7 +10,7 @@ import json
 import re
 from pathlib import Path
 
-from utux.evalkit.gold import GoldItem
+from utux.evalkit.gold import GoldItem, guideline_status
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "docs" / "eval" / "example-item.md"
 
@@ -61,3 +61,17 @@ def test_claim_spans_point_into_the_text_unit() -> None:
     c1, c2 = item.claims
     assert item.text_unit[c1.span[0] : c1.span[1]] == c1.text[:-1]
     assert item.text_unit[c2.span[0] : c2.span[1]] == "and it is twice as fast at inference"
+
+
+def test_each_annotators_status_is_the_one_the_rules_give_for_their_labels() -> None:
+    # Guideline section 5.4, with rule 5 of guideline 0.1 (2026-11-28): a
+    # critical flag on a supporting pair gives insufficient_evidence.
+    for claim in _item().claims:
+        assert claim.raw is not None
+        for annotator, answer in claim.raw.items():
+            raws = [pair.raw[annotator] for pair in claim.pairs if pair.raw is not None]
+            expected = guideline_status(
+                [r.agreement_label.value for r in raws],
+                [[f.value for f in r.scope_flags] for r in raws],
+            )
+            assert answer.status == expected, (claim.claim_id, annotator)
