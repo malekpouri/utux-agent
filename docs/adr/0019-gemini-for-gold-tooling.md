@@ -68,6 +68,17 @@ this access, and no project `cost_usd` comes from a table.
 - The price table is a constant with its source and retrieval date, and has
   to be checked against the pricing page before each run.
 
+### Thinking and reservations, 2026-11-28
+
+At the maintainer's decision in the review of pull request #59:
+- every request sets `thinking_level` `low` and `max_tokens` 2048;
+- each call reserves its worst-case cost at the cap price before it is sent,
+  and is refused if the reservation would pass the cap.
+
+`max_output_tokens` bounds the output, thinking included ([thinking](https://aistudio.google.com/docs/thinking),
+read 2026-11-28). `gemini-3.8-flash` documents a thinking level but no
+numeric thinking budget, so the level is what is set.
+
 ## Sources
 
 - `docs/adr/0008-model-access-without-litellm.md` and
