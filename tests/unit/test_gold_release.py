@@ -272,7 +272,7 @@ def test_a_status_other_than_the_guideline_rules_give_is_a_departure() -> None:
 
 def test_flags_on_a_neutral_pair_are_a_departure() -> None:
     # G9004's only pair is neutral; a flag on it departs from section 5.3.
-    # The rules still give insufficient_evidence (rule 7), as the reference.
+    # The rules still give insufficient_evidence (rule 8), as the reference.
     items = _changed(
         _items(),
         "G9004",
@@ -294,11 +294,18 @@ def test_flags_on_a_neutral_pair_are_a_departure() -> None:
         (["entails", "contradicts"], [[], []], "insufficient_evidence"),  # rule 3
         (["entails", "neutral"], [[], []], "verified"),  # rule 4, neutral ignored
         (["entails"], [["certainty_escalation"]], "verified"),  # rule 4, minor flag
-        (["entails"], [["overgeneralisation"]], "partially_supported"),  # rule 5, major flag
-        (["entails"], [["direction_mismatch"]], "partially_supported"),  # rule 5, critical flag
-        (["partial", "neutral"], [[], []], "partially_supported"),  # rule 5
-        (["contradicts", "neutral"], [[], []], "contradicted"),  # rule 6
-        (["neutral", "neutral"], [[], []], "insufficient_evidence"),  # rule 7
+        # Rule 5: a critical flag on a supporting pair holds the claim for a
+        # human review, as RFC-001 section 4 does (maintainer, 2026-11-28).
+        (["entails"], [["direction_mismatch"]], "insufficient_evidence"),  # rule 5
+        (["entails"], [["causal_overreach"]], "insufficient_evidence"),  # rule 5
+        (["partial", "neutral"], [["causal_overreach"], []], "insufficient_evidence"),  # rule 5
+        (["entails"], [["overgeneralisation"]], "partially_supported"),  # rule 6, major flag
+        (["partial", "neutral"], [[], []], "partially_supported"),  # rule 6
+        (["contradicts", "neutral"], [[], []], "contradicted"),  # rule 7
+        # A critical flag on a contradicting pair keeps contradicted (maintainer).
+        (["contradicts"], [["magnitude_mismatch"]], "contradicted"),  # rule 7
+        (["contradicts"], [["direction_mismatch"]], "contradicted"),  # rule 7
+        (["neutral", "neutral"], [[], []], "insufficient_evidence"),  # rule 8
     ],
 )
 def test_guideline_status_rules(labels: list[str], flags: list[list[str]], expected: str) -> None:

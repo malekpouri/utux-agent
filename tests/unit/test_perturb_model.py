@@ -309,23 +309,46 @@ def test_a_hedge_left_in_the_claim_drops_the_item_before_the_check(
     assert len(provider.requests) == 1
 
 
-# Causal overreach waits for a decision (RFC-001, section 4) -----------------------
+# Causal overreach follows RFC-001, section 4 (maintainer, 2026-11-28) -------------
 
 
-def test_causal_overreach_is_not_built_until_its_status_is_decided(
+def test_causal_overreach_is_built_with_insufficient_evidence_and_its_critical_flag(
     tmp_path: Path, corpus: tuple[tuple[GoldItem, ...], dict[str, str]]
 ) -> None:
     items, texts = corpus
-    assert PerturbationType.CAUSAL not in MODEL_TYPES
-    with pytest.raises(ValueError, match="causal"):
-        build_model_perturbations(
-            items,
-            texts,
-            _caller(tmp_path, []),
-            seed=3,
-            per_type=1,
-            types=(PerturbationType.CAUSAL,),
-        )
+    assert PerturbationType.CAUSAL in MODEL_TYPES
+    caller = _caller(
+        tmp_path,
+        [_reply({"claim": "Alpha causes an accuracy of 81.0."}), _reply({"disagree": False})],
+    )
+    run = build_model_perturbations(
+        items, texts, caller, seed=3, per_type=1, types=(PerturbationType.CAUSAL,)
+    )
+    (child,) = run.items
+    assert child.item_id == "G3620000001"
+    assert isinstance(child.hidden, PerturbationRecord)
+    assert child.hidden.target_error == "causal_overreach"
+    assert child.hidden.confirmation is Confirmation.MODEL_CHECK
+    (claim,) = child.claims
+    # The reference is what a correct system outputs before a human review:
+    # a critical flag gives insufficient_evidence, whatever the matrix gives.
+    assert claim.status is GoldStatus.INSUFFICIENT_EVIDENCE
+    (pair,) = claim.pairs
+    # The pair keeps its label; only the flag is added.
+    assert (pair.agreement_label, pair.scope_flags) == (
+        SourceLabel.ENTAILS,
+        (ScopeFlag.CAUSAL_OVERREACH,),
+    )
+
+
+def test_the_default_run_writes_all_five_model_types() -> None:
+    assert MODEL_TYPES == (
+        PerturbationType.HEDGE_REMOVAL,
+        PerturbationType.DIRECTION,
+        PerturbationType.CAUSAL,
+        PerturbationType.OVERGENERALISATION,
+        PerturbationType.MISSING_COMPARATOR,
+    )
 
 
 # Thinking and the reservation (PR #59 review) --------------------------------------
