@@ -75,6 +75,8 @@ def test_the_constants_are_those_of_adr_0016() -> None:
         # NFKC turns the ligature into two letters; case folding turns ß into ss.
         ("ﬁne Straße", "fine strasse"),
         ("  (Self-)Attention—revisited ", "selfattentionrevisited"),
+        # Diacritics are folded in titles too (maintainer, after PR #57).
+        ("Méthode à noyaux pour l\u2019étude", "methode a noyaux pour letude"),
     ],
 )
 def test_normalisation_is_nfkc_case_folding_without_punctuation(text: str, expected: str) -> None:
@@ -387,3 +389,9 @@ def test_an_inconsistent_verification_result_is_refused(
     with pytest.raises(ContractValidationError) as caught:
         Event.validate_document(document, "synthetic")
     assert code in {problem.code for problem in caught.value.problems}
+
+
+def test_titles_fold_diacritics_but_not_german_transliterations() -> None:
+    assert title_similarity("Müller-type models", "Muller-type models") == 1.0
+    # ue for ü is accepted for author names only.
+    assert title_similarity("Müller", "Mueller") < 1.0

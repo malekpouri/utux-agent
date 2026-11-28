@@ -19,8 +19,8 @@ A reference exists when all four hold:
    A service that says the work does not exist passes the reference on to
    the next. A reference with no identifier, or one of another scheme, is
    `not_found`.
-2. **Its title matches.** Both titles are normalised: Unicode NFKC, case
-   folding, punctuation removed, runs of whitespace made one space. One
+2. **Its title matches.** Both titles are normalised: Unicode NFKC,
+   diacritics folded, case folding, punctuation removed, runs of whitespace made one space. One
    minus the Levenshtein distance divided by the length of the longer title
    is at least `TITLE_SIMILARITY`, 0.9.
 3. **The first author's family name matches.** The cited family name must
@@ -33,7 +33,8 @@ A reference exists when all four hold:
    - **Examples.** "Müller" matches "Muller" and "Mueller", "García" matches
      "José García-López", and "van der Berg" matches "Anna van der Berg".
      "Berg" does not match "Anna Bergman".
-   - Titles keep rule 2's normalisation.
+   - Titles fold diacritics too (rule 2), without the ue, oe, ae
+     transliterations.
 4. **The years differ by at most** `YEAR_TOLERANCE`, one, to allow a
    preprint and its published version.
 
