@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "item_id": "E00001",
+  "gold_version": "0.1",
+  "split": "test",
+  "construction": "real",
+  "reference": {
+    "key": "scifact1",
+    "identifier": "doi:10.0000/synthetic-1",
+    "title": "A Synthetic Method Comparison",
+    "first_author_family": "Doe",
+    "year": 2020
+  },
+  "expected_exists": true,
+  "expected_reasons": [],
+  "source_item": null,
+  "provenance": {
+    "dataset": "scifact",
+    "original_id": "1",
+    "licence": "CC BY-NC 2.0",
+    "resolved_by": "openalex",
+    "first_author_display": "Jane Doe"
+  }
+}

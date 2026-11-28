@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "item_id": "E00006",
+  "gold_version": "0.1",
+  "split": "dev",
+  "construction": "year_altered",
+  "reference": {
+    "key": "scifact8",
+    "identifier": "doi:10.0000/synthetic-8",
+    "title": "A third synthetic survey of clinics",
+    "first_author_family": "Wu",
+    "year": 2014
+  },
+  "expected_exists": false,
+  "expected_reasons": [
+    "year_mismatch"
+  ],
+  "source_item": "E00005",
+  "provenance": {
+    "dataset": "scifact",
+    "original_id": "8",
+    "licence": "CC BY-NC 2.0",
+    "resolved_by": "openalex",
+    "first_author_display": "Li Wu"
+  }
+}

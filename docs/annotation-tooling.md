@@ -241,6 +241,24 @@ uv run utux gold import-public sciclaimeval ~/utux-data/gold/sciclaimeval --out 
   pair label, drop reason, licence, domain and source groups. It never prints
   a claim or a text.
 
+## Perturbations, the v0 sample and the audit
+
+Task M0-15c. Four commands, run by the steps of the
+[gold v0 runbook](eval/gold-v0-runbook.md):
+
+- **`utux gold perturb --method rules`** builds the rule-made perturbations,
+  with no model.
+- **`utux gold perturb --method gemini`** builds the model-written ones,
+  under `--max-cost-usd` (ADR-0019).
+- **`utux gold existence-items`** builds the citation existence items from
+  SciFact titles found by exact OpenAlex title search; it makes network calls.
+- **`utux gold sample`** draws the parents, or, with `--perturbed`, v0 with
+  its splits.
+- **`utux gold audit export`** writes the blind sheet, and
+  **`utux gold audit score`** scores the filled sheet.
+
+They write only outside git work trees and print counts only.
+
 ## Schemas
 
 The JSON Schemas of the six files (`annotation_pool`, `annotation_batch`,
