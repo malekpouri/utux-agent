@@ -250,6 +250,8 @@ Task M0-15c. Four commands, run by the steps of the
   with no model.
 - **`utux gold perturb --method gemini`** builds the model-written ones,
   under `--max-cost-usd` (ADR-0019).
+- **`utux gold existence-items`** builds the citation existence items from
+  SciFact titles found by exact OpenAlex title search; it makes network calls.
 - **`utux gold sample`** draws the parents, or, with `--perturbed`, v0 with
   its splits.
 - **`utux gold audit export`** writes the blind sheet, and
