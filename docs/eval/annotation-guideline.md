@@ -238,6 +238,9 @@ are the reasons. They should fit together:
 | `direction_mismatch` or `magnitude_mismatch` | `contradicts` |
 | `causal_overreach` | `partial`: the association is supported, the causal claim is not |
 
+A critical flag on an `entails` or `partial` pair makes the claim's status
+`insufficient_evidence` (section 5.4, rule 5).
+
 If you choose a label that does not fit this table, explain why in the note.
 
 ### 5.4 Status
@@ -252,9 +255,13 @@ rules, applied in order:
 4. Every pair that is not `neutral` is `entails`, and no pair has a major or
    critical flag: `verified`. `neutral` pairs are ignored here; the claim
    needs at least one `entails` pair.
-5. At least one pair is `entails` or `partial`: `partially_supported`.
-6. At least one pair is `contradicts`: `contradicted`.
-7. Otherwise, every pair is `neutral`: `insufficient_evidence`.
+5. At least one pair is `entails` or `partial` and has a critical flag:
+   `insufficient_evidence`. RFC-001 (section 4) holds such a claim for a
+   human review, and the reference is what a correct system outputs before
+   that review.
+6. At least one pair is `entails` or `partial`: `partially_supported`.
+7. At least one pair is `contradicts`: `contradicted`.
+8. Otherwise, every pair is `neutral`: `insufficient_evidence`.
 
 | Status | Meaning |
 | --- | --- |
@@ -386,3 +393,4 @@ always
 | Version | Date | Change |
 | --- | --- | --- |
 | 0.1 | 2026-11-17 | First draft, from RFC-001 and RFC-002. |
+| 0.1 | 2026-11-28 | Status rule 5 added: a critical flag on an `entails` or `partial` pair gives `insufficient_evidence`, as RFC-001 section 4 does. The draft gave `partially_supported`, which conflicted with RFC-001 (maintainer). |
