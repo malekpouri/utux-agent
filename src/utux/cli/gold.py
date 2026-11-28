@@ -6,6 +6,7 @@ logic of their own and never write, suggest or change a label.
 
 import json
 import os
+import random
 from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
@@ -36,6 +37,11 @@ from utux.evalkit.annotation import (
     write_annotation_page,
 )
 from utux.evalkit.audit import export_audit, score_audit
+from utux.evalkit.existence_items import (
+    build_existence_items,
+    find_real_references,
+    scifact_titles,
+)
 from utux.evalkit.gold import GoldItem, PublicDataset, check_release, read_gold_release
 from utux.evalkit.model_perturb import (
     GEMINI_KEY_VARIABLE,
@@ -55,6 +61,9 @@ from utux.evalkit.sample import DEV_SHARE as SAMPLE_DEV_SHARE
 from utux.evalkit.sample import SampleSizes, sample_v0, select_imported
 from utux.evalkit.splits import assign_splits, split_report
 from utux.events.log import EventLog
+from utux.schemas.project_config import DataPolicy
+from utux.sources.calls import LoggedLiteratureSource
+from utux.sources.openalex import OpenAlexSource
 from utux.workspace.atomic import atomic_write_text
 from utux.workspace.hashing import hash_file
 
@@ -572,3 +581,56 @@ def audit_score(
     typer.echo(json.dumps(result.report(), indent=2, sort_keys=True))
     if result.below_floor:
         typer.echo("Kappa is below 0.6, or cannot be computed: review the label mapping.")
+
+
+def _openalex_search(log: EventLog) -> LoggedLiteratureSource:
+    """OpenAlex, logged to `log`; replaced by a synthetic search in tests."""
+    return LoggedLiteratureSource(log, OpenAlexSource(), policy=DataPolicy.EXTERNAL_ALLOWED)
+
+
+@gold_app.command("existence-items")
+def existence_items(
+    scifact: Annotated[Path, typer.Option("--scifact", help="The downloaded SciFact release.")],
+    release: Annotated[
+        Path, typer.Option("--release", help="parents.jsonl or v0.jsonl: its SciFact abstracts.")
+    ],
+    seed: Annotated[int, typer.Option("--seed", help="The seed of the split; record it.")],
+    out: Annotated[Path, typer.Option("--out", help="The directory to write into.")],
+    max_documents: Annotated[
+        int, typer.Option("--max-documents", help="At most this many titles are searched.")
+    ] = 60,
+) -> None:
+    """Build citation existence items from SciFact titles found by OpenAlex. Network calls."""
+    try:
+        ensure_outside_git(out)
+        doc_ids = sorted(
+            {
+                pair.source_id.removeprefix("scifact-doc-")
+                for item in read_gold_release(release)
+                for claim in item.claims
+                for pair in claim.pairs
+                if pair.source_id.startswith("scifact-doc-")
+            }
+        )
+        chosen = sorted(random.Random(seed).sample(doc_ids, min(max_documents, len(doc_ids))))
+        titles = scifact_titles(scifact, chosen)
+        out.mkdir(parents=True, exist_ok=True)
+        records, dropped = find_real_references(
+            titles, _openalex_search(EventLog(out / "events.jsonl"))
+        )
+        items = build_existence_items(records, seed=seed)
+        atomic_write_text(
+            out / "existence-items.jsonl", "".join(item.to_json_line() for item in items)
+        )
+    except UtuxError as error:
+        raise _fail(error) from error
+    summary = {
+        "titles_searched": len(titles),
+        "real_references": len(records),
+        "dropped": dict(sorted(dropped.items())),
+        "items": len(items),
+        "by_construction": dict(sorted(Counter(i.construction.value for i in items).items())),
+        "by_split": dict(sorted(Counter(str(i.split) for i in items).items())),
+    }
+    typer.echo(f"Wrote {_count(len(items), 'item')} to {out / 'existence-items.jsonl'}")
+    typer.echo(json.dumps(summary, indent=2, sort_keys=True))
