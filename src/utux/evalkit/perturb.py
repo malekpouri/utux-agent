@@ -10,9 +10,9 @@ the construction, never by a model or by the agent:
 - the type's scope flag is added to the pairs that supported the claim;
 - the claim's status is the guideline's (`guideline_status`).
 
-This module builds the four types that a fixed rule can make and check, with
-no model: the uncited abstract, the number change, the hedge removal and the
-metric swap. The four model-written types are in
+This module builds the three types that a fixed rule can make and check,
+with no model: the uncited abstract, the number change and the metric swap.
+The model-written types, hedge removal among them, are in
 `utux.evalkit.model_perturb`. A child item records its confirmation, its
 target error and its parent in the hidden record, and keeps the parent's
 provenance, licence and redistribution limit included.
@@ -53,7 +53,38 @@ HEDGES = (
     "plausibly",
     "arguably",
 )
-"""Hedge words whose removal leaves a grammatical sentence: adverbs only."""
+"""Hedging adverbs."""
+
+HEDGE_WORDS = (
+    *HEDGES,
+    "may",
+    "might",
+    "could",
+    "suggests",
+    "suggest",
+    "suggested",
+    "appears to",
+    "appear to",
+    "appeared to",
+    "seems to",
+    "seem to",
+    "seemed to",
+)
+"""The hedges of the hedge-removal check: the adverbs, modal verbs and hedging verbs.
+
+The model-written hedge removal is kept only when one of these is in the
+parent claim and absent from the perturbed claim (maintainer, PR #59 review).
+"""
+
+
+def hedges_in(text: str) -> set[str]:
+    """The hedges of `HEDGE_WORDS` that a text holds, as whole words."""
+    return {
+        hedge
+        for hedge in HEDGE_WORDS
+        if re.search(rf"\b{re.escape(hedge)}\b", text, flags=re.IGNORECASE)
+    }
+
 
 METRIC_GROUPS: Mapping[str, tuple[str, ...]] = {
     "ml": ("accuracy", "precision", "recall", "F1", "BLEU", "ROUGE", "perplexity", "AUC"),
@@ -137,15 +168,22 @@ _LABELS: Mapping[PerturbationType, SourceLabel] = {
 RULE_TYPES = (
     PerturbationType.UNCITED_ABSTRACT,
     PerturbationType.NUMBER_CHANGE,
-    PerturbationType.HEDGE_REMOVAL,
     PerturbationType.METRIC_SWAP,
 )
+"""The types a fixed rule makes and checks, with no model."""
+
 MODEL_TYPES = (
+    PerturbationType.HEDGE_REMOVAL,
     PerturbationType.DIRECTION,
-    PerturbationType.CAUSAL,
     PerturbationType.OVERGENERALISATION,
     PerturbationType.MISSING_COMPARATOR,
 )
+"""The model-written types. Hedge removal moved here, with a deterministic
+post-check (maintainer, PR #59 review). Causal overreach is left out until its
+status is decided: its critical flag gives `insufficient_evidence` under
+RFC-001, section 4, and `partially_supported` under the guideline's rule."""
+
+ON_HOLD = (PerturbationType.CAUSAL,)
 
 
 @dataclass(frozen=True)
@@ -318,30 +356,6 @@ def _number_change(parent: GoldItem, texts: Mapping[str, str]) -> GoldItem:
     raise Skip("no_number_in_evidence")
 
 
-# The hedge removal ---------------------------------------------------------------------
-
-
-def _hedge_removal(parent: GoldItem) -> GoldItem:
-    text = parent.claims[0].text
-    found = [
-        match
-        for hedge in HEDGES
-        for match in re.finditer(rf"\b{hedge}\b,?\s*", text, flags=re.IGNORECASE)
-    ]
-    if not found:
-        raise Skip("no_hedge")
-    match = min(found, key=lambda m: m.start())
-    changed = text[: match.start()] + text[match.end() :]
-    changed = " ".join(changed.split())
-    if match.start() == 0 and changed:
-        changed = changed[0].upper() + changed[1:]
-    if re.search(rf"\b{re.escape(match.group().strip(' ,'))}\b", changed, flags=re.IGNORECASE):
-        raise Skip("hedge_repeated")
-    return make_child(
-        parent, PerturbationType.HEDGE_REMOVAL, changed, None, Confirmation.DETERMINISTIC
-    )
-
-
 # The metric swap -----------------------------------------------------------------------
 
 
@@ -467,7 +481,7 @@ def build_rule_perturbations(
     parents: Iterable[str] | None = None,
     max_uncited: int = MAX_UNCITED,
 ) -> PerturbationRun:
-    """Build the four rule-made types from every `verified` parent, in a fixed order.
+    """Build the rule-made types from every `verified` parent, in a fixed order.
 
     `parents` limits the parents to these item ids, such as the v0 sample's.
     The uncited abstract is made only from SciFact parents, in an order
@@ -491,7 +505,6 @@ def build_rule_perturbations(
 
     for parent in candidates:
         attempt(PerturbationType.NUMBER_CHANGE, partial(_number_change, parent, texts))
-        attempt(PerturbationType.HEDGE_REMOVAL, partial(_hedge_removal, parent))
         attempt(PerturbationType.METRIC_SWAP, partial(_metric_swap, parent, texts))
     scifact = [
         p
