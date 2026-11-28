@@ -10,6 +10,8 @@ import json
 from pathlib import Path
 
 import pytest
+
+from utux.errors import ContractValidationError, LiteratureUnavailableError
 from utux.evalkit.existence_items import (
     Construction,
     ExistenceItem,
@@ -18,8 +20,6 @@ from utux.evalkit.existence_items import (
     find_real_references,
     scifact_titles,
 )
-
-from utux.errors import ContractValidationError, LiteratureUnavailableError
 from utux.interfaces.literature_source import WorkMetadata
 from utux.schemas.source_record import Author
 from utux.verification.existence import check_reference
@@ -161,3 +161,19 @@ def test_an_item_whose_parts_disagree_is_refused() -> None:
     document["expected_exists"] = not document["expected_exists"]
     with pytest.raises(ContractValidationError):
         ExistenceItem.validate_document(document, "synthetic")
+
+
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "existence_item"
+
+
+@pytest.mark.parametrize("path", sorted((FIXTURES / "valid").glob("*.json")), ids=lambda p: p.name)
+def test_valid_fixtures_round_trip(path: Path) -> None:
+    item = ExistenceItem.from_json(path.read_text(encoding="utf-8"), path.name)
+    assert item.to_json() == path.read_text(encoding="utf-8")
+
+
+def test_the_invalid_fixture_is_refused_for_its_reason() -> None:
+    path = FIXTURES / "invalid" / "synthetic_reason_not_of_its_construction.json"
+    with pytest.raises(ContractValidationError) as caught:
+        ExistenceItem.from_json(path.read_text(encoding="utf-8"), path.name)
+    assert [p.code for p in caught.value.problems] == ["construction_mismatch"]
